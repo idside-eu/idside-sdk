@@ -1,0 +1,39 @@
+# The examples are their own project, so that what you read here is what you
+# would write in yours: `idside[openai]` as a dependency, and an import by
+# package name.
+#
+# The one line that is not what you would write is the `[tool.uv.sources]`
+# override below. The package is not on PyPI yet, so the dependency is resolved
+# from this clone; when it is published, deleting those two lines is the whole
+# migration.
+[project]
+name = "idside-examples"
+version = "0.0.0"
+description = "Runnable ID Side SDK examples (Python)."
+requires-python = ">=3.10"
+dependencies = [
+  "idside[openai]",
+  # The examples stub the provider's HTTP transport to show what left the
+  # process. `httpx` is already the SDK's one runtime dependency; it is named
+  # here because the examples import it themselves.
+  "httpx>=0.27",
+]
+
+[tool.uv]
+# Nothing here is built or installed: this project exists to hold dependencies.
+package = false
+
+[tool.uv.sources]
+idside = { path = "../../packages/python", editable = true }
+
+# ── ruff ───────────────────────────────────────────────────────────────────
+# The SDK's own rules, minus the ones that only make sense for library code.
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "C4", "SIM", "RUF"]
+# S105/S106: every key and token in this directory is a fictitious example
+# value, which is exactly what the repository requires of them.
+ignore = ["S105", "S106"]

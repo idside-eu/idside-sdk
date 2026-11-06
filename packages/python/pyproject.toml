@@ -1,0 +1,179 @@
+# ──────────────────────────────────────────────────────────────────────────
+# ID Side — Python SDK.  Tooling: uv + hatchling + ruff + pytest + bandit.
+#   uv sync --all-extras      # install
+#   uv run pytest             # test
+#   uv run ruff check --fix   # lint
+#   uv run ruff format        # format
+# ──────────────────────────────────────────────────────────────────────────
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "idside"
+description = "ID Side — AI Consent Infrastructure SDK (opaque tunnel, ACT token, ledger)."
+readme = "README.md"
+requires-python = ">=3.10"
+# Not an SPDX identifier, because there is no SPDX identifier for it: this is
+# ID Side's own source-available licence, and a `LicenseRef-` name is how SPDX
+# spells "a licence that is not on the list". Nothing shorter belongs here.
+# PyPI renders this field as fact on the page people install from, so a
+# recognised identifier put here for tidiness would be offering terms nobody
+# agreed to, to everyone who runs `pip install`.
+license = "LicenseRef-IDSide-Source-Available"
+# Byte-identical copies of the repository-root LICENSE/NOTICE, kept in sync by
+# scripts/check_licence_claims.sh. They must live *inside* the project directory:
+# a `../../` path escapes the sdist root, producing a tarball that neither GNU
+# tar nor pip will extract ("would be extracted outside the destination").
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "ID Side", email = "dev@idside.eu" }]
+keywords = ["consent", "gdpr", "ai", "compliance", "act-token", "privacy"]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Intended Audience :: Developers",
+  # No "License :: OSI Approved ::" classifier, and its absence is the point:
+  # every value under that prefix asserts OSI approval, and this licence has
+  # none and is not seeking any.
+  "License :: Other/Proprietary License",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Security",
+  "Typing :: Typed",
+]
+dynamic = ["version"]
+
+# The SDK talks to the ID Side cloud over HTTP; provider clients are optional extras.
+dependencies = ["httpx>=0.27"]
+
+[project.optional-dependencies]
+openai = ["openai>=1.0"]
+anthropic = ["anthropic>=0.39"]
+gemini = ["google-genai>=1.0"]
+mistral = ["mistralai>=1.5"]
+# Local ACT verification only (idside.verify_act): ES256 is the one thing the
+# standard library cannot do. Deliberately NOT a core dependency — the SDK sits
+# on the AI request path and must not force a C extension on callers who only
+# wrap a client. See src/idside/verify.py for the full rationale.
+# Floor raised past GHSA-g6cj-pr64-35w5 (a Bleichenbacher oracle in PKCS#7
+# EnvelopedData decryption, fixed in 50.0.0). `verify.py` verifies ES256
+# signatures and never touches PKCS#7, so the SDK cannot reach that path —
+# but this is a compliance product, 50.x supports every Python this package
+# does (>=3.9), and a floor under a known high-severity advisory is a floor
+# nobody should have to reason about.
+verify = ["cryptography>=50"]
+all = [
+  "openai>=1.0",
+  "anthropic>=0.39",
+  "google-genai>=1.0",
+  "mistralai>=1.5",
+  "cryptography>=50",
+]
+
+[project.urls]
+Homepage = "https://idside.eu"
+Repository = "https://github.com/idside-eu/idside-sdk"
+Documentation = "https://github.com/idside-eu/idside-sdk/tree/main/docs"
+License = "https://sdk.idside.eu/legal/sdk-licence"
+Patents = "https://sdk.idside.eu/patents"
+
+[dependency-groups]
+# Development dependencies (installed by `uv sync`).
+dev = [
+  "pytest>=8.0",
+  "pytest-cov>=5.0",
+  "ruff>=0.8",
+  "bandit[toml]>=1.8",
+  "mypy>=1.13",
+  "jsonschema>=4.23",  # validates the shared provider descriptors (tests only)
+  "cryptography>=50",  # the [verify] extra: ES256 checks + test token signing
+  # `openai>=3` sends on httpx2, a distribution this SDK does not depend on.
+  # Installed here so the net is tested against the transport callers really
+  # hold, and not only against a stand-in written to match it.
+  "httpx2>=2.7",
+]
+
+[tool.hatch.version]
+path = "src/idside/__about__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/idside"]
+
+# ── ruff ───────────────────────────────────────────────────────────────────
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+  "E", "F", "W",   # pycodestyle / pyflakes
+  "I",             # isort
+  "B",             # bugbear
+  "UP",            # pyupgrade
+  "S",             # bandit-like (security)
+  "C4",            # comprehensions
+  "SIM",           # simplifications
+  "RUF",           # ruff rules
+]
+ignore = ["S101"]  # asserts allowed in tests (refined below)
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106"]  # asserts + fake test secrets
+
+# ── pytest ─────────────────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# `-m 'not live'` keeps tests/live/ out of every default run and out of CI: those
+# tests call the real provider APIs with real keys and cost real money. A `-m
+# live` on the command line overrides this one. tests/live/conftest.py adds a
+# second, independent guard (IDSIDE_LIVE_PROVIDER_TESTS=1).
+addopts = "-ra -q -m 'not live'"
+markers = [
+  "live: hits a real provider API — opt-in, billable, never run in CI",
+]
+pythonpath = ["src"]
+
+# ── coverage ───────────────────────────────────────────────────────────────
+# Not in `addopts`: running one test file legitimately covers almost nothing,
+# and a threshold that fires there teaches everyone to pass `--no-cov`. CI asks
+# for coverage explicitly; a local `pytest` stays fast and quiet.
+#
+#     uv run pytest --cov --cov-report=term-missing
+#
+# BRANCH coverage, not just line coverage. This SDK is fail-closed: nearly every
+# decision in it has one arm that refuses and one that proceeds, and line
+# coverage marks such a line covered after seeing either one. Before branches
+# were turned on the SDK measured 97%; with them it measures 96%, and the
+# difference is 29 decisions that had only ever been taken one way.
+[tool.coverage.run]
+branch = true
+source = ["src/idside"]
+
+[tool.coverage.report]
+show_missing = true
+# A RATCHET, set just under the figure the suite actually reaches (99.8% on
+# 2026-09-14: one uncovered statement and three partial branches out of 1973).
+# Raise it when the real number rises; never lower it to turn a red build green.
+# Enforced in CI by `uv run pytest --cov`; a plain `pytest` is unaffected.
+fail_under = 99
+# Deliberately short. Every entry here is a line that stops being measured, so
+# the list is a liability: `if TYPE_CHECKING` bodies never execute at runtime by
+# construction, and an `@overload` stub has no body to run. Nothing else earns a
+# place — least of all `pragma: no cover`, which is absent on purpose.
+exclude_also = [
+  "if TYPE_CHECKING:",
+  "@overload",
+]
+
+# ── bandit ─────────────────────────────────────────────────────────────────
+[tool.bandit]
+exclude_dirs = ["tests", ".venv"]
+
+# ── mypy ───────────────────────────────────────────────────────────────────
+[tool.mypy]
+python_version = "3.10"
+strict = true
+files = ["src"]

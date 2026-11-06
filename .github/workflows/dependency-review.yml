@@ -1,0 +1,20 @@
+name: Dependency review
+
+on: pull_request
+
+permissions:
+  contents: read
+
+jobs:
+  review:
+    name: dependency-review
+    runs-on: ubuntu-latest
+    # Requires the dependency graph (free on public repos, or GHAS when private).
+    if: github.event.repository.visibility == 'public'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependency Review
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
+          deny-licenses: GPL-2.0, GPL-3.0, AGPL-3.0, LGPL-3.0

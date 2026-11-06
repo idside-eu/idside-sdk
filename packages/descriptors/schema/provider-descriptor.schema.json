@@ -1,0 +1,484 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://idside.eu/schemas/provider-descriptor.schema.json",
+  "title": "ID Side provider descriptor",
+  "description": "Declarative description of an AI provider's injection mechanics: which client call to intercept, where to inject the cloud-decided parameters, and which header carries the ACT token. The policy (which params to force for a given consent state) never lives here - it is decided by the ID Side cloud.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "descriptor_version",
+    "name",
+    "client_module",
+    "call_sites"
+  ],
+  "properties": {
+    "descriptor_version": {
+      "description": "Version of the descriptor format this file conforms to. Sent by SDKs to the cloud so it knows what each SDK understands.",
+      "type": "string",
+      "pattern": "^[0-9]+$"
+    },
+    "name": {
+      "description": "Canonical provider name (also the adapter registry key).",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "client_module": {
+      "description": "Top-level Python/JS module name of the provider's client library, used for auto-detection.",
+      "type": "string",
+      "minLength": 1
+    },
+    "client_base_url_hosts": {
+      "description": "Hosts that identify THIS provider when several descriptors share a `client_module`. OpenAI-compatible providers (DeepSeek, Groq, xAI, Together) are all reached through the `openai` client, so the class name proves nothing: only the base URL says who is actually on the other end. A descriptor without this field is the default for its module, and one with it wins over the default when the host matches. Getting this wrong is not cosmetic — it decides which registry rules the cloud applies, so a DeepSeek call could be answered with OpenAI's parameters.",
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "call_sites": {
+      "description": "Every AI call method to intercept on the client. ALL sites declared here and present on the client are consent-enforced. Each site carries its OWN forceable_params, because a provider's endpoints do not accept the same parameters: OpenAI's `background` exists on /v1/responses and nowhere else, and forcing it on chat.completions would break the call. The SDK sends a site's `id` to /v1/authorize so the cloud decides per endpoint rather than per provider.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "path",
+          "forceable_params"
+        ],
+        "properties": {
+          "id": {
+            "description": "Stable, language-neutral identifier for this endpoint, sent to the cloud as `call_site`. Written in the Python client's spelling, which is the descriptor's source of truth: the JS client may name the same endpoint differently (google-genai's `generateContent` vs `generate_content`) and the two SDKs must still name one endpoint one way.",
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)*$"
+          },
+          "path": {
+            "description": "Attribute path of the call method on the client instance.",
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "aliases": {
+            "description": "Other method names on the SAME target object that reach the SAME HTTP endpoint, intercepted with this site's `id`. A convenience method is not a second endpoint: `chat.completions.parse` posts to /v1/chat/completions like `create` does, but the Python client implements it with its own `self._post()` rather than by calling `create`, so patching `create` alone leaves it unenforced - the consent bypass this field exists to close. Names from either client language may be listed; an alias absent from the client is skipped, exactly like an absent call site. An SDK MUST skip an alias whose interception would change the shape of what the method returns (the JS `stream()` helpers return a stream object synchronously, where an enforced wrapper returns a promise); those helpers reach the endpoint through `create` and are enforced there.",
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "resuming_params": {
+            "description": "Keyword arguments whose presence means this call RESUMES an existing result instead of creating one. Some client methods are overloaded: Python's `responses.stream(response_id=...)` replays a response that already exists over `GET /v1/responses/{id}`, where `responses.stream(model=..., input=...)` creates one over POST. The resuming form carries no prompt and no model, so an SDK MUST let it through unenforced rather than authorize it: /v1/authorize would be asked to decide about an empty model, and the token it signed would assert an AI call that never happened. This is not a bypass and cannot be used as one - a call let through carries no ACT token, so the transport guard refuses it the moment it turns out to be body-bearing. The identity arguments are consumed as they are everywhere else, never forwarded to the provider.",
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "forceable_params": {
+            "description": "Allowlist: the ONLY parameters the ID Side cloud may force ON THIS ENDPOINT. An empty array means this endpoint enforces nothing per request. Verified against the real client library's signature, per site (see test_forceable_params.py).",
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "tool_fields": {
+            "description": "Every argument of THIS endpoint through which the model can be handed a tool, other than the provider-wide `tools_param` (which applies to every site and need not be repeated). A `tools` constraint is only as wide as what the SDK reads: a refusal read from `tools` alone let `functions`, `web_search_options`, an agent, a cache or a stored conversation carry tools straight past it. Paths are written in the Python client's spelling, like call-site ids; `js_path` gives the JS client's spelling where it differs (`agentId`, `cachedContent`). An SDK must resolve the client's own aliases for a path before reading it (google-genai's Python config also accepts camelCase). Three kinds, because they are refused differently. `definitions`: a list of tool definitions; an empty list carries none, and under `strip` the key is removed. `enabler`: any present, non-null value can bring tools with it — an object that switches a hosted tool on, or a reference to a server-side object (an agent, a cache, a stored conversation or prompt) that may carry tools the SDK cannot see; it cannot be removed without changing what the call means, so it is refused under `strip` as under `refuse`. `input_items`: an array whose items of the listed `item_types` carry tool definitions; refused under both, for the same reason.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "path",
+                "kind"
+              ],
+              "properties": {
+                "path": {
+                  "description": "Attribute path of the argument, in the Python client's spelling.",
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "js_path": {
+                  "description": "The same path in the JS client's spelling, when it differs.",
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "kind": {
+                  "enum": [
+                    "definitions",
+                    "enabler",
+                    "input_items"
+                  ]
+                },
+                "item_types": {
+                  "description": "For `input_items` only: the item `type` values that carry tools.",
+                  "type": "array",
+                  "minItems": 1,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "note": {
+                  "type": "string",
+                  "description": "Why this argument carries tools. Informational only; SDKs must not interpret it."
+                }
+              },
+              "if": {
+                "properties": {
+                  "kind": {
+                    "const": "input_items"
+                  }
+                }
+              },
+              "then": {
+                "required": [
+                  "item_types"
+                ]
+              },
+              "else": {
+                "not": {
+                  "required": [
+                    "item_types"
+                  ]
+                }
+              }
+            }
+          },
+          "note": {
+            "type": "string",
+            "description": "What is specific to this endpoint. Informational only; SDKs must not interpret it."
+          }
+        }
+      }
+    },
+    "identity_param": {
+      "description": "Keyword argument carrying the developer-asserted end-user identity; consumed by the SDK, never forwarded to the provider, excluded from the request hash.",
+      "type": "string",
+      "minLength": 1,
+      "default": "user_id"
+    },
+    "ubt_param": {
+      "description": "Keyword argument carrying the User Binding Token (the widget-issued identity proof); exclusive with identity_param, consumed by the SDK, never forwarded to the provider, excluded from the request hash.",
+      "type": "string",
+      "minLength": 1,
+      "default": "ubt"
+    },
+    "token_header": {
+      "description": "HTTP header that carries the signed ACT token on the provider call.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9-]+$",
+      "default": "X-AI-Consent-Token"
+    },
+    "param_target": {
+      "description": "Where cloud-decided params_forced are injected: as call kwargs or as HTTP headers.",
+      "enum": [
+        "kwargs",
+        "headers"
+      ],
+      "default": "kwargs"
+    },
+    "headers_kwarg": {
+      "description": "Keyword argument through which the provider's client accepts per-request HTTP headers (e.g. extra_headers for openai/anthropic, http_headers for mistralai); also excluded from the request hash.",
+      "type": "string",
+      "minLength": 1,
+      "default": "extra_headers"
+    },
+    "tools_param": {
+      "description": "Path to the argument carrying agentic tool definitions on a call (`[\"tools\"]`, or `[\"config\", \"tools\"]` for google-genai, which takes no free-form kwargs). The SDK reads it to apply a `tools` constraint returned by the cloud — refusing or stripping the call. Absent means this provider has no tool argument the SDK can see, and the constraint cannot be honoured.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "reserved_headers": {
+      "description": "HTTP headers a caller may never set on an enforced call, compared case-insensitively: the headers that choose WHICH credential, account or project a call goes out on. The provider libraries let a per-call header override the one they derive from the client's key, so without this list a single `extra_headers={\"Authorization\": ...}` moved an enforced call onto another key — defeating the credential posture the cloud required, and invisibly, since header values are not part of the request hash. The SDK's own `token_header` is always reserved and need not be listed. An SDK refuses the call rather than dropping the header: a call that silently lost a header the developer set is a call they cannot debug.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9-]+$"
+      }
+    },
+    "protected_params": {
+      "description": "Denylist of core request fields the cloud may never override.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "notes": {
+      "description": "Human-readable notes on this provider's mechanics (e.g. header-injection quirks that require a dedicated adapter). Informational only; SDKs must not interpret it.",
+      "type": "string"
+    },
+    "forceable_params": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string"
+      },
+      "description": "The union of every call site's forceable_params — what may be forced SOMEWHERE on this provider. Kept as a derived, test-enforced field so a reader (and the console) can answer \"does this provider enforce anything at all?\" without walking the sites. The authoritative, per-endpoint answer is on each call site: an empty array here means nothing can be enforced per request anywhere, and the ACT token is the proof rather than the mechanism. This exists because forcing a parameter an endpoint does not accept breaks every call for exactly the users who opted out, and for nobody else."
+    },
+    "forceable_params_note": {
+      "type": "string",
+      "description": "How the allowlist above was verified, and when."
+    },
+    "enforcement": {
+      "type": "object",
+      "description": "Per consent option: how far this provider lets us honour the user's choice. Keys are option names from consent-options.json. This is the config surfaced in the ID Side console, and the honest answer to 'do you actually enforce this?'.",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "level",
+          "note"
+        ],
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "$comment": "`params`/`mechanism` and `level: enforced` imply each other. Both directions matter: a lever under a non-enforced level is rendered by build_matrix.py as though it were one, and an `enforced` level with no lever is the claim a DPO repeats to a regulator with nothing behind it.",
+            "if": {
+              "required": [
+                "level"
+              ],
+              "properties": {
+                "level": {
+                  "const": "enforced"
+                }
+              }
+            },
+            "then": {
+              "anyOf": [
+                {
+                  "required": [
+                    "params"
+                  ]
+                },
+                {
+                  "required": [
+                    "mechanism"
+                  ]
+                }
+              ]
+            },
+            "else": {
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "params"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "mechanism"
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "$comment": "`protective` and `level: contractual` imply each other: the direction of the terms means nothing where no terms are what decides, and a contractual entry without it is one nobody has read.",
+            "if": {
+              "required": [
+                "level"
+              ],
+              "properties": {
+                "level": {
+                  "const": "contractual"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "protective"
+              ]
+            },
+            "else": {
+              "not": {
+                "required": [
+                  "protective"
+                ]
+              }
+            }
+          },
+          {
+            "$comment": "`routable` only on `level: account`: it is what makes a consent helper ask the question once an app holds two credentials, and only an account setting has a posture a second credential can carry. On any other level it asks users to refuse what no credential stops.",
+            "if": {
+              "required": [
+                "routable"
+              ]
+            },
+            "then": {
+              "required": [
+                "level"
+              ],
+              "properties": {
+                "level": {
+                  "const": "account"
+                }
+              }
+            }
+          }
+        ],
+        "properties": {
+          "level": {
+            "description": "`enforced`: a lever the SDK applies per request. `contractual`: no lever; the provider's written terms govern it, and `protective` says which way. `account`: settable only outside the API. `absent`: the provider does not perform this processing on the API this descriptor wraps, so there is nothing to refuse. `unsupported`: no way this descriptor knows to honour the choice on the endpoints it wraps, and nothing establishes that the processing is absent. `absent` and `unsupported` are never merged: refusing what never happens changes nothing, refusing what cannot be switched off changes nothing either, and only the second leaves a choice unmet.",
+            "enum": [
+              "enforced",
+              "contractual",
+              "account",
+              "absent",
+              "unsupported"
+            ]
+          },
+          "protective": {
+            "type": "boolean",
+            "description": "Required on a `contractual` entry, and only there: which way the terms decide. `true` where they rule the processing out for every call on the endpoints this descriptor wraps, without condition — an exception the customer's organization can opt into is a condition; `false` where they allow it, impose it — a mandatory retention, a review of flagged content — or leave it to the developer's organization (\"unless the org opts in\"). Only `true` lets a consent helper call the option guaranteed to the user. Required rather than defaulted, so that a new contractual entry nobody classified fails validation instead of reading either way."
+          },
+          "params": {
+            "type": "array",
+            "minItems": 1,
+            "description": "The request parameters that carry this option, required when and only when level is `enforced` and no `mechanism` applies. A list, not a single name, because one option can need several parameters — refusing OpenAI's conversation retention means `store: false` everywhere AND `background: false` on /v1/responses — and because each of them exists on its own subset of the endpoints.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "call_sites",
+                "when",
+                "value"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "when": {
+                  "type": "boolean",
+                  "description": "The answer that triggers this forcing. `false` for almost everything — a refusal is what makes us act. `true` exists because a few options are the other way round: the user ASKS for a restriction, and accepting is what has to be carried into the request. Required, and deliberately not defaulted: an option declared `enforced` without saying which answer acts on it is the exact shape of the bug this field was added to make impossible."
+                },
+                "value": {
+                  "description": "What to inject when `when` matches. Any JSON value EXCEPT null — booleans for the store/background family, strings for enumerations like `prompt_cache_retention`. Null is refused rather than treated as 'nothing to send': a required field satisfied by an empty one would let an option be declared `enforced` with no value behind it, which is the bug this field was added to make impossible. This is the half that used to live in the cloud's rule table, restated by hand, with nothing checking the two agreed. They drifted, and three options were asked in the popup while forcing nothing at all.",
+                  "not": {
+                    "type": "null"
+                  }
+                },
+                "models": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "description": "Which models this parameter may be forced on. `conditions` is prose for a human; this is the machine-readable half, and the difference is not cosmetic: forcing a parameter a model refuses breaks the call for exactly the users who exercised their choice, and for nobody else. That failure has happened here once already (`store` copied onto Gemini).\n\nPrefer `only`. A denylist has to name every model that would reject the parameter, INCLUDING the ones the provider has not shipped yet — `gpt-5.5*|gpt-5.6*` says nothing about `gpt-5.7`, which then gets the parameter and 400s. An allowlist that falls behind merely stops forcing on a model that would have accepted it: the user is under-protected, the call still works, and the published matrix says so. Losing a parameter degrades the protection; injecting one the endpoint rejects breaks the call. The first failure is the survivable one, and the direction of the list is what decides which one you get.",
+                  "properties": {
+                    "only": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Glob of the models this parameter is VERIFIED to work on; skipped everywhere else. Same syntax as `model_overrides.match` in the cloud registry: `*` wildcards, `|` alternatives. Use this whenever the provider's condition is open-ended (\"X and later\"), which a glob cannot express and a denylist therefore cannot cover."
+                    },
+                    "except": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Glob of models to skip. Only correct where the excluded set is CLOSED and known — a named legacy family, a model being retired. If the provider's wording is \"and later\", use `only` instead."
+                    }
+                  },
+                  "$comment": "`oneOf`, not `anyOf`: the two are contradictory directions of the same list, nothing says which wins when both appear, and every reader would have to guess. build_matrix.py guessed `only` and dropped the other half from the published document silently.",
+                  "oneOf": [
+                    {
+                      "required": [
+                        "only"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "except"
+                      ]
+                    }
+                  ]
+                },
+                "call_sites": {
+                  "description": "The call-site ids this parameter applies to. Every id must exist in the descriptor's call_sites and list this parameter as forceable — a test pins both directions, so an option cannot claim an endpoint that would reject it.",
+                  "type": "array",
+                  "minItems": 1,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "conditions": {
+                  "type": "string",
+                  "description": "When this parameter's enforcement applies — a model floor, a billing tier, an accepted set of values. `enforced` is rarely unconditional."
+                },
+                "note": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "note": {
+            "type": "string",
+            "description": "Why, and how it was verified."
+          },
+          "mechanism": {
+            "enum": [
+              "refuse_or_strip_tools"
+            ],
+            "description": "Enforcement that is not a parameter: the SDK acts on the call itself. Required when `level` is `enforced` and no `params` apply."
+          },
+          "routable": {
+            "type": "boolean",
+            "description": "Account-level, but reachable per user through credential routing. Only on an `account` entry, and only where some posture honours the refusal."
+          }
+        }
+      }
+    },
+    "enforcement_verified_at": {
+      "type": "string"
+    },
+    "credential_routing": {
+      "type": "object",
+      "description": "How a developer can provision several credentials with different privacy postures so the SDK can route per user. Its PRESENCE is what tells an SDK routing is possible at all for this provider: a descriptor without this object refuses `credentials=` outright, because there is no account-level posture to route between.",
+      "additionalProperties": false,
+      "properties": {
+        "header": {
+          "description": "Per-request HTTP header that selects the credential, when the provider validates one (OpenAI's `OpenAI-Project`). Absent means routing needs a whole second client built with the other key - the SDK cannot switch account on a header the API does not read.",
+          "type": "string",
+          "pattern": "^[A-Za-z0-9-]+$"
+        },
+        "header_value_pattern": {
+          "description": "Regular expression every routed header value must fully match, checked by both SDKs before the value reaches an outgoing request. Two jobs: keep CR/LF (and anything else exotic) out of an HTTP header, and refuse a value of the wrong KIND - an OpenAI project id is `proj_...`, an API key is `sk-...`, and a developer who pastes the second must be stopped before their secret leaves the process. Written in the intersection of Python `re` and JavaScript `RegExp` syntax, and matched whole (Python `fullmatch`).",
+          "type": "string",
+          "minLength": 1
+        },
+        "unit": {
+          "description": "What the credential selects at the provider - `project`, `workspace`, `organisation`. Quoted back to the developer in errors, because 'provision one credential per posture' means a different thing at each provider.",
+          "type": "string",
+          "minLength": 1
+        },
+        "note": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

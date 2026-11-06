@@ -1,0 +1,108 @@
+{
+  "descriptor_version": "2",
+  "name": "anthropic",
+  "client_module": "anthropic",
+  "call_sites": [
+    {
+      "id": "messages.create",
+      "path": [
+        "messages",
+        "create"
+      ],
+      "aliases": [
+        "parse",
+        "stream"
+      ],
+      "forceable_params": [],
+      "tool_fields": [
+        {
+          "path": [
+            "mcp_servers"
+          ],
+          "kind": "definitions",
+          "note": "Third-party MCP servers whose tools the model may call. Typed only on the beta endpoint; declared here so a client that accepts it on this one is read the same way."
+        }
+      ],
+      "note": "The only endpoint wrapped, so the per-site list and the provider union are the same today — both empty, see `forceable_params_note`. They are still written separately: the day `/v1/messages/batches` is wrapped, one of them will change and the other must not. Verified 2026-07-26 against `anthropic` 0.111.0: this signature also carries `cache_control`, `container`, `metadata` and `output_config` — none of them forceable, and the first two protected, see `protected_params`."
+    }
+  ],
+  "identity_param": "user_id",
+  "token_header": "X-AI-Consent-Token",
+  "param_target": "kwargs",
+  "protected_params": [
+    "model",
+    "messages",
+    "system",
+    "stream",
+    "cache_control",
+    "container"
+  ],
+  "tools_param": [
+    "tools"
+  ],
+  "reserved_headers": [
+    "X-Api-Key",
+    "Authorization",
+    "api-key"
+  ],
+  "forceable_params": [],
+  "forceable_params_note": "EMPTY since 2026-07-27, and that is a statement rather than an omission. `inference_geo` is a real named parameter of `messages.create`, it lands in the request BODY, and it was verified live — but no option forces it any more: `data_residency` was downgraded to `account` because its two settings (`global`, `us`) do not answer \"inside my region\" for a European user, and we never learn anyone's region. An allowlist entry nothing forces is a door left open for no reason, so it is closed until the option comes back. History worth keeping: this descriptor injected `inference_geo` into HEADERS until 2026-07-26, where Anthropic does not read it — the call succeeded, the residency choice did not apply, and the public matrix showed it as enforced. `param_target` is `kwargs` now. The body schema stays strict (400 `Extra inputs are not permitted`), which is why this allowlist is checked against the real signature by tests/test_forceable_params.py.",
+  "enforcement": {
+    "training.foundation": {
+      "level": "contractual",
+      "protective": false,
+      "note": "No per-request parameter. The Commercial Terms say Anthropic may not train models on Customer Content, but the Service Specific Terms (section E, Development Partner Program) let a customer opt in by enabling the permissive data opt-in setting, after which Anthropic may use the data it submits, including to train models. The developer's organization decides, as with OpenAI's \"unless you explicitly opt in\", and no consent answer changes it; the ACT token is the proof the choice was collected and transmitted. Checked on 2026-10-12 against Anthropic's Commercial Terms and its Service Specific Terms (effective 2026-08-31)."
+    },
+    "training.personalisation": {
+      "level": "unsupported",
+      "note": "No parameter this SDK can send. The pinned client's BETA Messages signature carries a `user_profile_id`, whose semantics are not publicly documented as of 2026-07-26 — noted so this line is not read as 'the API has no such concept', which is no longer safe to claim. The beta endpoint is not wrapped, and the transport guard refuses it."
+    },
+    "training.analytics": {
+      "level": "contractual",
+      "protective": false,
+      "note": "Same terms, and the same exception: the Development Partner Program (Service Specific Terms, section E) lets the customer's organization opt the data it submits in, for Anthropic's products and services. Checked on 2026-10-12."
+    },
+    "memory": {
+      "level": "unsupported",
+      "note": "Not a parameter. Anthropic's `memory` feature reaches the API as a TOOL (`{\"type\": \"memory_...\"}` inside `tools`), so a user who refuses `agentic_tools` already loses it through the tool refusal. What is NOT possible is honouring a refusal of memory alone: the mechanism drops the whole `tools` argument, it cannot remove one entry from it. Declaring this enforced on the strength of the tool refusal would promise a granularity we do not have."
+    },
+    "agentic_tools": {
+      "level": "enforced",
+      "mechanism": "refuse_or_strip_tools",
+      "note": "ENFORCED by the SDK, not by a parameter. Every zero-retention arrangement excludes agentic features while the API itself does not block them: a call that hands the model tools falls outside the retention regime the user was promised, and the SDK is the only component that can see it happening, because it is the only one that sees the outgoing request. When the user has refused, the cloud returns a `tools` constraint and the SDK refuses the call (`ToolUseRefusedError`) or strips the tools, per the constraint. Refusing is the default: an agent stripped of its tools does not fail, it answers wrongly, and the developer has no way to know. Note what is NOT sent to us to make this work: nothing. The constraint follows from the consent state alone — we are never told whether a given call carried tools. Bounded by what the SDK reads: `tools_param` plus the call site's `tool_fields`, which name `mcp_servers` — a SIBLING of `tools` that hands execution to a third party and is excluded from zero retention just as tools are. A refusal read from `tools` alone did not see it, and `extra_body` carried it straight past; per-call options able to rewrite the body are now refused outright. The rule to carry forward: any parameter that delegates execution to a third party is a tool, whatever it is called."
+    },
+    "data_residency": {
+      "level": "account",
+      "routable": true,
+      "note": "Two different questions, and the answers differ — which is why this entry read as self-contradictory until it was spelled out.\n\nPER REQUEST: no. `inference_geo` is real, lands in the body, and was verified live; what does not exist is a VALUE to force. Its two settings are `global` (anywhere) and `us`, the option asks \"keep processing inside my region\", and neither answers that for a European user — who is the one this product is built for. Mapping the question to a value needs the user's region, which we never learn: `location` is `unsupported` at every provider, on purpose. Forcing `us` on a European who asked to stay in their region would be worse than forcing nothing.\n\nBY CREDENTIAL: yes, hence `routable: true`. `workspace_geo` is fixed when a workspace is created and `allowed_inference_geos` is a workspace setting, so a developer holding one workspace per posture lets the SDK send each call to the matching one. That path is the developer's to provision and it needs nobody to know anyone's region.\n\nSo the option stays out of the popup and stays offered to the developer as routable. Re-declaring it `enforced` would need a decision about what \"my region\" means when the provider offers two, and that is a product call rather than a missing line of code. Until 2026-07-27 it was declared `enforced`, the popup asked it, and no rule forced anything: a refusal that reached nothing, recorded in the ledger as though it had been honoured.\n\nVERIFIED by request: `global` (default) or `us`, rejected with 400 on models before Claude 4.6 (confirmed on sonnet-5, refused on haiku-4-5 and sonnet-4-5). The response reports `usage.inference_geo`, so what actually happened is verifiable. Billed x1.1 for `us`. Not available through the OpenAI-compatibility endpoint. This descriptor injected it into HEADERS until 2026-07-26, where Anthropic does not read it — the call succeeded and the residency choice did not apply. `param_target` is `kwargs` now."
+    },
+    "retention.conversation": {
+      "level": "contractual",
+      "protective": false,
+      "note": "No store parameter. Retention is governed by the arrangement; Claude Fable 5 and Mythos 5 are Covered Models with a mandatory 30-day retention that zero-retention cannot override."
+    },
+    "retention.cache": {
+      "level": "contractual",
+      "protective": false,
+      "note": "Prompt caching keeps KV tensors and cryptographic hashes in memory for the TTL. Structured outputs cache the JSON schema for up to 24h — never put personal data in property names, enums, const or pattern. The TTL IS a request parameter here — `cache_control: {type: 'ephemeral', ttl: '5m' | '1h'}` at the root of `messages.create` — but the lever points the other way round from OpenAI's: Anthropic's cache is opt-in, so without `cache_control` there is no cache at all, and FORCING it would create the retention this option exists to refuse. Honouring a refusal therefore means REMOVING an argument the developer passed, which is the tool-refusal mechanism and not `params_forced`; the SDK has no such removal for `cache_control` today, so this stays `contractual` rather than claiming one. `cache_control` is in `protected_params` meanwhile, so the cloud can never write it. Capping an accepted cache at `5m` instead of `1h` would be a genuine forcing, and is the piece worth building first."
+    },
+    "location": {
+      "level": "unsupported",
+      "note": "Not exposed as a request parameter."
+    },
+    "human_review": {
+      "level": "contractual",
+      "protective": false,
+      "note": "No request parameter. Anthropic says no personnel can read retained conversations by default and that human review happens only through a controlled access path — for example when its automated trust and safety systems flag content, which it may then keep up to 2 years whatever the arrangement, zero data retention included. On Covered Models its Service Specific Terms (section F) add that it may retain and perform safety reviews on inputs and outputs, superseding any modified retention commitment such as zero data retention. Nothing rules the review of flagged content out. Checked on 2026-10-12 against Anthropic's Service Specific Terms, its zero-data-retention guide and its privacy-centre articles on retention and Covered Models."
+    },
+    "retention.files": {
+      "level": "unsupported",
+      "note": "No per-request file expiry control on the endpoints this descriptor wraps."
+    }
+  },
+  "enforcement_verified_at": "2026-07-26",
+  "credential_routing": {
+    "unit": "workspace",
+    "note": "API keys belong to a workspace, and `allowed_inference_geos` / retention are workspace settings. Routing means selecting the key, not a header."
+  }
+}

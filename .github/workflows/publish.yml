@@ -1,0 +1,318 @@
+# Publish `idside` to PyPI and `@idside/sdk` to npm.
+#
+# ⚠️ An upload is irreversible. Neither registry lets a version number be
+# reused — not after a delete, not after an unpublish — so this workflow is
+# built to be hard to trigger by accident and impossible to trigger by a push:
+#
+#   - `workflow_dispatch` only. No tag trigger, no `on: release`. A human asks
+#     for a publish, on purpose, and can see what they asked for.
+#   - `confirm` must be typed as the literal word `publish`.
+#   - `version` must match what both manifests say, or nothing is built.
+#   - each publishing job sits behind a GitHub **environment** (`pypi`, `npm`),
+#     which is where a required reviewer belongs — the last gate before an
+#     upload that cannot be taken back. A read-only preflight refuses to build
+#     if the selected environment is absent or has no required reviewer.
+#   - the artefacts are built ONCE, in the job that verifies them, and handed to
+#     the publishing jobs. What is uploaded is what was tested, not a rebuild.
+#
+# No secret is needed and none must be created. Both registries authenticate
+# this workflow over OIDC (`id-token: write`), so there is no long-lived token
+# to leak. What has to exist on the registry side before any of this works — and
+# why npm's FIRST publish has to be done by hand — is RELEASING.md §0 and §6.
+#
+# Every dispatch input reaches the shell through `env:`, never through `${{ }}`
+# inside a command: an input is text a person typed, and text a person typed
+# does not belong in a command line.
+#
+# The `publish.yml` filename is part of the trusted-publisher configuration on
+# both registries. Renaming this file stops publishing until both are updated.
+name: Publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version being published, in the PEP 440 spelling __about__.py uses (e.g. 0.1.0.dev0). Checked against both manifests."
+        required: true
+        type: string
+      packages:
+        description: "Which registries to publish to. npm goes first — RELEASING.md §3. Pick one to finish a half-done release, or to skip npm on the very first publish."
+        required: true
+        default: both
+        type: choice
+        options: [both, npm, pypi]
+      npm_tag:
+        description: "npm dist-tag. Must match publishConfig.tag: `next` for a pre-release, because `latest` is the tag a plain `npm install` follows."
+        required: true
+        default: next
+        type: choice
+        options: [next, latest]
+      confirm:
+        description: "Type: publish — a version number cannot be reused once a registry has accepted it."
+        required: true
+        type: string
+
+# Least privilege by default; the publishing jobs add `id-token: write`.
+permissions:
+  contents: read
+
+# Two publishes of this repository must never interleave.
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  release-ref:
+    name: Confirm the version tag and commit
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read # read environment protection through the repository API
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Only publish the requested version's tag
+        env:
+          VERSION: ${{ inputs.version }}
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          test "$CONFIRM" = publish || { echo '::error::Explicit publish confirmation required'; exit 1; }
+          test "$GITHUB_REF" = "refs/tags/v$VERSION" || { echo '::error::Dispatch from the matching v<VERSION> tag'; exit 1; }
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA" || exit 1
+          test "$(git rev-parse --verify "$GITHUB_REF^{commit}")" = "$GITHUB_SHA" || exit 1
+          ./scripts/check_version_parity.sh "$VERSION"
+
+      # Merely naming an absent environment on a job makes GitHub create it
+      # without protection. Check before CI or artifacts exist, while this job
+      # itself references no environment and therefore cannot create one.
+      - name: The selected publish environments require a reviewer
+        uses: actions/github-script@v7
+        env:
+          PACKAGES: ${{ inputs.packages }}
+        with:
+          script: |
+            const { assertProtectedReleaseEnvironments } = require(
+              "./.github/scripts/assert-release-environments.cjs"
+            );
+            try {
+              await assertProtectedReleaseEnvironments({
+                packages: process.env.PACKAGES,
+                getEnvironment: async (environment_name) => {
+                  const response = await github.rest.repos.getEnvironment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    environment_name,
+                  });
+                  return response.data;
+                },
+              });
+            } catch (error) {
+              core.setFailed(error.message);
+            }
+
+  checks:
+    name: Complete CI on the release commit
+    needs: release-ref
+    # A local reusable workflow comes from this exact commit, and checkout in
+    # each called job uses the caller's version tag. No stale main/PR result.
+    uses: ./.github/workflows/ci.yml
+
+  verify:
+    name: Verify, then build the artefacts once
+    needs: [release-ref, checks]
+    runs-on: ubuntu-latest
+    outputs:
+      npm-tarball: ${{ steps.pack.outputs.tarball }}
+    steps:
+      - name: Refuse an unconfirmed dispatch
+        env:
+          CONFIRM: ${{ github.event.inputs.confirm }}
+        run: |
+          if [ "$CONFIRM" != "publish" ]; then
+            echo "::error::confirm was not the word 'publish'. Nothing was built and nothing was published."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      # The published Node package is compiled JavaScript, so it is built on the
+      # engines floor rather than the newest Node — the same reason the
+      # `publishable` CI job runs there.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.12"
+          cache: npm
+          cache-dependency-path: packages/node/package-lock.json
+
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Install Node dependencies
+        run: npm ci --prefer-offline
+        working-directory: packages/node
+
+      - name: Install Python dependencies
+        run: uv sync --all-extras
+        working-directory: packages/python
+
+      # One version, spelled twice, plus the npm dist-tag matching the kind of
+      # release. Checked before anything is built: of everything in this
+      # workflow, these are the mistakes that cannot be corrected afterwards.
+      - name: The manifests agree, and they are the version that was asked for
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+        run: ./scripts/check_version_parity.sh "$VERSION"
+
+      - name: The dist-tag asked for is the one the manifest declares
+        env:
+          NPM_TAG: ${{ github.event.inputs.npm_tag }}
+        run: |
+          declared="$(node -p "require('./packages/node/package.json').publishConfig?.tag ?? 'latest'")"
+          if [ "$declared" != "$NPM_TAG" ]; then
+            echo "::error::package.json declares the '$declared' dist-tag and the dispatch asked for '$NPM_TAG'. check_version_parity.sh already tied that tag to the kind of release, so change the manifest, not the dispatch."
+            exit 1
+          fi
+
+      # Every shipped file is marked "Patents: https://sdk.idside.eu/patents" —
+      # the virtual marking of 35 U.S.C. §287(a), and the notice clause 5 of
+      # LICENSE provides for. A version keeps its marking for as long as it is
+      # installed, so none goes out while that address marks nothing: the page
+      # must answer, and it must name the patents NOTICE names. Checked before
+      # anything is built. RELEASING.md §7.
+      - name: The patents page the marking points at answers
+        run: |
+          if ! page="$(curl -fsS --retry 3 --max-time 30 https://sdk.idside.eu/patents)"; then
+            echo "::error::https://sdk.idside.eu/patents did not answer. Every shipped file is marked with that address, so nothing is published until it does."
+            exit 1
+          fi
+          for number in 12,413,397 4,100,905 CN115151937A; do
+            if ! grep -qF "$number" <<<"$page"; then
+              echo "::error::https://sdk.idside.eu/patents does not name $number. The page is the marking: it must list every patent NOTICE names before anything is published."
+              exit 1
+            fi
+          done
+
+      # Full CI has passed above. Check packaging again on the engines floor:
+      # both packages pack, install outside the repository and
+      # work there, both SDKs answer alike, and every documented example still
+      # does what it claims.
+      - name: Both packages are publishable
+        run: ./scripts/check_publishable.sh
+
+      - name: Both SDKs still answer alike
+        run: ./scripts/check_sdk_parity.sh
+
+      - name: Every documented example still does what it claims
+        run: ./scripts/check_docs_examples.sh
+
+      # From here on, the artefacts themselves. `npm pack` runs `prepack`, so
+      # the tarball is produced by the real release path.
+      - name: Build the npm tarball
+        id: pack
+        working-directory: packages/node
+        run: |
+          mkdir -p "$RUNNER_TEMP/artefacts"
+          npm pack --pack-destination "$RUNNER_TEMP/artefacts" --silent >/dev/null
+          tarball="$(find "$RUNNER_TEMP/artefacts" -maxdepth 1 -name '*.tgz' -print -quit)"
+          if [ -z "$tarball" ]; then
+            echo "::error::npm pack produced no tarball"
+            exit 1
+          fi
+          echo "tarball=$(basename "$tarball")" >>"$GITHUB_OUTPUT"
+
+      - name: Build the Python sdist and wheel
+        working-directory: packages/python
+        run: |
+          rm -rf dist
+          uv build
+          cp dist/* "$RUNNER_TEMP/artefacts/"
+
+      - name: What is about to be uploaded
+        run: ls -l "$RUNNER_TEMP/artefacts"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-artefacts
+          path: ${{ runner.temp }}/artefacts
+          if-no-files-found: error
+          retention-days: 7
+
+  # npm first: it is the publish that cannot be automated for a first release,
+  # and the one where a wrong dist-tag is immediately visible to every
+  # installer. RELEASING.md §3.
+  npm:
+    name: npm — @idside/sdk
+    needs: verify
+    if: github.event.inputs.packages == 'both' || github.event.inputs.packages == 'npm'
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write # the OIDC token npm exchanges; no npm token exists
+    steps:
+      # Trusted publishing needs npm >= 11.5.1 on Node >= 22.14, and a
+      # GitHub-hosted runner: self-hosted runners are not supported.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.x"
+
+      - name: npm new enough for trusted publishing
+        run: |
+          npm install -g npm@latest
+          npm --version
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-artefacts
+          path: artefacts
+
+      # The tarball built and verified upstream, published as-is. Deliberately
+      # no `registry-url` on setup-node: it would write an .npmrc expecting a
+      # NODE_AUTH_TOKEN, and trusted publishing does not use one. Provenance is
+      # attached automatically for a public repository.
+      - name: Publish
+        env:
+          TARBALL: ${{ needs.verify.outputs.npm-tarball }}
+          NPM_TAG: ${{ github.event.inputs.npm_tag }}
+        run: npm publish "artefacts/$TARBALL" --access public --tag "$NPM_TAG"
+
+  # PyPI second. A pre-release there is invisible to a plain `pip install`,
+  # which makes it the safer of the two to run unattended.
+  pypi:
+    name: PyPI — idside
+    needs: [verify, npm]
+    # `always()` so that asking for `pypi` alone — which skips the npm job —
+    # still runs, while an npm job that actually FAILED still stops the release.
+    if: >-
+      always()
+      && needs.verify.result == 'success'
+      && (needs.npm.result == 'success' || needs.npm.result == 'skipped')
+      && (github.event.inputs.packages == 'both' || github.event.inputs.packages == 'pypi')
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write # PyPI exchanges this for a 15-minute project-scoped token
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-artefacts
+          path: artefacts
+
+      # The npm tarball travels in the same artefact and PyPI must never be
+      # handed it. `.tgz` does not match `*.tar.gz`, so moving the two Python
+      # distributions by name leaves it behind.
+      - name: Keep only the Python distributions
+        run: |
+          mkdir dist
+          mv artefacts/*.whl artefacts/*.tar.gz dist/
+          ls -l dist
+
+      # No token: the pending trusted publisher configured on PyPI
+      # (RELEASING.md §0.2) creates the project on this first run and becomes a
+      # normal publisher afterwards.
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist

@@ -1,0 +1,12 @@
+# Code owners — a review from a core maintainer is required on every PR
+# (see branch protection). Replace @Yannis-Adn with a team
+# (e.g. @idside-eu/core-maintainers) once it exists.
+
+*                         @Yannis-Adn
+
+# Particularly sensitive areas (security, CI, token validation)
+/.github/                 @Yannis-Adn
+/packages/python/src/     @Yannis-Adn
+/SECURITY.md              @Yannis-Adn
+/.gitleaks.toml           @Yannis-Adn
+/.pre-commit-config.yaml  @Yannis-Adn

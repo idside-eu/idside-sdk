@@ -1,0 +1,217 @@
+{
+  "descriptor_version": "2",
+  "name": "openai",
+  "client_module": "openai",
+  "call_sites": [
+    {
+      "id": "chat.completions.create",
+      "path": [
+        "chat",
+        "completions",
+        "create"
+      ],
+      "aliases": [
+        "parse",
+        "stream"
+      ],
+      "forceable_params": [
+        "prompt_cache_retention",
+        "store"
+      ],
+      "tool_fields": [
+        {
+          "path": [
+            "functions"
+          ],
+          "kind": "definitions",
+          "note": "The legacy form of `tools`: function definitions the model may call. Deprecated, still accepted."
+        },
+        {
+          "path": [
+            "web_search_options"
+          ],
+          "kind": "enabler",
+          "note": "Switches hosted web search on without any `tools` key: an empty object is enough."
+        }
+      ],
+      "note": "The stateless endpoint. Retention here is `store` and the prompt cache, and nothing else: `background`, `conversation` and `previous_response_id` do not exist on it, which is why this list is shorter than the one below rather than a copy of it. `stream` is an alias because the Python helper `chat.completions.stream()` builds its request from a fixed keyword signature: the identity kwarg this SDK requires is a TypeError on it, so a helper that is not itself a call site cannot be called at all. It is skipped by the JS SDK, whose helper forwards one body object — identity included — to the patched `create`."
+    },
+    {
+      "id": "responses.create",
+      "path": [
+        "responses",
+        "create"
+      ],
+      "aliases": [
+        "parse",
+        "stream"
+      ],
+      "resuming_params": [
+        "response_id",
+        "starting_after"
+      ],
+      "forceable_params": [
+        "background",
+        "prompt_cache_retention",
+        "store"
+      ],
+      "tool_fields": [
+        {
+          "path": [
+            "conversation"
+          ],
+          "kind": "enabler",
+          "note": "Prepends a stored conversation, whose items may include `additional_tools` the SDK cannot see."
+        },
+        {
+          "path": [
+            "previous_response_id"
+          ],
+          "kind": "enabler",
+          "note": "Continues from a stored response, whose items may include `additional_tools` the SDK cannot see."
+        },
+        {
+          "path": [
+            "prompt"
+          ],
+          "kind": "enabler",
+          "note": "A reusable prompt stored server-side, which may carry its own tool configuration."
+        },
+        {
+          "path": [
+            "input"
+          ],
+          "kind": "input_items",
+          "item_types": [
+            "additional_tools",
+            "tool_search_output",
+            "item_reference",
+            "mcp_approval_response"
+          ],
+          "note": "`additional_tools` and `tool_search_output` items carry full tool definitions inside `input`; `item_reference` points at a stored item that may be one; `mcp_approval_response` releases a pending MCP tool call."
+        }
+      ],
+      "note": "The stateful endpoint, and the one with more to refuse. `stream` is an alias for the same reason as above, with one consequence worth stating: the Python `responses.stream()` helper is overloaded, and its RESUMING form (`response_id=` / `starting_after=`, no `input`/`model`) reaches /v1/responses/{id} with a GET rather than creating anything. That is why this site declares `resuming_params`: enforced like the creating form, the resuming one demanded an identity for a call that creates nothing, authorized with an empty model, and then broke outright when the forced `store` was injected into a request that refuses it. It is now let through unenforced — the same GET `responses.retrieve()` makes, which the guard has always allowed — and letting it through is safe rather than trusted: a request that turned out to carry a body would carry no ACT token, and the guard would refuse it. Beyond `store`, `background: true` persists the response for about ten minutes so it can be polled — a second, separate retention this endpoint alone can create. `include: [\"reasoning.encrypted_content\"]` is a third lever and is not claimed YET, which is a backlog line rather than a wall: it is a LIST, so forcing it would silently drop whatever the developer already asked to include. What that needs is a union over the eight closed literals `include` accepts, not generic JSON merging — small, but it does not exist in the injection engine today, and an allowlist entry alone would break the calls of the users who opted out."
+    }
+  ],
+  "identity_param": "user_id",
+  "token_header": "X-AI-Consent-Token",
+  "param_target": "kwargs",
+  "protected_params": [
+    "model",
+    "messages",
+    "stream"
+  ],
+  "tools_param": [
+    "tools"
+  ],
+  "reserved_headers": [
+    "Authorization",
+    "OpenAI-Organization",
+    "OpenAI-Project",
+    "api-key"
+  ],
+  "notes": "Two endpoints are wrapped; every other POST on this client is refused by the transport guard (`UnenforcedCallError`) until it gets a call site of its own. Recorded 2026-07-26 because the refusals are load-bearing, not incidental: `vector_stores.create` is where uploaded file CONTENT ends up, chunked and indexed, and it carries `expires_after`; `containers.create` carries `network_policy`, which decides whether code running on a user's data may reach the network; and `audio.transcriptions.create` accepts `known_speaker_names` / `known_speaker_references`, which are voiceprints of named people — biometric data under GDPR Art. 9, and the only parameter in this API that ADDS special-category data rather than protecting any. The catalogue has no option covering biometrics or network egress, so the guard refusing those endpoints is currently the whole of the protection. Naming them here so the gap is a known one.",
+  "forceable_params": [
+    "background",
+    "prompt_cache_retention",
+    "store"
+  ],
+  "forceable_params_note": "Verified 2026-07-26 against the pinned `openai` client, per call site: `chat.completions.create` accepts `store` and `prompt_cache_retention`; `responses.create` accepts those plus `background`. Declared per site precisely because they differ — forcing `background` on chat.completions would raise TypeError for every user who opted out, and for nobody else.",
+  "enforcement": {
+    "training.foundation": {
+      "level": "contractual",
+      "protective": false,
+      "note": "API data has not been used for training since March 2023 unless the org opts in. No request parameter asserts it."
+    },
+    "training.personalisation": {
+      "level": "absent",
+      "note": "A ChatGPT product feature; the API has no per-user personalisation to switch off. `absent` rather than `unsupported` for that reason: the processing does not happen on the API, so a refusal has nothing to stop."
+    },
+    "training.analytics": {
+      "level": "contractual",
+      "protective": false,
+      "note": "Same data-usage policy, same absence of a request-level lever."
+    },
+    "memory": {
+      "level": "absent",
+      "note": "ChatGPT memory is a product feature. Memory in an API app is built by the developer, not the provider. `absent` for that reason: the provider keeps no memory on the API for a refusal to switch off, and what the developer builds is their own processing."
+    },
+    "agentic_tools": {
+      "level": "enforced",
+      "mechanism": "refuse_or_strip_tools",
+      "note": "ENFORCED by the SDK, not by a parameter. Every zero-retention arrangement excludes agentic features while the API itself does not block them: a call that hands the model tools falls outside the retention regime the user was promised, and the SDK is the only component that can see it happening, because it is the only one that sees the outgoing request. When the user has refused, the cloud returns a `tools` constraint and the SDK refuses the call (`ToolUseRefusedError`) or strips the tools, per the constraint. Refusing is the default: an agent stripped of its tools does not fail, it answers wrongly, and the developer has no way to know. Note what is NOT sent to us to make this work: nothing. The constraint follows from the consent state alone — we are never told whether a given call carried tools."
+    },
+    "data_residency": {
+      "level": "account",
+      "note": "Residency is chosen by DOMAIN (eu./gb./ca./au./jp./in./sg./kr./ae./us.api.openai.com), not by a parameter. The SDK can READ the base URL and record which region was used — see P1.10. `background: true` is rejected in the EU region. Can still be honoured per user IF the developer provisions one project per posture — the SDK then routes each call to the one matching that user's answer. See `credential_routing`.",
+      "routable": true
+    },
+    "retention.conversation": {
+      "level": "enforced",
+      "params": [
+        {
+          "name": "store",
+          "call_sites": [
+            "chat.completions.create",
+            "responses.create"
+          ],
+          "when": false,
+          "value": false,
+          "note": "VERIFIED live on both endpoints: `store: false` is accepted, and Responses keeps 30 days of application state otherwise. Under an org-level ZDR arrangement `store` is treated as false whatever the request asks — the account wins, in the safe direction."
+        },
+        {
+          "name": "background",
+          "call_sites": [
+            "responses.create"
+          ],
+          "when": false,
+          "value": false,
+          "conditions": "`false` only; `background: true` is additionally rejected outright in the EU region",
+          "note": "Unlocked by per-call-site parameters. Background mode persists the response for about ten minutes so the client can poll for it — a retention the user did not agree to, created by a flag the developer set for their own convenience. Forcing it off degrades that call to synchronous rather than failing it, which is the right way to lose the argument."
+        }
+      ],
+      "note": "Two parameters, one refusal: durable application state (`store`) and the polling window (`background`). Stateful chaining — `conversation` and `previous_response_id` — is the remaining gap: it is not zero-retention eligible, but refusing it means REMOVING an argument the developer passed rather than forcing one, which is the tool-refusal mechanism, not this."
+    },
+    "retention.cache": {
+      "level": "enforced",
+      "params": [
+        {
+          "name": "prompt_cache_retention",
+          "call_sites": [
+            "chat.completions.create",
+            "responses.create"
+          ],
+          "when": false,
+          "value": "in_memory",
+          "models": {
+            "only": "gpt-4*|gpt-5|gpt-5-*|gpt-5.1|gpt-5.1-*|gpt-5.2|gpt-5.2-*|gpt-5.3|gpt-5.3-*|gpt-5.4|gpt-5.4-*|o1*|o3*|o4*"
+          },
+          "conditions": "values `in_memory` or `24h`; on GPT-5.5+ only `24h` is supported, so the REFUSAL cannot be honoured from that model onward",
+          "note": "Written as `models.only` rather than `models.except` deliberately. \"5.5 and later\" is open-ended and a glob cannot say it, so a denylist would have to name models OpenAI has not shipped: `gpt-5.7` would match none of them, get `in_memory` forced, and 400 — for exactly the users who refused the cache and for nobody else. An allowlist that falls behind instead stops forcing on a model that would have accepted it: under-protected, still working, and said so in the published matrix.\n\n`gpt-5|gpt-5-*` and NOT `gpt-5*`, which is the whole difficulty in one line. `gpt-5*` would sweep in `gpt-5.5-mini`, the family this list exists to exclude. The hyphen cannot match the dot, so the two alternatives cover `gpt-5` itself and its `-mini` / `-nano` / dated variants while leaving every `5.x` above 5.4 out. Written as bare `gpt-5` on 2026-07-27, which silently dropped enforcement for `gpt-5-mini` and `gpt-5-nano` — under-protection rather than a broken call, and invisible without reading the glob character by character. Each of `gpt-5.1` to `gpt-5.4` is spelled the same way and for the same reason: `gpt-5.1*` would also match `gpt-5.10` and `gpt-5.11`, which are \"5.5 and later\" and would take `in_memory` and 400 — the unsurvivable direction, and the one an allowlist is chosen to avoid.\n\n`gpt-4*`, `o1*`, `o3*` and `o4*` carry over the claim the previous DENYLIST made implicitly: it excluded only 5.5+, so it asserted the parameter worked everywhere else. Keeping them is therefore not a new assertion. It is still weaker than the schema's word \"VERIFIED\" deserves — none of those families has been exercised with a live call — and settling it is what `tests/live/` is for."
+        }
+      ],
+      "note": "VERIFIED against the pinned client: `prompt_cache_retention` is the parameter this SDK can send today. It is deprecated in favour of `prompt_cache_options.ttl` (GPT-5.6+), which the pinned `openai` package does not expose yet — switching requires a client upgrade, so declaring it now would promise a parameter we cannot actually send. Orgs without zero-retention default to `24h`, orgs with it default to `in_memory`."
+    },
+    "location": {
+      "level": "unsupported",
+      "note": "The API infers no location, but it processes one an application declares: `web_search_options.user_location` on `chat.completions.create` and `user_location` on the `web_search` tool of `responses.create`, approximate location parameters for the search. No request lever refuses it. Web search is a tool, so a user who refuses `agentic_tools` loses it, and the declared location with it, through the tool refusal; refusing `location` alone is not possible, which is why this is `unsupported` and not `absent`."
+    },
+    "human_review": {
+      "level": "contractual",
+      "protective": false,
+      "note": "No request parameter. Abuse-monitoring logs, which may hold prompts and responses, are kept up to 30 days by default, and OpenAI limits access to stored API data to authorized employees — for engineering support, investigating potential platform abuse and legal compliance — and to specialized third-party contractors, solely to review for abuse and misuse. Zero Data Retention and Modified Abuse Monitoring keep customer content out of those logs, and Zero Data Retention with Private Safety Processing runs its safety review where no human can access the content; all three are granted only once OpenAI has approved the organization, then set for the whole organization or per project (Zero Data Retention with Private Safety Processing per project only), so a project carrying one could be routed to through `OpenAI-Project`. None of them rules human review out, which is why this entry is not routable: an image the CSAM classifier flags is retained for manual review even under Zero Data Retention or Modified Abuse Monitoring, and under Safety Retention OpenAI may, with written notice, make a model ineligible for both and human-review the content its classifiers flag. Private Retention with Private Safety Processing (formerly Eyes Off) keeps content in encrypted logs excluded from human review unless the law requires it, and is no posture either: OpenAI applies it when it makes a model ineligible for Zero Data Retention or Modified Abuse Monitoring, its page speaks of an organization ID being provisioned with it, and the CSAM rule applies to it too. Checked on 2026-10-12 against OpenAI's data-controls and Private Safety Processing guides and its enterprise privacy page."
+    },
+    "retention.files": {
+      "level": "unsupported",
+      "note": "OpenAI DOES offer per-request file retention controls — `expires_after` on /v1/files and on /v1/vector_stores, `output_expires_after` on /v1/batches — and none of them is reachable from the endpoints this descriptor wraps. That is our gap, not a carence of the provider's, and the two reasons must not be blurred: (1) `files.create` takes a binary stream that the request hash cannot canonicalise, which is a real and structural obstacle; (2) it carries no `model`, which /v1/authorize requires — but that is OUR API's constraint, and citing it as a limit of OpenAI's reads as a provider failing where it is us. `batches.create` is the cheapest way in, taking an `input_file_id` string rather than a stream. `vector_stores.create` matters most: an option covering the file wrapper but not the indexed content covers the wrong thing. Wrapping upload endpoints is its own card, not a line in this list."
+    }
+  },
+  "enforcement_verified_at": "2026-07-26",
+  "credential_routing": {
+    "header": "OpenAI-Project",
+    "header_value_pattern": "^proj_[A-Za-z0-9_-]{1,120}$",
+    "unit": "project",
+    "note": "Retention regime (default / ZDR / Modified Abuse Monitoring / None) is set per PROJECT, and `OpenAI-Project` is a per-request header the API validates. A developer who provisions one project per posture lets the SDK route each call to the one matching that user's answer. The pattern is a guard, not decoration: the value is written into an outgoing HTTP header, so it must not be able to carry CR/LF, and a project id is `proj_...` while an API key is `sk-...` — a developer who pastes the wrong one is stopped before their secret leaves the process."
+  }
+}

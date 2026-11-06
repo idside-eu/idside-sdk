@@ -1,0 +1,29 @@
+ID Side SDK
+Copyright 2026 ID side SAS. All rights reserved.
+
+This product includes software developed at ID Side (https://idside.eu).
+
+PATENTS
+=======
+
+Patents: https://sdk.idside.eu/patents
+
+This software may be covered by:
+
+  - U.S. Patent No. 12,413,397 B2;
+  - European Patent No. 4,100,905 B1, with unitary effect, and any national
+    patent rights deriving from that European patent;
+  - Chinese Patent Application No. CN115151937A (pending; no patent rights
+    exist in an application before it issues).
+
+The page above lists them and is kept current. It is the notice that clause 5
+of LICENSE provides for; clauses 4(a) and 4(g) of LICENSE forbid removing or
+obscuring it, or reproducing it with the patents left out.
+
+Beyond the limited evaluation patent licence of clause 2 of LICENSE, rights
+under these patents are conveyed only by an executed commercial licence from
+ID Side.
+
+Publishing the ACT token format so that anyone can verify a token is a
+different act from licensing the invention that produces one, and the two are
+kept apart deliberately: a proof nobody outside can check is not a proof.

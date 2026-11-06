@@ -1,0 +1,50 @@
+# ──────────────────────────────────────────────────────────────────────────
+# gitleaks — secret-detection configuration for the ID Side SDK.
+# High-traffic public repo: we start from the (exhaustive) default rules and
+# add rules specific to the ID Side domain.
+# Docs: https://github.com/gitleaks/gitleaks
+# ──────────────────────────────────────────────────────────────────────────
+
+title = "ID Side SDK gitleaks config"
+
+[extend]
+# Inherit the full set of gitleaks rules (AWS, GCP, JWT, private keys…)
+useDefault = true
+
+# ── ID Side specific rules ─────────────────────────────────────────────────
+[[rules]]
+id = "idside-act-private-key"
+description = "ACT signing private key (ECDSA) — forbidden in this public repo"
+regex = '''-----BEGIN (EC|ECDSA|PRIVATE|OPENSSH) PRIVATE KEY-----'''
+keywords = ["BEGIN", "PRIVATE KEY"]
+
+[[rules]]
+id = "idside-app-secret"
+description = "ID Side application / client secret"
+regex = '''(?i)(idside|act)[_-]?(secret|api[_-]?key|client[_-]?secret)\s*[:=]\s*['"][0-9a-zA-Z._\-]{16,}['"]'''
+keywords = ["idside", "act"]
+
+# ── Allowlist ──────────────────────────────────────────────────────────────
+[allowlist]
+description = "Allowed false positives (doc examples, PUBLIC test keys)"
+regexes = [
+  '''EXAMPLE''',
+  '''example\.com''',
+  '''-----BEGIN PUBLIC KEY-----''',   # public keys are shareable
+  '''sub.*usr_marie''',               # example identifiers from the docs
+]
+paths = [
+  '''(.*?)(test|tests|fixtures|examples)(/|\\).*''',
+  '''docs/.*''',
+  # detect-secrets baseline: stores SHA1 hashes of already-audited fictitious
+  # values; those 40-char hashes trip the generic-api-key rule but are no secret.
+  '''\.secrets\.baseline$''',
+  # Shared ACT verification vectors. The file is *made of* JWTs — that is its
+  # entire purpose — so the `jwt` rule fires on every case. They are signed by a
+  # P-256 key that was generated to produce the file and destroyed, and both SDK
+  # test suites assert the key set carries no private member. One case does
+  # deliberately contain a `d`, in a JWKS the SDKs are required to REJECT;
+  # the suites enforce that private material can only ever appear in a case whose
+  # expected outcome is rejection.
+  '''packages/descriptors/testdata/act-verification-vectors\.json$''',
+]

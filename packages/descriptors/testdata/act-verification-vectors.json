@@ -1,0 +1,232 @@
+{
+  "title": "Shared ACT verification vectors for ID Side SDKs",
+  "notes": "Every SDK must reach the same verdict on every token below. `expect` is either \"valid\" or the name of the error class the SDK must raise \u2014 the Python and Node hierarchies use identical names on purpose. Verification is pinned to `now` so the time-based cases are deterministic forever. The signing key was generated to produce this file and destroyed; only the PUBLIC key is here, and this repository never contains private keys. Produced once by signing with an ephemeral P-256 key that was then destroyed; the tokens are the artefact of record and are meant to be edited by hand, never regenerated (regeneration would change every token for no gain). A case may carry its own `jwks`, overriding the file-level key set; harnesses must honour that.",
+  "now": 1800000000,
+  "jwks": {
+    "keys": [
+      {
+        "kty": "EC",
+        "crv": "P-256",
+        "x": "iQvmXeVRSAnL6_lDdJiIiB0e2jMyE9f49QmmUvoHgMA",
+        "y": "Oi80ZmZI0R5DCOmc0BMu--RnZXMUqede3-f9h7sJs6M",
+        "kid": "act-2026q3",
+        "use": "sig",
+        "alg": "ES256"
+      }
+    ]
+  },
+  "options_defaults": {
+    "issuer": "idside.eu",
+    "allow_test_issuer": false,
+    "allow_legacy_without_mode": true,
+    "leeway": 60
+  },
+  "cases": [
+    {
+      "name": "valid",
+      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6ImFjdC0yMDI2cTMiLCJ0eXAiOiJhY3Qrand0In0.eyJpc3MiOiJpZHNpZGUuZXUiLCJzdWIiOiJwc3VfMTg2MGU5NjdmNjM0ZWY3ZTZkNjQ1ZjQ5NTY3YTVmYWMiLCJhcHBfaWQiOiJhcHBfbWVkaGVscCIsImlhdCI6MTc5OTk5OTk0MCwiZXhwIjoxODAwMDAzNTQwLCJqdGkiOiJhY3RfMDFreWNtdGp3dGF0azk4aHpwcHJzamU5amYiLCJjb25zZW50X3N0YXRlIjp7InRyYWluaW5nIjpmYWxzZX0sImxlZ2FsX2Jhc2lzIjoiY29uc2VudCIsInNvdXJjZSI6ImdwYyIsInByb3ZpZGVyIjoib3BlbmFpIiwibW9kZWwiOiJncHQtNG8iLCJyZXF1ZXN0X2hhc2giOiJzaGEyNTY6YWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYiIsIm5vbmNlIjoiNEpKcnNPR1l2UFFvSENSS2RUSTVVQT09IiwiYmluZGluZyI6InVzZXJfaWQifQ.GmD2MvcLTAwQhIpq3mYYZzthg5GgDiYATrYLYe5_6-4Fsuyz336r6R_LjruYEXJJpGNNjUTiZOasSeoNoFAKGA",
+      "options": {},
+      "expect": "valid",
+      "why": "A well-formed ACT token, production issuer, inside its validity window."
+    },
+    {
+      "name": "valid_with_bindings",
+      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6ImFjdC0yMDI2cTMiLCJ0eXAiOiJhY3Qrand0In0.eyJpc3MiOiJpZHNpZGUuZXUiLCJzdWIiOiJwc3VfMTg2MGU5NjdmNjM0ZWY3ZTZkNjQ1ZjQ5NTY3YTVmYWMiLCJhcHBfaWQiOiJhcHBfbWVkaGVscCIsImlhdCI6MTc5OTk5OTk0MCwiZXhwIjoxODAwMDAzNTQwLCJqdGkiOiJhY3RfMDFreWNtdGp3dGF0azk4aHpwcHJzamU5amYiLCJjb25zZW50X3N0YXRlIjp7InRyYWluaW5nIjpmYWxzZX0sImxlZ2FsX2Jhc2lzIjoiY29uc2VudCIsInNvdXJjZSI6ImdwYyIsInByb3ZpZGVyIjoib3BlbmFpIiwibW9kZWwiOiJncHQtNG8iLCJyZXF1ZXN0X2hhc2giOiJzaGEyNTY6YWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYiIsIm5vbmNlIjoiNEpKcnNPR1l2UFFvSENSS2RUSTVVQT09IiwiYmluZGluZyI6InVzZXJfaWQifQ.IfRsg5SCRby4QgGrDxFOAjeE8Y8ijSlhVR76S6yZKav8HjeuKGrgZkdFhEpK6xjsPr-o0lalKf_i8Wi5WVvudw",
+      "options": {
+        "request_hash": "sha256:abababababababababababababababababababababababababababababababab",
+        "nonce": "4JJrsOGYvPQoHCRKdTI5UA==",
+        "app_id": "app_medhelp",
+        "subject": "psu_1860e967f634ef7e6d645f49567a5fac"
+      },
+      "expect": "valid",
+      "why": "Same token, with every binding the caller can pin. One token = one request."
+    },
+    {
+      "name": "expired",
+      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6ImFjdC0yMDI2cTMiLCJ0eXAiOiJhY3Qrand0In0.eyJpc3MiOiJpZHNpZGUuZXUiLCJzdWIiOiJwc3VfMTg2MGU5NjdmNjM0ZWY3ZTZkNjQ1ZjQ5NTY3YTVmYWMiLCJhcHBfaWQiOiJhcHBfbWVkaGVscCIsImlhdCI6MTc5OTk5MjgwMCwiZXhwIjoxNzk5OTk2NDAwLCJqdGkiOiJhY3RfMDFreWNtdGp3dGF0azk4aHpwcHJzamU5amYiLCJjb25zZW50X3N0YXRlIjp7InRyYWluaW5nIjpmYWxzZX0sImxlZ2FsX2Jhc2lzIjoiY29uc2VudCIsInNvdXJjZSI6ImdwYyIsInByb3ZpZGVyIjoib3BlbmFpIiwibW9kZWwiOiJncHQtNG8iLCJyZXF1ZXN0X2hhc2giOiJzaGEyNTY6YWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYiIsIm5vbmNlIjoiNEpKcnNPR1l2UFFvSENSS2RUSTVVQT09IiwiYmluZGluZyI6InVzZXJfaWQifQ.So2AmAFciswaQp1UfJn0KRCnTPgGoAHK_-iEAmNDcspRPmJabfSt0dTr2vgE30e9E_ZG_K1whQVgEM2n-erp5g",
+      "options": {},
+      "expect": "ActExpiredError",
+      "why": "An ACT lives one hour. Past that it attests to nothing."
+    },
+    {
+      "name": "expired_within_leeway",
+      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6ImFjdC0yMDI2cTMiLCJ0eXAiOiJhY3Qrand0In0.eyJpc3MiOiJpZHNpZGUuZXUiLCJzdWIiOiJwc3VfMTg2MGU5NjdmNjM0ZWY3ZTZkNjQ1ZjQ5NTY3YTVmYWMiLCJhcHBfaWQiOiJhcHBfbWVkaGVscCIsImlhdCI6MTc5OTk5NjQwMCwiZXhwIjoxNzk5OTk5OTcwLCJqdGkiOiJhY3RfMDFreWNtdGp3dGF0azk4aHpwcHJzamU5amYiLCJjb25zZW50X3N0YXRlIjp7InRyYWluaW5nIjpmYWxzZX0sImxlZ2FsX2Jhc2lzIjoiY29uc2VudCIsInNvdXJjZSI6ImdwYyIsInByb3ZpZGVyIjoib3BlbmFpIiwibW9kZWwiOiJncHQtNG8iLCJyZXF1ZXN0X2hhc2giOiJzaGEyNTY6YWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYiIsIm5vbmNlIjoiNEpKcnNPR1l2UFFvSENSS2RUSTVVQT09IiwiYmluZGluZyI6InVzZXJfaWQifQ.LiWYawJhFtBwxuhiB5MRZkIWPHRQnenfQbDffWY57Le8FTHx90O9BJnzMjqcSxMLex0XnLnkD6xSLlwgYBv3Fw",
+      "options": {},
+      "expect": "valid",
+      "why": "30 s past expiry, inside the default 60 s clock-skew tolerance."
+    },
+    {
+      "name": "not_yet_valid",
+      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6ImFjdC0yMDI2cTMiLCJ0eXAiOiJhY3Qrand0In0.eyJpc3MiOiJpZHNpZGUuZXUiLCJzdWIiOiJwc3VfMTg2MGU5NjdmNjM0ZWY3ZTZkNjQ1ZjQ5NTY3YTVmYWMiLCJhcHBfaWQiOiJhcHBfbWVkaGVscCIsImlhdCI6MTgwMDAwMDYwMCwiZXhwIjoxODAwMDAzNTQwLCJqdGkiOiJhY3RfMDFreWNtdGp3dGF0azk4aHpwcHJzamU5amYiLCJjb25zZW50X3N0YXRlIjp7InRyYWluaW5nIjpmYWxzZX0sImxlZ2FsX2Jhc2lzIjoiY29uc2VudCIsInNvdXJjZSI6ImdwYyIsInByb3ZpZGVyIjoib3BlbmFpIiwibW9kZWwiOiJncHQtNG8iLCJyZXF1ZXN0X2hhc2giOiJzaGEyNTY6YWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYiIsIm5vbmNlIjoiNEpKcnNPR1l2UFFvSENSS2RUSTVVQT09IiwiYmluZGluZyI6InVzZXJfaWQiLCJuYmYiOjE4MDAwMDA2MDB9.xC5BP3p-irl8-VH4lHBf_A_rHSBMl1r5H7Z4_69gPHcf5UA6M5K6qGOUZNs2qpWYsVkEzaEq7ADrWyGoltdmJQ",
+      "options": {},
+      "expect": "ActNotYetValidError",
+      "why": "A token whose validity starts in the future."
+    },
+    {
+      "name": "wrong_typ",
+      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6ImFjdC0yMDI2cTMiLCJ0eXAiOiJ1YnQrand0In0.eyJpc3MiOiJpZHNpZGUuZXUiLCJzdWIiOiJwc3VfMTg2MGU5NjdmNjM0ZWY3ZTZkNjQ1ZjQ5NTY3YTVmYWMiLCJhcHBfaWQiOiJhcHBfbWVkaGVscCIsImlhdCI6MTc5OTk5OTk0MCwiZXhwIjoxODAwMDAzNTQwLCJqdGkiOiJhY3RfMDFreWNtdGp3dGF0azk4aHpwcHJzamU5amYiLCJjb25zZW50X3N0YXRlIjp7InRyYWluaW5nIjpmYWxzZX0sImxlZ2FsX2Jhc2lzIjoiY29uc2VudCIsInNvdXJjZSI6ImdwYyIsInByb3ZpZGVyIjoib3BlbmFpIiwibW9kZWwiOiJncHQtNG8iLCJyZXF1ZXN0X2hhc2giOiJzaGEyNTY6YWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYiIsIm5vbmNlIjoiNEpKcnNPR1l2UFFvSENSS2RUSTVVQT09IiwiYmluZGluZyI6InVzZXJfaWQifQ.xzurgKUlBgUcc9Y8ukkLw1lfitqJatf_UWfeBOlee0AGM2mD4pyUFSzKGqWuvF-Ce_iqfuc7l3iv2q9e_pMxFw",
+      "options": {},
+      "expect": "ActTypeMismatchError",
+      "why": "A UBT presented as an ACT. Type confusion is how token systems get broken."
+    },
+    {
+      "name": "alg_none",
+      "token": "eyJhbGciOiJub25lIiwia2lkIjoiYWN0LTIwMjZxMyIsInR5cCI6ImFjdCtqd3QifQ.eyJpc3MiOiJpZHNpZGUuZXUiLCJzdWIiOiJwc3VfMTg2MGU5NjdmNjM0ZWY3ZTZkNjQ1ZjQ5NTY3YTVmYWMiLCJhcHBfaWQiOiJhcHBfbWVkaGVscCIsImlhdCI6MTc5OTk5OTk0MCwiZXhwIjoxODAwMDAzNTQwLCJqdGkiOiJhY3RfMDFreWNtdGp3dGF0azk4aHpwcHJzamU5amYiLCJjb25zZW50X3N0YXRlIjp7InRyYWluaW5nIjpmYWxzZX0sImxlZ2FsX2Jhc2lzIjoiY29uc2VudCIsInNvdXJjZSI6ImdwYyIsInByb3ZpZGVyIjoib3BlbmFpIiwibW9kZWwiOiJncHQtNG8iLCJyZXF1ZXN0X2hhc2giOiJzaGEyNTY6YWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYiIsIm5vbmNlIjoiNEpKcnNPR1l2UFFvSENSS2RUSTVVQT09IiwiYmluZGluZyI6InVzZXJfaWQifQ.",
+      "options": {},
+      "expect": "ActAlgorithmError",
+      "why": "The unsigned-token attack. `alg` is pinned, never negotiated."
+    },
+    {
+      "name": "alg_hs256_confusion",
+      "token": "eyJhbGciOiJIUzI1NiIsImtpZCI6ImFjdC0yMDI2cTMiLCJ0eXAiOiJhY3Qrand0In0.eyJpc3MiOiJpZHNpZGUuZXUiLCJzdWIiOiJwc3VfMTg2MGU5NjdmNjM0ZWY3ZTZkNjQ1ZjQ5NTY3YTVmYWMiLCJhcHBfaWQiOiJhcHBfbWVkaGVscCIsImlhdCI6MTc5OTk5OTk0MCwiZXhwIjoxODAwMDAzNTQwLCJqdGkiOiJhY3RfMDFreWNtdGp3dGF0azk4aHpwcHJzamU5amYiLCJjb25zZW50X3N0YXRlIjp7InRyYWluaW5nIjpmYWxzZX0sImxlZ2FsX2Jhc2lzIjoiY29uc2VudCIsInNvdXJjZSI6ImdwYyIsInByb3ZpZGVyIjoib3BlbmFpIiwibW9kZWwiOiJncHQtNG8iLCJyZXF1ZXN0X2hhc2giOiJzaGEyNTY6YWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYiIsIm5vbmNlIjoiNEpKcnNPR1l2UFFvSENSS2RUSTVVQT09IiwiYmluZGluZyI6InVzZXJfaWQifQ.7FQUmDL7uRi0hATOvPxnaFFF0hHDIr4PaxkHkI8F37A",
+      "options": {},
+      "expect": "ActAlgorithmError",
+      "why": "The classic algorithm-confusion attack: the public key replayed as an HMAC secret."
+    },
+    {
+      "name": "unknown_kid",
+      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6ImFjdC0yMDk5cTEiLCJ0eXAiOiJhY3Qrand0In0.eyJpc3MiOiJpZHNpZGUuZXUiLCJzdWIiOiJwc3VfMTg2MGU5NjdmNjM0ZWY3ZTZkNjQ1ZjQ5NTY3YTVmYWMiLCJhcHBfaWQiOiJhcHBfbWVkaGVscCIsImlhdCI6MTc5OTk5OTk0MCwiZXhwIjoxODAwMDAzNTQwLCJqdGkiOiJhY3RfMDFreWNtdGp3dGF0azk4aHpwcHJzamU5amYiLCJjb25zZW50X3N0YXRlIjp7InRyYWluaW5nIjpmYWxzZX0sImxlZ2FsX2Jhc2lzIjoiY29uc2VudCIsInNvdXJjZSI6ImdwYyIsInByb3ZpZGVyIjoib3BlbmFpIiwibW9kZWwiOiJncHQtNG8iLCJyZXF1ZXN0X2hhc2giOiJzaGEyNTY6YWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYiIsIm5vbmNlIjoiNEpKcnNPR1l2UFFvSENSS2RUSTVVQT09IiwiYmluZGluZyI6InVzZXJfaWQifQ.kE4lpMcOgqfnyrUJIzfwCVCZKrcNaia6-hVbfJsnSOHOqr09xQnCTq1s7AtG7uGs-rUKxziO4swMIwrxn2x29w",
+      "options": {},
+      "expect": "ActKeyNotFoundError",
+      "why": "Fail closed on an unknown key. Never 'try every key in the set'."
+    },
+    {
+      "name": "tampered_payload",
+      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6ImFjdC0yMDI2cTMiLCJ0eXAiOiJhY3Qrand0In0.eyJpc3MiOiJpZHNpZGUuZXUiLCJzdWIiOiJwc3VfMTg2MGU5NjdmNjM0ZWY3ZTZkNjQ1ZjQ5NTY3YTVmYWMiLCJhcHBfaWQiOiJhcHBfbWVkaGVscCIsImlhdCI6MTc5OTk5OTk0MCwiZXhwIjoxODAwMDAzNTQwLCJqdGkiOiJhY3RfMDFreWNtdGp3dGF0azk4aHpwcHJzamU5amYiLCJjb25zZW50X3N0YXRlIjp7InRyYWluaW5nIjp0cnVlfSwibGVnYWxfYmFzaXMiOiJjb25zZW50Iiwic291cmNlIjoiZ3BjIiwicHJvdmlkZXIiOiJvcGVuYWkiLCJtb2RlbCI6ImdwdC00byIsInJlcXVlc3RfaGFzaCI6InNoYTI1NjphYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiIiwibm9uY2UiOiI0Skpyc09HWXZQUW9IQ1JLZFRJNVVBPT0iLCJiaW5kaW5nIjoidXNlcl9pZCJ9.dnB5qEU2L1LbXD0NmGe4g2TSOWCH4-66ROv68QNxfOy0u8-y62z7GyY-BcYPCd6Pbud3F9DCnbvTLAHQ6eGugQ",
+      "options": {},
+      "expect": "ActSignatureError",
+      "why": "Consent flipped from false to true. The signature no longer matches."
+    },
+    {
+      "name": "wrong_key",
+      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6ImFjdC0yMDI2cTMiLCJ0eXAiOiJhY3Qrand0In0.eyJpc3MiOiJpZHNpZGUuZXUiLCJzdWIiOiJwc3VfMTg2MGU5NjdmNjM0ZWY3ZTZkNjQ1ZjQ5NTY3YTVmYWMiLCJhcHBfaWQiOiJhcHBfbWVkaGVscCIsImlhdCI6MTc5OTk5OTk0MCwiZXhwIjoxODAwMDAzNTQwLCJqdGkiOiJhY3RfMDFreWNtdGp3dGF0azk4aHpwcHJzamU5amYiLCJjb25zZW50X3N0YXRlIjp7InRyYWluaW5nIjpmYWxzZX0sImxlZ2FsX2Jhc2lzIjoiY29uc2VudCIsInNvdXJjZSI6ImdwYyIsInByb3ZpZGVyIjoib3BlbmFpIiwibW9kZWwiOiJncHQtNG8iLCJyZXF1ZXN0X2hhc2giOiJzaGEyNTY6YWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYiIsIm5vbmNlIjoiNEpKcnNPR1l2UFFvSENSS2RUSTVVQT09IiwiYmluZGluZyI6InVzZXJfaWQifQ.wr2ky9ysJ4yxqnPvcDgtN58nCMg49HBKCVEjpFKyk6BMX2AlFw0NIlqpDB3PJwSNMiDCfn5Yn3H8wgm1rg6LWA",
+      "options": {},
+      "expect": "ActSignatureError",
+      "why": "Correct structure, correct kid, signed by somebody else."
+    },
+    {
+      "name": "test_issuer_rejected_by_default",
+      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6ImFjdC0yMDI2cTMiLCJ0eXAiOiJhY3Qrand0In0.eyJpc3MiOiJ0ZXN0Lmlkc2lkZS5ldSIsInN1YiI6InBzdV8xODYwZTk2N2Y2MzRlZjdlNmQ2NDVmNDk1NjdhNWZhYyIsImFwcF9pZCI6ImFwcF9tZWRoZWxwIiwiaWF0IjoxNzk5OTk5OTQwLCJleHAiOjE4MDAwMDM1NDAsImp0aSI6ImFjdF8wMWt5Y210and0YXRrOThoenBwcnNqZTlqZiIsImNvbnNlbnRfc3RhdGUiOnsidHJhaW5pbmciOmZhbHNlfSwibGVnYWxfYmFzaXMiOiJjb25zZW50Iiwic291cmNlIjoiZ3BjIiwicHJvdmlkZXIiOiJvcGVuYWkiLCJtb2RlbCI6ImdwdC00byIsInJlcXVlc3RfaGFzaCI6InNoYTI1NjphYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiIiwibm9uY2UiOiI0Skpyc09HWXZQUW9IQ1JLZFRJNVVBPT0iLCJiaW5kaW5nIjoidXNlcl9pZCJ9.aJWB3CynD6DVXIkhPaZfUjynkgQ5XEJtqS_Hz3MzH_9TaFB05Xkm-QgB1vFQXNe8w4OKtt5oO8NXL02skwkTMA",
+      "options": {},
+      "expect": "ActIssuerError",
+      "why": "A development token must never silently pass as a real proof."
+    },
+    {
+      "name": "test_issuer_allowed_explicitly",
+      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6ImFjdC0yMDI2cTMiLCJ0eXAiOiJhY3Qrand0In0.eyJpc3MiOiJ0ZXN0Lmlkc2lkZS5ldSIsInN1YiI6InBzdV8xODYwZTk2N2Y2MzRlZjdlNmQ2NDVmNDk1NjdhNWZhYyIsImFwcF9pZCI6ImFwcF9tZWRoZWxwIiwiaWF0IjoxNzk5OTk5OTQwLCJleHAiOjE4MDAwMDM1NDAsImp0aSI6ImFjdF8wMWt5Y210and0YXRrOThoenBwcnNqZTlqZiIsImNvbnNlbnRfc3RhdGUiOnsidHJhaW5pbmciOmZhbHNlfSwibGVnYWxfYmFzaXMiOiJjb25zZW50Iiwic291cmNlIjoiZ3BjIiwicHJvdmlkZXIiOiJvcGVuYWkiLCJtb2RlbCI6ImdwdC00byIsInJlcXVlc3RfaGFzaCI6InNoYTI1NjphYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiIiwibm9uY2UiOiI0Skpyc09HWXZQUW9IQ1JLZFRJNVVBPT0iLCJiaW5kaW5nIjoidXNlcl9pZCJ9.TH6Tjd6IDYJnmEZVtKsfEeW689NjnTrJq-Xu1TKvNV_tlfVPAsrM1SOwpBXr4mDlybr0DclqL3GZDglqobixVQ",
+      "options": {
+        "allow_test_issuer": true
+      },
+      "expect": "valid",
+      "why": "The same token, when the caller opts in on purpose."
+    },
+    {
+      "name": "foreign_issuer",
+      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6ImFjdC0yMDI2cTMiLCJ0eXAiOiJhY3Qrand0In0.eyJpc3MiOiJldmlsLmV4YW1wbGUiLCJzdWIiOiJwc3VfMTg2MGU5NjdmNjM0ZWY3ZTZkNjQ1ZjQ5NTY3YTVmYWMiLCJhcHBfaWQiOiJhcHBfbWVkaGVscCIsImlhdCI6MTc5OTk5OTk0MCwiZXhwIjoxODAwMDAzNTQwLCJqdGkiOiJhY3RfMDFreWNtdGp3dGF0azk4aHpwcHJzamU5amYiLCJjb25zZW50X3N0YXRlIjp7InRyYWluaW5nIjpmYWxzZX0sImxlZ2FsX2Jhc2lzIjoiY29uc2VudCIsInNvdXJjZSI6ImdwYyIsInByb3ZpZGVyIjoib3BlbmFpIiwibW9kZWwiOiJncHQtNG8iLCJyZXF1ZXN0X2hhc2giOiJzaGEyNTY6YWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYiIsIm5vbmNlIjoiNEpKcnNPR1l2UFFvSENSS2RUSTVVQT09IiwiYmluZGluZyI6InVzZXJfaWQifQ.KfZJB21aS_yi4SzdGqOvEuTWZUfI7AlPargfxddPgTa5UjxWNQYBXMW4qr3KEmS02GsRKMwlu14M8xcQMaJctQ",
+      "options": {},
+      "expect": "ActIssuerError",
+      "why": "Signed by our key but claiming another issuer."
+    },
+    {
+      "name": "binding_mismatch_request_hash",
+      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6ImFjdC0yMDI2cTMiLCJ0eXAiOiJhY3Qrand0In0.eyJpc3MiOiJpZHNpZGUuZXUiLCJzdWIiOiJwc3VfMTg2MGU5NjdmNjM0ZWY3ZTZkNjQ1ZjQ5NTY3YTVmYWMiLCJhcHBfaWQiOiJhcHBfbWVkaGVscCIsImlhdCI6MTc5OTk5OTk0MCwiZXhwIjoxODAwMDAzNTQwLCJqdGkiOiJhY3RfMDFreWNtdGp3dGF0azk4aHpwcHJzamU5amYiLCJjb25zZW50X3N0YXRlIjp7InRyYWluaW5nIjpmYWxzZX0sImxlZ2FsX2Jhc2lzIjoiY29uc2VudCIsInNvdXJjZSI6ImdwYyIsInByb3ZpZGVyIjoib3BlbmFpIiwibW9kZWwiOiJncHQtNG8iLCJyZXF1ZXN0X2hhc2giOiJzaGEyNTY6YWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYiIsIm5vbmNlIjoiNEpKcnNPR1l2UFFvSENSS2RUSTVVQT09IiwiYmluZGluZyI6InVzZXJfaWQifQ.MFl3ePOMKqKkroSeaCTtMqczpUUYtR_l0bp9YOKd8-HnpwqsTrrGihC7gHfM1wgV1tG26TnIdG8IA6imk207sg",
+      "options": {
+        "request_hash": "sha256:cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+      },
+      "expect": "ActBindingMismatchError",
+      "why": "A perfectly signed token, attached to a different request than the one audited."
+    },
+    {
+      "name": "binding_mismatch_app",
+      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6ImFjdC0yMDI2cTMiLCJ0eXAiOiJhY3Qrand0In0.eyJpc3MiOiJpZHNpZGUuZXUiLCJzdWIiOiJwc3VfMTg2MGU5NjdmNjM0ZWY3ZTZkNjQ1ZjQ5NTY3YTVmYWMiLCJhcHBfaWQiOiJhcHBfbWVkaGVscCIsImlhdCI6MTc5OTk5OTk0MCwiZXhwIjoxODAwMDAzNTQwLCJqdGkiOiJhY3RfMDFreWNtdGp3dGF0azk4aHpwcHJzamU5amYiLCJjb25zZW50X3N0YXRlIjp7InRyYWluaW5nIjpmYWxzZX0sImxlZ2FsX2Jhc2lzIjoiY29uc2VudCIsInNvdXJjZSI6ImdwYyIsInByb3ZpZGVyIjoib3BlbmFpIiwibW9kZWwiOiJncHQtNG8iLCJyZXF1ZXN0X2hhc2giOiJzaGEyNTY6YWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYiIsIm5vbmNlIjoiNEpKcnNPR1l2UFFvSENSS2RUSTVVQT09IiwiYmluZGluZyI6InVzZXJfaWQifQ.ah-pU20z5kalNnAU5LZiujSZHmfbAdjbM_oD9vIaAIDNtbEyQe16EJfShAQOri0Fpw_4B8q_Gib1tEduFFSlOA",
+      "options": {
+        "app_id": "app_somebody_else"
+      },
+      "expect": "ActBindingMismatchError",
+      "why": "The proof belongs to another application."
+    },
+    {
+      "name": "two_segments",
+      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6ImFjdC0yMDI2cTMiLCJ0eXAiOiJhY3Qrand0In0.eyJpc3MiOiJpZHNpZGUuZXUiLCJzdWIiOiJwc3VfMTg2MGU5NjdmNjM0ZWY3ZTZkNjQ1ZjQ5NTY3YTVmYWMiLCJhcHBfaWQiOiJhcHBfbWVkaGVscCIsImlhdCI6MTc5OTk5OTk0MCwiZXhwIjoxODAwMDAzNTQwLCJqdGkiOiJhY3RfMDFreWNtdGp3dGF0azk4aHpwcHJzamU5amYiLCJjb25zZW50X3N0YXRlIjp7InRyYWluaW5nIjpmYWxzZX0sImxlZ2FsX2Jhc2lzIjoiY29uc2VudCIsInNvdXJjZSI6ImdwYyIsInByb3ZpZGVyIjoib3BlbmFpIiwibW9kZWwiOiJncHQtNG8iLCJyZXF1ZXN0X2hhc2giOiJzaGEyNTY6YWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYiIsIm5vbmNlIjoiNEpKcnNPR1l2UFFvSENSS2RUSTVVQT09IiwiYmluZGluZyI6InVzZXJfaWQifQ",
+      "options": {},
+      "expect": "ActMalformedError",
+      "why": "Not a compact JWS at all."
+    },
+    {
+      "name": "padded_base64",
+      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6ImFjdC0yMDI2cTMiLCJ0eXAiOiJhY3Qrand0In0.eyJpc3MiOiJpZHNpZGUuZXUiLCJzdWIiOiJwc3VfMTg2MGU5NjdmNjM0ZWY3ZTZkNjQ1ZjQ5NTY3YTVmYWMiLCJhcHBfaWQiOiJhcHBfbWVkaGVscCIsImlhdCI6MTc5OTk5OTk0MCwiZXhwIjoxODAwMDAzNTQwLCJqdGkiOiJhY3RfMDFreWNtdGp3dGF0azk4aHpwcHJzamU5amYiLCJjb25zZW50X3N0YXRlIjp7InRyYWluaW5nIjpmYWxzZX0sImxlZ2FsX2Jhc2lzIjoiY29uc2VudCIsInNvdXJjZSI6ImdwYyIsInByb3ZpZGVyIjoib3BlbmFpIiwibW9kZWwiOiJncHQtNG8iLCJyZXF1ZXN0X2hhc2giOiJzaGEyNTY6YWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYiIsIm5vbmNlIjoiNEpKcnNPR1l2UFFvSENSS2RUSTVVQT09IiwiYmluZGluZyI6InVzZXJfaWQifQ==.dnB5qEU2L1LbXD0NmGe4g2TSOWCH4-66ROv68QNxfOy0u8-y62z7GyY-BcYPCd6Pbud3F9DCnbvTLAHQ6eGugQ",
+      "options": {},
+      "expect": "ActMalformedError",
+      "why": "Standard base64 padding where base64url is required. Strict decoding, no coercion."
+    },
+    {
+      "name": "empty_signature",
+      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6ImFjdC0yMDI2cTMiLCJ0eXAiOiJhY3Qrand0In0.eyJpc3MiOiJpZHNpZGUuZXUiLCJzdWIiOiJwc3VfMTg2MGU5NjdmNjM0ZWY3ZTZkNjQ1ZjQ5NTY3YTVmYWMiLCJhcHBfaWQiOiJhcHBfbWVkaGVscCIsImlhdCI6MTc5OTk5OTk0MCwiZXhwIjoxODAwMDAzNTQwLCJqdGkiOiJhY3RfMDFreWNtdGp3dGF0azk4aHpwcHJzamU5amYiLCJjb25zZW50X3N0YXRlIjp7InRyYWluaW5nIjpmYWxzZX0sImxlZ2FsX2Jhc2lzIjoiY29uc2VudCIsInNvdXJjZSI6ImdwYyIsInByb3ZpZGVyIjoib3BlbmFpIiwibW9kZWwiOiJncHQtNG8iLCJyZXF1ZXN0X2hhc2giOiJzaGEyNTY6YWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYiIsIm5vbmNlIjoiNEpKcnNPR1l2UFFvSENSS2RUSTVVQT09IiwiYmluZGluZyI6InVzZXJfaWQifQ.",
+      "options": {},
+      "expect": "ActSignatureError",
+      "why": "A signature segment that has been stripped. Both SDKs report a failed signature rather than a malformed token, and that is the accurate verdict: an `alg: none` forgery that gets its `alg` right arrives in exactly this shape, so it belongs in the same bucket as a tampered payload and a foreign key \u2014 where an incident reviewer wants it. `ActMalformedError` would read as \"bad input, check your transport\" and mislead."
+    },
+    {
+      "name": "missing_claims",
+      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6ImFjdC0yMDI2cTMiLCJ0eXAiOiJhY3Qrand0In0.eyJpc3MiOiJpZHNpZGUuZXUiLCJleHAiOjE4MDAwMDA2MDB9.GN5rttDtviGvkfvXHyFe45qTGw5WTDtpIVq5wtGfeZet1e7wUdNb7EXQIrl6Fg37Z7vNEpEgYta_oXiB8hMHng",
+      "options": {},
+      "expect": "ActMalformedError",
+      "why": "A token missing the claims an ACT is required to carry."
+    },
+    {
+      "name": "non_canonical_base64url",
+      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6ImFjdC0yMDI2cTMiLCJ0eXAiOiJhY3Qrand0In0.eyJpc3MiOiJpZHNpZGUuZXUiLCJzdWIiOiJwc3VfMTg2MGU5NjdmNjM0ZWY3ZTZkNjQ1ZjQ5NTY3YTVmYWMiLCJhcHBfaWQiOiJhcHBfbWVkaGVscCIsImlhdCI6MTc5OTk5OTk0MCwiZXhwIjoxODAwMDAzNTQwLCJqdGkiOiJhY3RfMDFreWNtdGp3dGF0azk4aHpwcHJzamU5amYiLCJjb25zZW50X3N0YXRlIjp7InRyYWluaW5nIjpmYWxzZX0sImxlZ2FsX2Jhc2lzIjoiY29uc2VudCIsInNvdXJjZSI6ImdwYyIsInByb3ZpZGVyIjoib3BlbmFpIiwibW9kZWwiOiJncHQtNG8iLCJyZXF1ZXN0X2hhc2giOiJzaGEyNTY6YWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYiIsIm5vbmNlIjoiNEpKcnNPR1l2UFFvSENSS2RUSTVVQT09IiwiYmluZGluZyI6InVzZXJfaWQifR.GmD2MvcLTAwQhIpq3mYYZzthg5GgDiYATrYLYe5_6-4Fsuyz336r6R_LjruYEXJJpGNNjUTiZOasSeoNoFAKGA",
+      "options": {},
+      "expect": "ActMalformedError",
+      "why": "The payload segment's last character sets bits that base64url decoding discards, so two different strings decode to the same bytes. A lax decoder would hand the two of them the same claims while the signature covers only one, which is how a token gets to mean different things to different readers. Rejected as malformed, before any crypto is spent."
+    },
+    {
+      "name": "key_set_carrying_private_material",
+      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6ImFjdC0yMDI2cTMiLCJ0eXAiOiJhY3Qrand0In0.eyJpc3MiOiJpZHNpZGUuZXUiLCJzdWIiOiJwc3VfMTg2MGU5NjdmNjM0ZWY3ZTZkNjQ1ZjQ5NTY3YTVmYWMiLCJhcHBfaWQiOiJhcHBfbWVkaGVscCIsImlhdCI6MTc5OTk5OTk0MCwiZXhwIjoxODAwMDAzNTQwLCJqdGkiOiJhY3RfMDFreWNtdGp3dGF0azk4aHpwcHJzamU5amYiLCJjb25zZW50X3N0YXRlIjp7InRyYWluaW5nIjpmYWxzZX0sImxlZ2FsX2Jhc2lzIjoiY29uc2VudCIsInNvdXJjZSI6ImdwYyIsInByb3ZpZGVyIjoib3BlbmFpIiwibW9kZWwiOiJncHQtNG8iLCJyZXF1ZXN0X2hhc2giOiJzaGEyNTY6YWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYiIsIm5vbmNlIjoiNEpKcnNPR1l2UFFvSENSS2RUSTVVQT09IiwiYmluZGluZyI6InVzZXJfaWQifQ.GmD2MvcLTAwQhIpq3mYYZzthg5GgDiYATrYLYe5_6-4Fsuyz336r6R_LjruYEXJJpGNNjUTiZOasSeoNoFAKGA",
+      "options": {},
+      "jwks": {
+        "keys": [
+          {
+            "kty": "EC",
+            "crv": "P-256",
+            "x": "iQvmXeVRSAnL6_lDdJiIiB0e2jMyE9f49QmmUvoHgMA",
+            "y": "Oi80ZmZI0R5DCOmc0BMu--RnZXMUqede3-f9h7sJs6M",
+            "kid": "act-2026q3",
+            "use": "sig",
+            "alg": "ES256",
+            "d": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA"
+          }
+        ]
+      },
+      "expect": "ActPrivateKeyInKeySetError",
+      "why": "The token is perfectly valid; the KEY SET is not. `d` is the EC private scalar, and its presence in verification material means either a signing key was published by mistake or the set was poisoned. This gets its own class rather than reusing the key-lookup error, because the remediations are opposites: a missing `kid` says 'refresh the JWKS, it may have rotated', while a leaked key says 'rotate now, and do NOT retry' \u2014 a caller whose handler refreshes and retries would loop against a poisoned key set during the exact incident it should be escalating. Must not inherit from ActKeyNotFoundError, or that handler catches it anyway. The `jwks` on this case overrides the file-level one."
+    },
+    {
+      "name": "valid_with_refused_by",
+      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6ImFjdC12ZWN0b3ItcmVmdXNlZC1ieSIsInR5cCI6ImFjdCtqd3QifQ.eyJpc3MiOiJpZHNpZGUuZXUiLCJzdWIiOiJwc3VfMTg2MGU5NjdmNjM0ZWY3ZTZkNjQ1ZjQ5NTY3YTVmYWMiLCJhcHBfaWQiOiJhcHBfbWVkaGVscCIsImlhdCI6MTc5OTk5OTk0MCwiZXhwIjoxODAwMDAzNTQwLCJqdGkiOiJhY3RfMDFrejByZWZ1c2VkYnl2ZWN0b3IwMDAwMCIsImNvbnNlbnRfc3RhdGUiOnsidHJhaW5pbmciOmZhbHNlLCJhZ2VudGljX3Rvb2xzIjpmYWxzZSwibWVtb3J5IjpmYWxzZSwicmV0ZW50aW9uLmZpbGVzIjpmYWxzZX0sImxlZ2FsX2Jhc2lzIjoiY29uc2VudCIsInNvdXJjZSI6IndpZGdldCIsInByb3ZpZGVyIjoib3BlbmFpIiwibW9kZWwiOiJncHQtNG8iLCJyZXF1ZXN0X2hhc2giOiJzaGEyNTY6YWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYiIsIm5vbmNlIjoiNEpKcnNPR1l2UFFvSENSS2RUSTVVQT09IiwiYmluZGluZyI6InVidCIsIm1vZGUiOiJsaXZlIiwicmVmdXNlZF9ieSI6eyJhZ2VudGljX3Rvb2xzIjpbInBlcnNvbiIsIm9yZ2FuaXphdGlvbiJdLCJtZW1vcnkiOlsic2lsZW5jZSJdLCJyZXRlbnRpb24uZmlsZXMiOlsic2lsZW5jZSIsImFwcCJdfX0.Qoob6WGFk2TMcgvecg_fVQw_PsjEB85v9j3XWXSgyGjltbT67VYykRG1PnpuqDzmzUDWTeGb9vNV1UVKBFuX9w",
+      "options": {},
+      "jwks": {
+        "keys": [
+          {
+            "kty": "EC",
+            "crv": "P-256",
+            "x": "MkwjjEJNE8ynXZ02-mciIXWXFbEOjiOsUp6UbtF0DWY",
+            "y": "VvRhyD1z9xrw4lB8rdYNZTpA2T_Dc4D1ImqI9wdzHSo",
+            "kid": "act-vector-refused-by",
+            "use": "sig",
+            "alg": "ES256"
+          }
+        ]
+      },
+      "claims": {
+        "refused_by": {
+          "agentic_tools": ["person", "organization"],
+          "memory": ["silence"],
+          "retention.files": ["silence", "app"]
+        }
+      },
+      "expect": "valid",
+      "why": "A token carrying `refused_by` \u2014 an object of arrays, the first nested claim besides `consent_state`. A verifier keeps a claim it does not name without examining it, so the token verifies, and `claims[\"refused_by\"]` comes back exactly as signed."
+    }
+  ]
+}

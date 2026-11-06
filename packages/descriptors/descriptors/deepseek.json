@@ -1,0 +1,108 @@
+{
+  "descriptor_version": "2",
+  "name": "deepseek",
+  "client_module": "openai",
+  "client_base_url_hosts": [
+    "api.deepseek.com"
+  ],
+  "call_sites": [
+    {
+      "id": "chat.completions.create",
+      "path": [
+        "chat",
+        "completions",
+        "create"
+      ],
+      "aliases": [
+        "parse",
+        "stream"
+      ],
+      "forceable_params": [],
+      "tool_fields": [
+        {
+          "path": [
+            "functions"
+          ],
+          "kind": "definitions",
+          "note": "The legacy form of `tools`: function definitions the model may call. Deprecated, still accepted."
+        },
+        {
+          "path": [
+            "web_search_options"
+          ],
+          "kind": "enabler",
+          "note": "Switches hosted web search on without any `tools` key: an empty object is enough."
+        }
+      ],
+      "note": "DeepSeek is reached through the `openai` client against a different base URL, so this endpoint has the OpenAI client's signature and none of OpenAI's server behaviour. That is exactly the trap: `store` is in the signature and would be accepted by the client, but nothing says the DeepSeek server honours it, and a signature test would 'prove' it does. So this list is empty until a live request says otherwise. There is no Responses API here. `stream` is aliased for the same reason it is on the OpenAI descriptor: it is literally the same client method, and the trap would be the same."
+    }
+  ],
+  "identity_param": "user_id",
+  "ubt_param": "ubt",
+  "token_header": "X-AI-Consent-Token",
+  "param_target": "kwargs",
+  "protected_params": [
+    "model",
+    "messages",
+    "stream"
+  ],
+  "tools_param": [
+    "tools"
+  ],
+  "reserved_headers": [
+    "Authorization",
+    "OpenAI-Organization",
+    "OpenAI-Project"
+  ],
+  "notes": "OpenAI-compatible: the same Python/JS client, pointed at api.deepseek.com. Auto-detection therefore cannot use the client class — an `OpenAI` instance is an `OpenAI` instance — and matches on the base URL host instead. Getting that wrong would send DeepSeek calls to OpenAI's registry rules.",
+  "forceable_params": [],
+  "forceable_params_note": "VERIFIED LIVE 2026-07-26, and the answer is worse than the unknown it replaces: DeepSeek ACCEPTS unknown body fields and SILENTLY DISCARDS them. `store: false` returns 200 and changes nothing, while a KNOWN field of the wrong type (`temperature: \"hot\"`) is refused with 400 — so the server has no unknown-field tier at all. Nothing is declared forceable, and now for a stated reason rather than for want of evidence. The usual signature check is meaningless here: the client is OpenAI's, so it accepts `store` whatever the DeepSeek server does with it, and an offline test would have 'proved' the parameter works. That is the Gemini bug wearing a different hat, and it is why a live suite exists.",
+  "enforcement": {
+    "training.foundation": {
+      "level": "unsupported",
+      "note": "The terms reserve the right to use API inputs and outputs to train and improve the models, and no request parameter or account setting removes it. There is nothing to force and nothing to promise — which is itself the finding a DPO needs."
+    },
+    "training.personalisation": {
+      "level": "unsupported",
+      "note": "Same clause, no lever."
+    },
+    "training.analytics": {
+      "level": "unsupported",
+      "note": "Same clause, no lever."
+    },
+    "memory": {
+      "level": "absent",
+      "note": "Not an API capability. `absent` for that reason: the API has no memory for a refusal to switch off."
+    },
+    "agentic_tools": {
+      "level": "enforced",
+      "mechanism": "refuse_or_strip_tools",
+      "note": "ENFORCED by the SDK, not by a parameter — and the only thing on this list that is. It works here for the same reason it works everywhere: the SDK sees the outgoing request and can refuse it. Note the shape of that: the one control we can offer a DeepSeek user is the one we built ourselves."
+    },
+    "data_residency": {
+      "level": "unsupported",
+      "note": "Data is processed in the People's Republic of China, with no regional endpoint and no parameter. For a GDPR deployment the honest recommendation is not to call api.deepseek.com at all: self-host the open weights, or use a Western host (Bedrock, Together, Fireworks), which is a different provider and gets its own descriptor. This descriptor exists so that an app doing it anyway is at least measured and journalled."
+    },
+    "retention.conversation": {
+      "level": "unsupported",
+      "note": "No `store` equivalent is documented, and the client's `store` parameter is OpenAI's, not DeepSeek's. Settled live on 2026-07-26: sending it returns 200 and does nothing — see `forceable_params_note`. Accepted and discarded is the one result that would let a false `enforced` survive testing, so it is written down here rather than left implied."
+    },
+    "retention.cache": {
+      "level": "unsupported",
+      "note": "Context caching is automatic and billed as a discount; it is not addressable per request."
+    },
+    "location": {
+      "level": "unsupported",
+      "note": "Not exposed as a request parameter."
+    },
+    "human_review": {
+      "level": "unsupported",
+      "note": "No documented commitment either way, which is not the same as a commitment. DeepSeek's Privacy Policy says it monitors interactions to improve its services and that support and safety-monitoring service providers access personal data on its behalf; neither it nor the Open Platform Terms of Service says whether people read API inputs. Refusing here changes nothing. Checked on 2026-10-12 against DeepSeek's Privacy Policy and Open Platform Terms of Service."
+    },
+    "retention.files": {
+      "level": "unsupported",
+      "note": "No per-request file expiry control on the endpoint this descriptor wraps."
+    }
+  },
+  "enforcement_verified_at": "2026-07-26"
+}

@@ -1,0 +1,9 @@
+# LICENSE is pinned byte for byte by scripts/check_licence_claims.sh, and NOTICE
+# must stay byte-identical to its two package copies. A checkout that converted
+# their line endings would change the bytes a release packs while leaving the
+# repository's copy untouched, so neither is left to core.autocrlf.
+#
+# A pattern without a slash matches at every level of the tree, so these two
+# lines also cover packages/python/ and packages/node/.
+LICENSE text eol=lf
+NOTICE  text eol=lf

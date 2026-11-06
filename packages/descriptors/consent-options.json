@@ -1,0 +1,207 @@
+{
+  "catalogue_version": "2",
+  "title": "ID Side consent option catalogue",
+  "notes": "The single source of truth for what an end user can be asked. Every SDK, the widget, the provider registry and the ACT token spec read their vocabulary from here. Options are grouped by PURPOSE, not by provider: a person decides what may be done with their data, not which vendor may do it. The provider descriptors then declare, option by option, whether they can enforce that choice technically, only contractually, or not at all — see `enforcement` in each descriptor. Defaults are conservative everywhere: an option nobody has answered is treated as refused.",
+  "why_purposes_not_a_single_flag": "Providers bundle different processing purposes under one switch and label them differently ('improve the model', 'improve our services', 'personalised experience'). DeepSeek merges training with general service improvement so indistinguishably that a user cannot consent to one without the other. A single boolean cannot express a refusal whose scope differs per provider, and GDPR Article 5(1)(b) purpose limitation is exactly about not doing that.",
+  "options": [
+    {
+      "name": "training.foundation",
+      "group": "training",
+      "label_en": "Train general AI models on my conversations",
+      "label_fr": "Entraîner les modèles d'IA généraux sur mes conversations",
+      "description_en": "Your prompts and the answers you receive may be used to train the provider's general-purpose models, which serve every other user.",
+      "description_fr": "Vos requêtes et les réponses reçues peuvent servir à entraîner les modèles généraux du fournisseur, qui servent à tous les autres utilisateurs.",
+      "default": false,
+      "legal_basis": "consent",
+      "gdpr": "Art. 6(1)(a); purpose limitation Art. 5(1)(b)",
+      "rationale": "The highest-stakes choice across every provider, and the one handled most inconsistently."
+    },
+    {
+      "name": "training.personalisation",
+      "group": "training",
+      "label_en": "Personalise my experience from my history",
+      "label_fr": "Personnaliser mon expérience à partir de mon historique",
+      "description_en": "Your data may be used to tailor answers to you specifically. This does not feed the general models.",
+      "description_fr": "Vos données peuvent servir à adapter les réponses à vous spécifiquement. Cela n'alimente pas les modèles généraux.",
+      "default": false,
+      "legal_basis": "consent",
+      "gdpr": "Art. 6(1)(a); profiling Art. 22 where decisions follow"
+    },
+    {
+      "name": "training.analytics",
+      "group": "training",
+      "label_en": "Aggregated statistics to improve the service",
+      "label_fr": "Statistiques agrégées pour améliorer le service",
+      "description_en": "Anonymous, aggregated measurements. No individual content is retained.",
+      "description_fr": "Mesures agrégées et anonymes. Aucun contenu individuel n'est conservé.",
+      "default": false,
+      "legal_basis": "legitimate_interest",
+      "gdpr": "Art. 6(1)(f), balancing test required",
+      "rationale": "Separated out precisely because providers bundle it with foundation training; a user who refuses model training has not necessarily refused this."
+    },
+    {
+      "name": "memory",
+      "group": "profiling",
+      "label_en": "Remember me between conversations",
+      "label_fr": "Se souvenir de moi d'une conversation à l'autre",
+      "description_en": "The assistant keeps a persistent memory of you across sessions.",
+      "description_fr": "L'assistant conserve une mémoire persistante de vous d'une session à l'autre.",
+      "default": false,
+      "legal_basis": "consent",
+      "gdpr": "Art. 6(1)(a); Art. 9 if special categories are inferred",
+      "rationale": "Structurally the highest re-identification risk in the AI context: enabling memory creates a behavioural profile anchored to an identified account."
+    },
+    {
+      "name": "agentic_tools",
+      "group": "agentic",
+      "label_en": "Let the AI use tools that store my data elsewhere",
+      "label_fr": "Autoriser l'IA à utiliser des outils qui stockent mes données ailleurs",
+      "description_en": "Web search, code execution, file stores, connectors and autonomous agents. These bring retention back in even when everything else is switched off.",
+      "description_fr": "Recherche web, exécution de code, stockage de fichiers, connecteurs et agents autonomes. Ils réintroduisent de la conservation même quand tout le reste est désactivé.",
+      "default": false,
+      "legal_basis": "consent",
+      "gdpr": "Art. 6(1)(a); Art. 28 where the tool is a processor",
+      "rationale": "THE per-request lever. Providers publish per-feature retention eligibility (code execution, Files, Batch, MCP servers are all excluded from zero-retention arrangements) and do not block their use — using them is the choice. The SDK sees `tools` on the call, so this is the one axis it can genuinely enforce everywhere."
+    },
+    {
+      "name": "data_residency",
+      "group": "location",
+      "label_en": "Keep processing inside my region",
+      "label_fr": "Garder le traitement dans ma région",
+      "description_en": "Where the AI actually runs. Refusing regional processing may mean your data is handled outside your jurisdiction.",
+      "description_fr": "Où l'IA s'exécute réellement. Renoncer au traitement régional peut signifier que vos données sont traitées hors de votre juridiction.",
+      "default": false,
+      "legal_basis": "consent",
+      "gdpr": "Chapter V — international transfers",
+      "rationale": "No provider forces it per request. Anthropic's `inference_geo` is a real body parameter, but its two settings (`global`, `us`) answer 'inside my region' for nobody whose region we know, and we never learn one — `location` is unsupported everywhere on purpose. OpenAI chooses residency by domain (eu./gb./ca.…), which is a property of the credential, not of the call. It stays its own option because it is `routable`: a developer holding one credential per region can have the SDK send each user's calls to the matching one — and because the SDK can read the base URL and record which region a call actually ran in."
+    },
+    {
+      "name": "retention.conversation",
+      "group": "retention",
+      "label_en": "Store my conversations on the provider's servers",
+      "label_fr": "Conserver mes conversations sur les serveurs du fournisseur",
+      "description_en": "Server-side history so the assistant can resume where you left off. Note: no provider offers absolute zero — content flagged by trust & safety is retained regardless (up to 2 years at one provider).",
+      "description_fr": "Historique côté serveur, pour reprendre une conversation là où elle s'est arrêtée. À noter : aucun fournisseur n'offre le zéro absolu — un contenu signalé par leurs systèmes de sécurité est conservé quoi qu'il arrive (jusqu'à 2 ans chez l'un d'eux).",
+      "default": false,
+      "legal_basis": "consent",
+      "gdpr": "Art. 5(1)(e) storage limitation",
+      "rationale": "The most widely available request-level control: OpenAI `store`, Mistral `store` on /v1/conversations, Gemini `store` on the Interactions API, xAI `store_messages`."
+    },
+    {
+      "name": "retention.cache",
+      "group": "retention",
+      "label_en": "Keep my prompts in a fast cache",
+      "label_fr": "Garder mes requêtes dans un cache rapide",
+      "description_en": "Prompts are cached to speed up and cheapen repeated calls, typically for up to 24 hours. Note: no provider offers absolute zero — content flagged by trust & safety is retained regardless (up to 2 years at one provider).",
+      "description_fr": "Les requêtes sont mises en cache pour accélérer et réduire le coût des appels répétés, généralement jusqu'à 24 heures. À noter : aucun fournisseur n'offre le zéro absolu — un contenu signalé par leurs systèmes de sécurité est conservé quoi qu'il arrive (jusqu'à 2 ans chez l'un d'eux).",
+      "default": false,
+      "legal_basis": "consent",
+      "gdpr": "Art. 5(1)(e)",
+      "rationale": "Separated from conversation storage because the levers differ (OpenAI prompt_cache_options.ttl, Vertex project cacheConfig) and a user may reasonably accept one and not the other."
+    },
+    {
+      "name": "retention.files",
+      "group": "retention",
+      "label_en": "Keep files I upload on the provider's servers",
+      "label_fr": "Conserver sur les serveurs du fournisseur les fichiers que j'envoie",
+      "description_en": "Documents and images sent to the AI are stored until deleted. Note: no provider offers absolute zero — content flagged by trust & safety is retained regardless.",
+      "description_fr": "Les documents et images envoyés à l'IA sont conservés jusqu'à suppression. À noter : aucun fournisseur n'offre le zéro absolu — un contenu signalé par leurs systèmes de sécurité est conservé quoi qu'il arrive.",
+      "default": false,
+      "legal_basis": "consent",
+      "gdpr": "Art. 5(1)(e) storage limitation",
+      "rationale": "Uploaded files outlive the conversation that carried them, and are excluded from zero-retention arrangements at every provider that offers one. OpenAI exposes `expires_after` per upload and on vector stores — where the file's CONTENT lives, chunked and indexed — and Mistral exposes `expiry` and `visibility`; all of them on endpoints the SDK does not yet wrap."
+    },
+    {
+      "name": "location",
+      "group": "collection",
+      "label_en": "Use my approximate location",
+      "label_fr": "Utiliser ma localisation approximative",
+      "description_en": "City or region level, inferred or declared, used to adapt answers.",
+      "description_fr": "Au niveau de la ville ou de la région, déduite ou déclarée, pour adapter les réponses.",
+      "default": false,
+      "legal_basis": "consent",
+      "gdpr": "Art. 6(1)(a)",
+      "rationale": "No provider lets a request refuse it. The endpoint-by-endpoint check of 2026-07-26 found no location parameter a request could refuse at any of the five providers with a descriptor here. The pinned OpenAI client does carry one an application declares — `user_location`, in `web_search_options` on chat completions and on the `web_search` tool of Responses — and a refusal of `location` alone reaches nothing there: a user who refuses `agentic_tools` loses the web search, and the declared location with it. So there is no parameter for an SDK to force or route. It stays because it remains a real question at the APPLICATION layer — an app that collects a user's city and puts it in the prompt, or in a web-search tool, is doing exactly what this asks about — but the honest reading is that only the developer's own code can honour it, and every descriptor says `unsupported` for that reason rather than for want of looking."
+    },
+    {
+      "name": "human_review",
+      "group": "collection",
+      "label_en": "Allow humans to review my conversations",
+      "label_fr": "Autoriser la relecture humaine de mes conversations",
+      "description_en": "Provider staff or contractors may read your exchanges, typically for quality or safety.",
+      "description_fr": "Des employés ou prestataires du fournisseur peuvent lire vos échanges, généralement pour la qualité ou la sécurité.",
+      "default": false,
+      "legal_basis": "consent",
+      "gdpr": "Art. 6(1)(a); Art. 9 for special categories",
+      "rationale": "Consistently the control users are most surprised to learn exists."
+    }
+  ],
+  "groups": [
+    {
+      "name": "training",
+      "label_en": "How my data trains AI",
+      "label_fr": "Comment mes données entraînent l'IA"
+    },
+    {
+      "name": "profiling",
+      "label_en": "What is remembered about me",
+      "label_fr": "Ce qui est mémorisé sur moi"
+    },
+    {
+      "name": "agentic",
+      "label_en": "What connected apps and agents may do",
+      "label_fr": "Ce que les applications et agents connectés peuvent faire"
+    },
+    {
+      "name": "retention",
+      "label_en": "How long it is kept",
+      "label_fr": "Combien de temps c'est conservé"
+    },
+    {
+      "name": "collection",
+      "label_en": "What is collected about me",
+      "label_fr": "Ce qui est collecté sur moi"
+    },
+    {
+      "name": "location",
+      "label_en": "Where my data is processed",
+      "label_fr": "Où mes données sont traitées"
+    }
+  ],
+  "enforcement_levels": {
+    "enforced": "A real request parameter the SDK sets. The provider's API accepts it and it changes behaviour. The only level that is technically guaranteed.",
+    "contractual": "No request parameter exists; the provider's written terms govern it. Which way they decide is the entry's `protective`: `true` where they rule the processing out for every call, `false` where they allow it, impose it or leave it to the developer's organization — and only the first is a guarantee to the user. The ACT token is the proof that the choice was collected and transmitted, not the mechanism that applies it.",
+    "account": "Settable, but only in the provider's account or console — outside the API, so the SDK cannot apply it per request. Must be surfaced honestly to the developer. Marked `routable` when the developer can provision one credential per posture and let the SDK choose between them per request — which turns it back into a genuine per-user control.",
+    "absent": "The provider does not perform this processing on the API this descriptor wraps, so there is nothing to refuse: the answer changes nothing because nothing would have happened. Said only where the descriptor's note states why the wrapped API performs no such processing, and `unsupported` otherwise. What an application builds on its side with the same data is its own processing, which no descriptor describes.",
+    "unsupported": "This descriptor knows no way to honour this choice on the endpoints it wraps — no request parameter, written commitment or account setting — and nothing establishes that the processing is absent. Saying so plainly is worth more to a DPO than pretending otherwise."
+  },
+  "legacy_mapping": {
+    "training": {
+      "maps_to": [
+        "training.foundation",
+        "training.personalisation",
+        "training.analytics"
+      ],
+      "note": "The original single boolean. `training: false` migrates to false on all three — the most protective reading, never a widening of what was consented to."
+    },
+    "connectors": {
+      "maps_to": [
+        "agentic_tools"
+      ],
+      "note": "Renamed and widened: the risk is not the connector, it is any tool that persists data outside the conversation."
+    },
+    "retention.extended": {
+      "maps_to": [
+        "retention.conversation",
+        "retention.cache"
+      ],
+      "note": "Split, because the levers differ per provider and a user may accept one and refuse the other. Migrates to refusal on both."
+    }
+  },
+  "hard_truths": {
+    "no_absolute_zero": "Content flagged by trust & safety survives every zero-retention arrangement (up to 2 years at one provider; CSAM detections and abuse logs elsewhere). No option here may be worded as an absolute.",
+    "tools_reintroduce_retention": "Agentic tools are excluded from zero-retention arrangements at every provider that offers one, and the APIs do not block them — using one is the choice. This is why `agentic_tools` is a per-request option and not an account setting.",
+    "contracts_are_the_real_guardrail": "A DPA plus a retention amendment is what binds a provider. Request parameters only stop the application from contradicting the contract it signed. Say this plainly rather than implying the parameters are the protection."
+  },
+  "credential_routing": "An account-level setting applies to every end user of an app at once, so it cannot express one person's choice. Unless the developer provisions SEVERAL credentials with different privacy postures: the SDK then selects the credential matching each user's answer, and the account-level control becomes a per-user one. This is the only way training opt-out can ever be honoured per user, because no provider exposes it as a request parameter."
+}

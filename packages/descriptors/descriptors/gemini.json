@@ -1,0 +1,130 @@
+{
+  "descriptor_version": "2",
+  "name": "gemini",
+  "client_module": "google.genai",
+  "call_sites": [
+    {
+      "id": "models.generate_content",
+      "path": [
+        "models",
+        "generate_content"
+      ],
+      "forceable_params": [],
+      "tool_fields": [
+        {
+          "path": [
+            "config",
+            "cached_content"
+          ],
+          "js_path": [
+            "config",
+            "cachedContent"
+          ],
+          "kind": "enabler",
+          "note": "A cache created server-side may hold `tools` and `tool_config` of its own."
+        }
+      ]
+    },
+    {
+      "id": "models.generate_content_stream",
+      "path": [
+        "models",
+        "generate_content_stream"
+      ],
+      "forceable_params": [],
+      "tool_fields": [
+        {
+          "path": [
+            "config",
+            "cached_content"
+          ],
+          "js_path": [
+            "config",
+            "cachedContent"
+          ],
+          "kind": "enabler",
+          "note": "A cache created server-side may hold `tools` and `tool_config` of its own."
+        }
+      ]
+    }
+  ],
+  "identity_param": "user_id",
+  "ubt_param": "ubt",
+  "token_header": "X-AI-Consent-Token",
+  "param_target": "kwargs",
+  "protected_params": [
+    "model",
+    "contents",
+    "config",
+    "http_options"
+  ],
+  "tools_param": [
+    "config",
+    "tools"
+  ],
+  "reserved_headers": [
+    "x-goog-api-key",
+    "Authorization",
+    "x-goog-user-project"
+  ],
+  "notes": "google-genai's generate_content accepts exactly (model, contents, config) and no free-form kwargs, so the generic kwargs/headers engine cannot inject anything at the top level. Per-request headers ARE supported, but only nested as config.http_options.headers (merged over the client-level headers by the google-genai transport). The Python SDK therefore ships a built-in Gemini adapter that (1) carries the ACT token in config.http_options.headers and (2) merges any cloud-forced params into config, normalizing a GenerateContentConfig object to its dict form when needed. The Gemini API exposes no per-request no-training parameter (retention/training controls are account-level), so the cloud is expected to return params_forced: {} — the enforcement value here is the ACT token and the ledger entry.",
+  "forceable_params": [],
+  "forceable_params_note": "Verified 2026-07-25: `google-genai`'s generate_content() accepts only model/contents/config, and the REST API rejects unknown fields (400). Forcing anything here breaks every call.",
+  "enforcement": {
+    "training.foundation": {
+      "level": "account",
+      "note": "No API-level opt-out. Paid Services: prompts, cached content, files and responses are not used to improve Google products. Unpaid Services: they are, with possible human review — except for a developer in the EEA, Switzerland or the UK, who gets the Paid Services data-use terms on unpaid quota too. The lever is the billing tier, which the developer chooses; any app offered to users in the EEA, Switzerland or the UK may use only Paid Services, so for those users there is no unpaid project to route to. Elsewhere, it can still be honoured per user IF the developer provisions one project per posture — the SDK then routes each call to the one matching that user's answer. See `credential_routing`.",
+      "routable": true
+    },
+    "training.personalisation": {
+      "level": "account",
+      "note": "Same tier dependency. Can still be honoured per user IF the developer provisions one project per posture — the SDK then routes each call to the one matching that user's answer. See `credential_routing`.",
+      "routable": true
+    },
+    "training.analytics": {
+      "level": "account",
+      "note": "Same tier dependency. Can still be honoured per user IF the developer provisions one project per posture — the SDK then routes each call to the one matching that user's answer. See `credential_routing`.",
+      "routable": true
+    },
+    "memory": {
+      "level": "absent",
+      "note": "A Gemini app feature, not an API one. `absent` for that reason: the API has no memory for a refusal to switch off."
+    },
+    "agentic_tools": {
+      "level": "enforced",
+      "mechanism": "refuse_or_strip_tools",
+      "note": "ENFORCED by the SDK, not by a parameter. Every zero-retention arrangement excludes agentic features while the API itself does not block them: a call that hands the model tools falls outside the retention regime the user was promised, and the SDK is the only component that can see it happening, because it is the only one that sees the outgoing request. When the user has refused, the cloud returns a `tools` constraint and the SDK refuses the call (`ToolUseRefusedError`) or strips the tools, per the constraint. Refusing is the default: an agent stripped of its tools does not fail, it answers wrongly, and the developer has no way to know. Note what is NOT sent to us to make this work: nothing. The constraint follows from the consent state alone — we are never told whether a given call carried tools."
+    },
+    "data_residency": {
+      "level": "unsupported",
+      "note": "Not available on the Developer API. Vertex AI offers regional endpoints, VPC-SC and CMEK — a different product this descriptor does not wrap."
+    },
+    "retention.conversation": {
+      "level": "unsupported",
+      "note": "VERIFIED: `generate_content()` accepts only model/contents/config and the REST API rejects unknown fields with HTTP 400, so nothing can be forced on the endpoints wrapped here. That is not the whole picture and the difference matters: `client.interactions` EXISTS in the pinned `google-genai` 2.11.0, its `create` takes a `store` that defaults to TRUE, and it keeps the Interaction object 55 days on a paid tier. A developer migrating to the Interactions API creates 55 days of retention by changing nothing else. So this line means 'the SDK does not reach it yet', not 'Google offers nothing' — the endpoint is refused by the transport guard meanwhile, and adding it as a call site is a backlog card, blocked on the ACT token's route into a client whose adapter nests headers in `config.http_options` while `interactions.create` has no `config` at all. Also: never configure SessionResumptionConfig on the Live API, it retains conversational state for 24h — `client.live` is absent from 2.11.0, so that is a warning for a later client, not a live risk."
+    },
+    "retention.cache": {
+      "level": "account",
+      "note": "Implicit in-memory caching (24h, per project) cannot be disabled per request; on Vertex it is a project-level cacheConfig — that is what makes this account-level. The EXPLICIT cache is a different thing and this line used to obscure it: `caches.create` takes `ttl`, `expire_time` and even `kms_key_name` per call, so a developer who creates caches decides their lifetime. That endpoint is not wrapped, and `cached_content` on a wrapped call points AT such a cache rather than configuring one, so there is nothing to force here. Avoid `cached_content` entirely for a zero footprint. Can still be honoured per user IF the developer provisions one project per posture — the SDK then routes each call to the one matching that user's answer. See `credential_routing`.",
+      "routable": true
+    },
+    "location": {
+      "level": "unsupported",
+      "note": "Not exposed as a request parameter."
+    },
+    "human_review": {
+      "level": "contractual",
+      "protective": false,
+      "note": "No request parameter, and no project setting rules it out: Google's terms decide it, on either billing tier. Google's abuse-monitoring page, which covers the Gemini API and AI Studio, says prompts, contextual information and output are kept 55 days to detect violations of the Prohibited Use Policy, that authorized Google employees may assess what its safety filters and abuse detection flag, and that a project showing consistently suspicious activity may be flagged for manual review. Its zero-retention page names no Developer API control for that logging and points to Vertex AI for guaranteed zero retention. The Unpaid Services terms add routine review: human reviewers may read, annotate and process API input and output to improve Google's products, once it is disconnected from the Google Account, API key and Cloud project — on unpaid quota, and on any dataset a billed project chooses to share with Google from its Gemini API logs. Unpaid quota gets the Paid Services data-use terms for a developer in the EEA, Switzerland or the UK, and an app offered to people there may use only Paid Services. A billed project that shares no dataset removes routine review — the lever the training options route on — and never the review of flagged content, so no project honours a refusal and there is no posture to route one to. Checked on 2026-10-12 against Google's Gemini API Additional Terms and its abuse-monitoring, zero-retention and data-logging pages."
+    },
+    "retention.files": {
+      "level": "unsupported",
+      "note": "No per-request file expiry control on the endpoints this descriptor wraps."
+    }
+  },
+  "enforcement_verified_at": "2026-07-26",
+  "credential_routing": {
+    "unit": "project",
+    "note": "Whether prompts train Google's models depends on the billing tier of the project behind the key. Routing means selecting the key."
+  }
+}

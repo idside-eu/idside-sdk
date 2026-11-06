@@ -1,0 +1,17 @@
+// The examples are type-checked, not just run: running a `.ts` file under Node
+// STRIPS the types without checking them, so an example could go quietly wrong
+// in exactly the way `Enforced<T>` exists to prevent. `npm run typecheck` is
+// what proves these files compile under `strict` with no cast anywhere.
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "lib": ["ES2023"],
+    "types": ["node"],
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true
+  },
+  "include": ["*.ts"]
+}

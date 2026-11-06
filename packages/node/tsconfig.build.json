@@ -1,0 +1,25 @@
+// Emit configuration for the published package.
+//
+// The repo runs TypeScript natively (Node type stripping), but Node refuses to
+// strip types for files under `node_modules` — a package that ships raw `.ts`
+// throws ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING on the consumer's first
+// import. So what we publish is compiled JavaScript plus declarations, built
+// from the very same sources the tests run against.
+//
+// `rewriteRelativeImportExtensions` is what makes that possible without editing
+// a single import: the sources say `./consent.ts` (required for native Node
+// execution) and the emitted JavaScript says `./consent.js`.
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "rootDir": "src",
+    "outDir": "dist",
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "rewriteRelativeImportExtensions": true,
+    "removeComments": false
+  },
+  "include": ["src"]
+}

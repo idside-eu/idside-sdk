@@ -1,0 +1,68 @@
+{
+  "name": "@idside/sdk",
+  "version": "0.1.0-dev.0",
+  "description": "AI consent enforcement for provider SDKs (OpenAI, Anthropic, Gemini, Mistral). The developer never touches the end user's consent preferences. Patents: sdk.idside.eu/patents",
+  "license": "SEE LICENSE IN LICENSE",
+  "author": "ID Side <dev@idside.eu>",
+  "homepage": "https://idside.eu",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/idside-eu/idside-sdk.git",
+    "directory": "packages/node"
+  },
+  "bugs": {
+    "url": "https://github.com/idside-eu/idside-sdk/issues"
+  },
+  "keywords": [
+    "consent",
+    "gdpr",
+    "ai",
+    "compliance",
+    "act-token",
+    "privacy",
+    "openai",
+    "anthropic",
+    "gemini",
+    "mistral"
+  ],
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "LICENSE",
+    "NOTICE",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "tag": "next"
+  },
+  "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "npm run clean && tsc -p tsconfig.build.json && node scripts/copy-assets.mjs",
+    "prepack": "npm run build",
+    "test": "node --test test/*.test.ts",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-lines=99 --test-coverage-branches=99 --test-coverage-functions=99 test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@anthropic-ai/sdk": "^0.111.0",
+    "@google/genai": "^2.22.0",
+    "@mistralai/mistralai": "^2.4.1",
+    "@types/node": "^22.10.2",
+    "openai": "^6.47.0",
+    "typescript": "^5.7.2"
+  }
+}

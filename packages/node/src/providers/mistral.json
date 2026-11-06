@@ -1,0 +1,195 @@
+{
+  "descriptor_version": "2",
+  "name": "mistral",
+  "client_module": "mistralai",
+  "call_sites": [
+    {
+      "id": "chat.complete",
+      "path": [
+        "chat",
+        "complete"
+      ],
+      "forceable_params": []
+    },
+    {
+      "id": "chat.stream",
+      "path": [
+        "chat",
+        "stream"
+      ],
+      "forceable_params": []
+    },
+    {
+      "id": "fim.complete",
+      "path": [
+        "fim",
+        "complete"
+      ],
+      "forceable_params": []
+    },
+    {
+      "id": "fim.stream",
+      "path": [
+        "fim",
+        "stream"
+      ],
+      "forceable_params": []
+    },
+    {
+      "id": "agents.complete",
+      "path": [
+        "agents",
+        "complete"
+      ],
+      "forceable_params": [],
+      "tool_fields": [
+        {
+          "path": [
+            "agent_id"
+          ],
+          "js_path": [
+            "agentId"
+          ],
+          "kind": "enabler",
+          "note": "A server-side agent carries its own `tools` and `handoffs`, which the SDK cannot see. Required on `agents.*`, so a refusal of tools refuses every agent call."
+        }
+      ]
+    },
+    {
+      "id": "agents.stream",
+      "path": [
+        "agents",
+        "stream"
+      ],
+      "forceable_params": [],
+      "tool_fields": [
+        {
+          "path": [
+            "agent_id"
+          ],
+          "js_path": [
+            "agentId"
+          ],
+          "kind": "enabler",
+          "note": "A server-side agent carries its own `tools` and `handoffs`, which the SDK cannot see. Required on `agents.*`, so a refusal of tools refuses every agent call."
+        }
+      ]
+    },
+    {
+      "id": "beta.conversations.start",
+      "path": [
+        "beta",
+        "conversations",
+        "start"
+      ],
+      "forceable_params": [
+        "store"
+      ],
+      "tool_fields": [
+        {
+          "path": [
+            "agent_id"
+          ],
+          "js_path": [
+            "agentId"
+          ],
+          "kind": "enabler",
+          "note": "A server-side agent carries its own `tools` and `handoffs`, which the SDK cannot see. Required on `agents.*`, so a refusal of tools refuses every agent call."
+        }
+      ],
+      "note": "The stateful endpoint, and the only one of this provider's with a retention lever. `store` was confirmed live on /v1/conversations first, and again offline on 2026-07-26 against `mistralai` 2.6.0, whose `beta.conversations.start` signature carries `store`, `model` AND `http_headers` — so the endpoint needs nothing this descriptor cannot already do. Spelled the same in the JS client, which is why no per-language alias is needed. `start_stream` (`startStream` in JS) reaches the same endpoint and is NOT listed: the two clients spell it differently and a `path` is matched literally, so listing it would enforce one SDK and not the other. Until it is added properly it stays refused by the transport guard, which is the safe half of that asymmetry. `append`, `restart` and the rest are refused likewise — they extend a conversation whose creation was the choice."
+    }
+  ],
+  "identity_param": "user_id",
+  "ubt_param": "ubt",
+  "token_header": "X-AI-Consent-Token",
+  "param_target": "kwargs",
+  "headers_kwarg": "http_headers",
+  "protected_params": [
+    "model",
+    "messages",
+    "prompt",
+    "agent_id",
+    "stream",
+    "http_headers"
+  ],
+  "tools_param": [
+    "tools"
+  ],
+  "reserved_headers": [
+    "Authorization"
+  ],
+  "notes": "The native mistralai client (Speakeasy-generated, v1.5+) accepts per-request headers through the http_headers keyword on every call site listed here, so the generic engine handles it declaratively: forced params go to kwargs, the ACT token travels in http_headers. Mistral's API exposes no per-request no-training parameter (zero-retention/no-training is contractual, at account level), so the cloud is expected to return params_forced: {} — the enforcement value here is the ACT token and the ledger entry. Note chat.parse is not listed: it funnels into chat.complete on the same instance, which is already enforced. Import trap worth recording: `mistralai` 2.6.0 is a namespace package and `from mistralai import Mistral` now raises ImportError — the working path is `from mistralai.client import Mistral`. `client_module: \"mistralai\"` is nonetheless still correct, and was rechecked on 2026-07-26: detection matches the root of the client INSTANCE's module (`mistralai.client.sdk` -> `mistralai`), never an attribute of the top-level package.",
+  "forceable_params": [
+    "store"
+  ],
+  "forceable_params_note": "Verified 2026-07-26 against the pinned `mistralai` client, per call site. The stateless sites (`chat`, `fim`, `agents`) force nothing: the REST API rejects unknown body fields (422), no privacy parameter exists at that level, and the training opt-out is console-only. `beta.conversations.start` is the exception and carries `store`. `prompt_cache_key` is a routing hint and `safe_prompt`/`guardrails` are moderation — neither is a retention control, and neither is declared.",
+  "enforcement": {
+    "training.foundation": {
+      "level": "account",
+      "note": "Console toggle 'Data usage for improving our services'. Scale is opted out by default; Experiment users must switch off 'Anonymous improvement data' themselves. WARNING: enabling Labs models allows training regardless of plan and of every opt-out. Can still be honoured per user IF the developer provisions one organisation per posture — the SDK then routes each call to the one matching that user's answer. See `credential_routing`.",
+      "routable": true
+    },
+    "training.personalisation": {
+      "level": "account",
+      "note": "Same console setting. Can still be honoured per user IF the developer provisions one organisation per posture — the SDK then routes each call to the one matching that user's answer. See `credential_routing`.",
+      "routable": true
+    },
+    "training.analytics": {
+      "level": "account",
+      "note": "Same console setting. Can still be honoured per user IF the developer provisions one organisation per posture — the SDK then routes each call to the one matching that user's answer. See `credential_routing`.",
+      "routable": true
+    },
+    "memory": {
+      "level": "absent",
+      "note": "Not an API capability. `absent` for that reason: the API has no memory for a refusal to switch off."
+    },
+    "agentic_tools": {
+      "level": "enforced",
+      "mechanism": "refuse_or_strip_tools",
+      "note": "ENFORCED by the SDK, not by a parameter. Every zero-retention arrangement excludes agentic features while the API itself does not block them: a call that hands the model tools falls outside the retention regime the user was promised, and the SDK is the only component that can see it happening, because it is the only one that sees the outgoing request. When the user has refused, the cloud returns a `tools` constraint and the SDK refuses the call (`ToolUseRefusedError`) or strips the tools, per the constraint. Refusing is the default: an agent stripped of its tools does not fail, it answers wrongly, and the developer has no way to know. Note what is NOT sent to us to make this work: nothing. The constraint follows from the consent state alone — we are never told whether a given call carried tools."
+    },
+    "data_residency": {
+      "level": "account",
+      "note": "Chosen by ENDPOINT, not by a request parameter. Mistral hosts data in the EU by default, but where inference runs follows the base URL: `api.eu.mistral.ai` (EU and EFTA data centres) and `api.us.mistral.ai` process inference inside their region, at a 10% upcharge, while the global `api.mistral.ai`, which a client uses when it names no region, commits to no inference location. A client names a region with `server_url`, or with `server` set to `eu` or `us` from `mistralai` 2.7.0; before `mistralai` 2.7.0 — including the releases this repository tests against (Python 2.6.0, Node 2.4.1) — `server` set to `eu` still names the global endpoint. A regional endpoint does not make the control plane regional (keys, billing and usage metadata may be handled elsewhere), serves only the models hosted in its region, supports function calling as its only tool and offers no Agents, Batch or Files API; a workload that relies on one of those loses the regional guarantee. Can still be honoured per user IF the developer provisions one client per posture, each built on the endpoint it requires — the SDK then routes each call to the one matching that user's answer. See `credential_routing`. Checked on 2026-10-12 against Mistral's regional-inference documentation and the `mistralai` releases.",
+      "routable": true
+    },
+    "retention.conversation": {
+      "level": "enforced",
+      "params": [
+        {
+          "name": "store",
+          "call_sites": [
+            "beta.conversations.start"
+          ],
+          "when": false,
+          "value": false,
+          "note": "VERIFIED by request: `store: false` IS accepted on /v1/conversations (200, while an unknown field gives 422), and confirmed a second time offline against the pinned client's signature. It applies to that endpoint ALONE: `chat.complete` is stateless and has no such parameter, which is why this is declared per call site and not on the provider."
+        }
+      ],
+      "note": "One parameter, one endpoint. A developer using only `chat.complete` gets nothing from this line, and the per-site allowlist is what says so — the cloud is told which endpoint is about to be called and answers for that one. Conversations the SDK does not wrap (`append`, `restart`, `start_stream`) are refused by the transport guard rather than silently enforced."
+    },
+    "retention.cache": {
+      "level": "unsupported",
+      "note": "`prompt_cache_key` is a routing hint, not a retention control. `safe_prompt` and `guardrails` are moderation, not privacy — do not confuse them."
+    },
+    "location": {
+      "level": "unsupported",
+      "note": "Not exposed as a request parameter."
+    },
+    "human_review": {
+      "level": "contractual",
+      "protective": false,
+      "note": "No request parameter, and no console setting for it: the Admin panel's Privacy settings hold the training toggle (\"Anonymous improvement data\") and, once Mistral has approved it, Zero Data Retention. What Mistral writes does not read like OpenAI's, Anthropic's or Google's. Its Data Processing Addendum describes abuse monitoring on the APIs as automated moderation, which stops once Zero Data Retention is active, and its Privacy Policy keeps API input and output 30 rolling days to monitor abuse unless it is; the only human access its help centre describes is to content a customer reports to support, in an article that names no API; and its Commercial Terms license customer data for \"debugging, assessing, reviewing, and correcting the performance\" of the products without saying by whom. No document says Mistral staff review API traffic, and none rules it out: the terms decide. Zero Data Retention ends abuse-monitoring retention but is no posture to route a refusal on: it is granted at Mistral's discretion, on pay-as-you-go only, it covers stateless endpoints and not the agents and conversations this descriptor also wraps, and nothing written says what it changes for human review. Checked on 2026-10-12 against Mistral's Commercial Terms of Service, Data Processing Addendum, Privacy Policy and help-centre articles on Zero Data Retention, training opt-out and who can view conversations."
+    },
+    "retention.files": {
+      "level": "unsupported",
+      "note": "No per-request file expiry control on the endpoints this descriptor wraps."
+    }
+  },
+  "enforcement_verified_at": "2026-07-26",
+  "credential_routing": {
+    "unit": "organisation",
+    "note": "The training toggle is an organisation setting in the console. Routing means selecting the key."
+  }
+}

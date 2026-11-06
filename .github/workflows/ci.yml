@@ -1,0 +1,225 @@
+name: CI
+
+on:
+  workflow_call:
+  push:
+    branches: [main]
+  pull_request:
+
+# Least-privilege default permissions.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  # Only cancel superseded PR runs; never cancel an in-flight run on main.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  python:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/python
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    env:
+      UV_PYTHON: ${{ matrix.python-version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Install Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Sync dependencies
+        run: uv sync --all-extras
+
+      - name: Lint (ruff)
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: Type check (mypy)
+        run: uv run mypy
+
+      - name: Security lint (bandit)
+        run: uv run bandit -c pyproject.toml -r src
+
+      # `--cov` rather than a bare `pytest`, because the coverage floor lives in
+      # pyproject.toml's `fail_under` and only applies when coverage runs. Branch
+      # coverage is on there too, and it is the figure that matters: this SDK is
+      # fail-closed, so nearly every decision in it has one arm that refuses and
+      # one that proceeds, and line coverage calls such a line covered after
+      # seeing either one. The SDK measured 97% on lines and 96% once branches
+      # were counted — the gap was 29 decisions only ever taken one way.
+      - name: Tests (pytest) — coverage floor enforced by fail_under
+        run: uv run pytest --cov --cov-report=term-missing
+
+  node:
+    name: Node ${{ matrix.node-version }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/node
+    strategy:
+      fail-fast: false
+      matrix:
+        # Tests run TypeScript natively (type stripping), which needs Node >= 23.6.
+        node-version: ["24.x"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Node ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+          cache-dependency-path: packages/node/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline
+
+      - name: Type check (tsc --strict)
+        run: npm run typecheck
+
+      # `test:coverage`, not `test`: same suite, plus the three floors. BRANCHES
+      # is the one that matters and the one that moved — this SDK sat at 98% of
+      # lines and 88% of branches, which is what a fail-closed library looks like
+      # when its tests execute every line while only ever taking the arm that
+      # proceeds. The floors are a ratchet set just under what the suite reaches;
+      # raise them when the real figure rises, never lower them to go green.
+      - name: Tests (node --test) — with coverage floors
+        run: npm run test:coverage
+
+      - name: Release workflow guard tests
+        run: node --test .github/scripts/*.test.cjs
+        working-directory: ${{ github.workspace }}
+
+  publishable:
+    name: Publishable (pack + out-of-tree smoke test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The published package is compiled JS, so the consumer floor is the
+      # engines floor (22.12), not the type-stripping floor the tests need.
+      - name: Install Node 22.12 (the declared engines floor)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.12"
+          cache: npm
+          cache-dependency-path: packages/node/package-lock.json
+
+      - name: Install Node dependencies
+        run: npm ci --prefer-offline
+        working-directory: packages/node
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      # Packs both SDKs and imports them from outside the repository — the only
+      # place a missing descriptor or an unextractable sdist shows up.
+      - name: Check both packages are publishable
+        run: ./scripts/check_publishable.sh
+
+  # "Python and Node.js answer alike" is a claim the product makes to customers,
+  # so it is checked where a change lands, not only where a release goes out.
+  # This ran in publish.yml alone until a divergence proved the point: the
+  # publish workflow is `workflow_dispatch`-only, so nothing compared the two
+  # SDKs between one release and the next.
+  parity:
+    name: Both SDKs answer alike
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The script runs the TypeScript sources in place, so it needs the
+      # type-stripping floor rather than the published engines floor.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "23.6"
+          cache: npm
+          cache-dependency-path: packages/node/package-lock.json
+
+      - name: Install Node dependencies
+        run: npm ci --prefer-offline
+        working-directory: packages/node
+
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Install Python dependencies
+        run: uv sync --all-extras
+        working-directory: packages/python
+
+      # Consent dialog, credential routing, disclosure kinds, the journal, and
+      # the deadline each SDK arms on the hop to the cloud.
+      - name: Both SDKs still answer alike
+        run: ./scripts/check_sdk_parity.sh
+
+  docs-examples:
+    name: Quickstarts and examples still do what they claim
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The Node quickstart and the Node example both run TypeScript in place,
+      # so this needs the type-stripping floor rather than the published
+      # engines floor.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "23.6"
+          cache: npm
+          cache-dependency-path: |
+            packages/node/package-lock.json
+            examples/node/package-lock.json
+
+      - name: Install Node dependencies
+        run: npm ci --prefer-offline
+        working-directory: packages/node
+
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Install Python dependencies
+        run: uv sync --all-extras
+        working-directory: packages/python
+
+      # Runs the quickstarts verbatim, and every program under examples/ by the
+      # command line its README advertises, diffing each against the output the
+      # document claims for it. Both quickstarts were silently broken by a
+      # contract change once while every test suite stayed green. The script
+      # builds the Node package and installs examples/node itself, because the
+      # example imports the built package and a stale dist/ would have it
+      # exercising yesterday's SDK.
+      - name: Check the documented examples
+        run: ./scripts/check_docs_examples.sh
+
+  # The cheapest job here, and the one guarding the most expensive mistake.
+  # A licence reaches a recipient the moment they can read it and cannot be
+  # taken back from them afterwards, so what this file says on the day of the
+  # first publish is what it says for that version forever. No test covers it:
+  # the code runs identically under any terms.
+  licence:
+    name: The licence says what the repository means
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # No toolchain: bash, python3 and git, all present on the runner. It runs
+      # in about a second, so it is worth running on every push rather than
+      # only where a release goes out.
+      - name: Check the licence claims
+        run: ./scripts/check_licence_claims.sh

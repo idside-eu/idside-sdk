@@ -1,0 +1,195 @@
+{
+  "title": "Shared request-hash test vectors for ID Side SDKs",
+  "hash_format": "sha256:<hex>, where <hex> is the lowercase SHA-256 of the RFC 8785 (JCS) canonical UTF-8 encoding of `payload`",
+  "notes": "Every SDK (Python, Node...) must reproduce `expected_hash` bit-for-bit from `payload`. Payloads never include the identity parameter (user_id/ubt) nor extra_headers: SDKs exclude those from hashing before canonicalization. Number literals are intentionally left unnormalized (e.g. 4.50, 1E30): parsing then canonicalizing must still converge.",
+  "vectors": [
+    {
+      "description": "Flat object with keys deliberately out of order: canonicalization must sort them",
+      "payload": {
+        "temperature": 0.2,
+        "model": "gpt-4o",
+        "stream": false,
+        "max_tokens": 64
+      },
+      "expected_hash": "sha256:351c38cd4c6068d7a2b6ea6cb93bbcfc04ba6eb85648d1cd6dbe2b158b980acf"
+    },
+    {
+      "description": "Unicode string values (accents, CJK, emoji) are encoded as raw UTF-8, never u-escaped",
+      "payload": {
+        "model": "gpt-4o",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Café crème à 3€ — 日本語テスト 😀"
+          }
+        ]
+      },
+      "expected_hash": "sha256:de47a0c6a2312b1baf90d7927b172b1751a5adb9eefa4f5e22ea6128e624555c"
+    },
+    {
+      "description": "Strings needing JSON escapes: quote, backslash, newline, tab and a raw control character",
+      "payload": {
+        "model": "gpt-4o",
+        "input": "line1\nline2\tend \"quoted\" back\\slash \u0007bell"
+      },
+      "expected_hash": "sha256:72bc09a4fd41462d807f67562876c3473bbcf66f9b9e8f16e43372cc5e9c4368"
+    },
+    {
+      "description": "Object keys sorted by UTF-16 code units: an emoji (surrogate pair) sorts before U+FB33",
+      "payload": {
+        "model": "gpt-4o",
+        "metadata": {
+          "דּ": "dalet-dagesh",
+          "1": "one",
+          "€": "euro",
+          "😀": "emoji",
+          "ö": "o-umlaut"
+        }
+      },
+      "expected_hash": "sha256:f23ae4241a7f71e8cd338fe9d1d52354ab8320fe6a605558c482f1b806d5257e"
+    },
+    {
+      "description": "Floating-point numbers follow ECMAScript shortest round-trip formatting (RFC 8785 Appendix A set)",
+      "payload": {
+        "model": "gpt-4o",
+        "numbers": [
+          333333333.3333333,
+          1e+30,
+          4.5,
+          0.002,
+          1e-27,
+          -0.0,
+          1e-06,
+          1e-07
+        ]
+      },
+      "expected_hash": "sha256:be757ed6b4dafff20c261365c18437f3768d8853c2932d16abfa7458ddebc0c1"
+    },
+    {
+      "description": "Whole-valued floats collapse to integers (1.0 -> 1) so Python ints and JS doubles agree",
+      "payload": {
+        "model": "gpt-4o",
+        "temperature": 1.0,
+        "top_p": 0.5,
+        "n": 2,
+        "presence_penalty": -2.0
+      },
+      "expected_hash": "sha256:5996607f341c91848567b4b301e8b1db5d950ccc9f137c5d3ab0606b84deb41b"
+    },
+    {
+      "description": "Deeply nested objects and arrays keep deterministic ordering at every level",
+      "payload": {
+        "model": "gpt-4o",
+        "tools": [
+          {
+            "type": "function",
+            "function": {
+              "name": "get_weather",
+              "parameters": {
+                "type": "object",
+                "properties": {
+                  "unit": {
+                    "enum": [
+                      "celsius",
+                      "fahrenheit"
+                    ],
+                    "type": "string"
+                  },
+                  "city": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "city"
+                ]
+              }
+            }
+          }
+        ],
+        "tool_choice": {
+          "type": "function",
+          "function": {
+            "name": "get_weather"
+          }
+        }
+      },
+      "expected_hash": "sha256:34aa51185bda86d179725d45ddb1a97176ecf4ebe42634e133d340e8fd47d201"
+    },
+    {
+      "description": "Null values, booleans, empty string, empty object and empty array are all preserved",
+      "payload": {
+        "model": "gpt-4o",
+        "stop": null,
+        "stream": true,
+        "logit_bias": {},
+        "tags": [],
+        "suffix": ""
+      },
+      "expected_hash": "sha256:e552b4d2086f6742a3a6a62fb986eae4e86ff1f7775807c1d712c16b32bf6797"
+    },
+    {
+      "description": "Realistic chat completion payload for the fictitious MedHelp app",
+      "payload": {
+        "model": "gpt-4o",
+        "messages": [
+          {
+            "role": "system",
+            "content": "You are MedHelp, a careful health assistant."
+          },
+          {
+            "role": "user",
+            "content": "Bonjour, j'ai mal à la tête depuis hier."
+          }
+        ],
+        "temperature": 0.7,
+        "max_tokens": 512
+      },
+      "expected_hash": "sha256:3d833d7c8e1b111733d988d360c72965942f09c08a8a16fcbc7eb34df73d113c"
+    },
+    {
+      "description": "Identity params (user_id, ubt) and the headers kwarg are excluded before hashing: same hash as the first vector",
+      "payload": {
+        "temperature": 0.2,
+        "model": "gpt-4o",
+        "stream": false,
+        "max_tokens": 64,
+        "ubt": "eyJhbGciOiJFUzI1NiJ9.fake.ubt",
+        "extra_headers": {
+          "X-Trace": "1"
+        }
+      },
+      "expected_hash": "sha256:351c38cd4c6068d7a2b6ea6cb93bbcfc04ba6eb85648d1cd6dbe2b158b980acf",
+      "sdk_strips": [
+        "ubt",
+        "extra_headers"
+      ]
+    },
+    {
+      "description": "Integers at the IEEE-754 safe boundary (2^53) serialize as plain decimals",
+      "payload": {
+        "model": "gpt-4o",
+        "seed": 9007199254740992,
+        "offset": -9007199254740991,
+        "zero": 0
+      },
+      "expected_hash": "sha256:a5f85f4a10cee7df56a9a39a9b150b9be5e576ea58a03b6807bd1754c105ff83"
+    },
+    {
+      "description": "Exponential floats with a multi-digit mantissa, written unnormalized: every SDK must parse then re-serialize to the same shortest form",
+      "payload": {
+        "model": "gpt-4o",
+        "numbers": [
+          1.25E+22,
+          -1.50e30,
+          0.987654321e-9,
+          15e-8,
+          602214076e+15,
+          1.7976931348623157e+308,
+          5e-324,
+          2.220446049250313e-16
+        ]
+      },
+      "expected_hash": "sha256:329e0d31f99e4e22e0d65bdbc23698782c071ab3092d5b0a3fdcd72c001b12cf"
+    }
+  ]
+}
