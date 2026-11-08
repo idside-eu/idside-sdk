@@ -23,11 +23,11 @@ asks a simple question:
 Most stacks cannot answer. The consent lives in a database row that has since
 been updated in place; the AI call lives in an application log, if at all; and
 nothing cryptographically ties the two together. A screenshot of a settings page
-is not evidence. **Being unable to prove compliance is, in practice, being
-non-compliant.**
+is not evidence. **Without a verifiable record, that question is very hard to
+answer.**
 
-ID Side exists to produce that evidence, automatically, at the moment of the
-call.
+ID Side exists to help you answer it, with a signed record produced at the
+moment of the call.
 
 ## 2. Consent as infrastructure
 
@@ -99,8 +99,8 @@ SDK runs in their process, on their machine.
 
 The model is **deterrent and evidentiary**, not coercive. A developer who
 bypasses the SDK has no ACT token and no ledger entry for that call, and
-therefore no defense. Compliance is not enforced by making violations impossible;
-it is enforced by making them *visible as gaps in the proof chain*. This is the
+therefore nothing to show for that call. The model does not make violations
+impossible; it makes them *visible as gaps in the proof chain*. This is the
 same reason double-entry bookkeeping works without preventing anyone from lying.
 
 ## 4. Two modes: asked and imposed
@@ -170,10 +170,10 @@ organization may use a model. It decides, and it owes the people concerned
 **transparency**: what was decided, by whom, on what basis, and what the
 employer can see. A statement rather than a question — and the
 [widget](./widget.md#11-the-imposed-mode) is how the statement is delivered,
-read-only, with no switch anywhere in it. Consent is not available here, and
-that is not a loophole — it is the law working as intended: an employee cannot
-refuse their employer freely, so an answer extracted from them would not be
-consent in any meaningful sense.
+read-only, with no switch anywhere in it. Consent is rarely a valid basis here:
+an employee can seldom refuse their employer freely. An organization may declare
+it only where genuine freedom of choice can be demonstrated; ID Side collects no
+answer from the employee and does not assess the declaration.
 
 Two properties keep this from becoming a preference setter in disguise:
 
@@ -184,13 +184,12 @@ Two properties keep this from becoming a preference setter in disguise:
   application that imposes, every call is signed `default_policy`, whether the
   policy refuses ten options or none — the decision came from the
   organization, and nobody was asked.
-- **A policy can never write `consent`.** The bases available to it are all the
-  others, by construction: `legitimate_interest`, `contractual_obligation`,
-  `public_task`, `legal_obligation` or `vital_interests`, whichever the
-  organization declared, for an employee who is identified — and
-  `not_established` where it declared none or the employee is not identified.
-  There is no configuration, no plan and no support ticket that makes an
-  imposed decision come back as consent.
+- **A policy signs only what the organization declared**:
+  `legitimate_interest`, `contractual_obligation`, `public_task`,
+  `legal_obligation`, `vital_interests` or `consent`, for an employee who is
+  identified — and `not_established` where it declared none or the employee is
+  not identified. A declared `consent` keeps its `source`: the token still shows
+  that the decision came from the organization, and that nobody was asked.
 
 Whichever mode applies, every token says **who refused** each option — the
 person, their silence, the organization, a team, or the application — in its
@@ -253,8 +252,7 @@ held or flagged.
 it — because the mechanism will not produce what you were hoping for.
 
 Say you sell a consumer app, you would rather not show a popup, and you set a
-policy instead. Here is what you actually get. `consent` never appears in a
-single proof, since a policy cannot write it. The basis you declared is signed
+policy instead. Here is what you actually get. The basis you declared is signed
 only for a person whose tie to your organization was **proven** — a mail
 domain you verified, or a link we sent to their work address that they
 opened — and your visitors are nobody's employees: every one of their calls
@@ -346,7 +344,7 @@ The `binding` claim records *how* the user was identified — see §8.
 Every authorization appends an entry to an append-only, hash-chained ledger held
 by the ID Side cloud: each entry commits to the hash of the previous one, so
 removing or editing a past entry breaks every entry after it. That is what makes
-"we honored consent on 14 July at 18:26" a checkable claim rather than a log line
+"this call was authorized on 14 July at 18:26 against this consent state" a checkable claim rather than a log line
 anyone with database access could have written yesterday.
 
 The ledger is cloud-side and proprietary. The SDK never writes to it; it is a

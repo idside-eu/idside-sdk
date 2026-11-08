@@ -2,7 +2,7 @@
 
 # ID Side SDK
 
-**AI consent infrastructure — cryptographic proof, on every AI call, that you honored your users' choices.**
+**AI consent infrastructure — a signed proof, on every AI call, of the choices it was authorized against and the settings forced on it.**
 
 [![License: Source Available](https://img.shields.io/badge/License-Source_Available-blue.svg)](./LICENSE)
 [![Status](https://img.shields.io/badge/status-pre--release-orange.svg)](#status)
@@ -25,8 +25,8 @@ Your app sends user data to an AI API. Months later, a data protection authority
 asks you to prove that *this specific call*, on *this date*, for *this user*,
 honored what that user had chosen at that moment.
 
-A row in your database is an assertion. A screenshot is not evidence. Being
-unable to prove compliance is, in practice, being non-compliant.
+A row in your database is an assertion. A screenshot is not evidence. Without a
+verifiable record of each call, that question is very hard to answer.
 
 ## The answer
 
@@ -74,8 +74,8 @@ On every call, the SDK:
    no-training headers…);
 3. **attaches** the cloud-signed ACT token (ECDSA P-256 JWT, 1 h TTL, bound to
    this exact request) as the `X-AI-Consent-Token` header;
-4. leaves the call recorded in an **immutable hash-chained ledger** (audit proof,
-   DSR, GDPR Art. 30).
+4. leaves the call recorded in an **immutable hash-chained ledger** (an audit trail
+   that can support your DSR responses and GDPR Art. 30 records).
 
 If consent cannot be verified, **the call does not happen** — [fail-closed](./docs/concepts.md#9-fail-closed).
 

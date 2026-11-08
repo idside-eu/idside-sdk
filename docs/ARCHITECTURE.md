@@ -19,9 +19,8 @@ popup, then pass an opt-in to the SDK). The opaque tunnel eliminates that risk.
 
 **Trust model — deterrent + evidentiary:** the tunnel does not make cheating
 technically impossible, but a developer who bypasses the SDK (calling the
-provider directly) has **no proof** of compliance: no ACT token, no ledger entry,
-no defense before an authority (DPA). *Being unable to prove compliance = being
-non-compliant.*
+provider directly) has **no proof** of what was authorized: no ACT token, no ledger
+entry, nothing to show an authority (DPA) for that call.
 
 ### 1.1 Two modes, one mechanism
 
@@ -51,11 +50,11 @@ person's own refusal survives a policy that permits, and `source` becomes
 agrees with the user decided nothing, and saying otherwise would misattribute
 their decision in the ledger.
 
-**And an imposed policy can never write `consent`.** That value is reserved for
-a positive act — a widget answer or the person's own ID Side account. The bases
-available to a policy are all the others, by construction — the five Article 6
-bases besides consent, and `not_established` — because an employer cannot rest
-on employee consent: the imbalance of power makes it unfree. This
+**And an imposed policy signs only what the organization declared.** The bases
+available are the six Article 6 bases and `not_established`. An organization may
+declare `consent`, which the GDPR generally presumes not to be freely given at
+work; ID Side collects no answer from the employee, and the token's `source`
+shows that the decision was the organization's. This
 is the technical reason the imposed mode is not a shortcut past the popup —
 [`concepts.md` §4](./concepts.md#4-two-modes-asked-and-imposed) works through
 what a developer actually gets if they try it on visitors.

@@ -179,9 +179,9 @@ the regulation deliberately, and here is how.
   without that qualifier could go on asserting a basis that had lapsed. What your
   own contract says still governs where it and the policies differ.
 
-None of this makes an application compliant on its own. It makes the part you
-cannot otherwise prove — *that a specific call honored a specific choice* —
-provable.
+None of this makes an application compliant on its own. It makes one part you
+cannot otherwise show — *which choices a specific call was authorized against,
+and what was forced on it* — verifiable.
 
 ## What happens when my quota runs out?
 
@@ -319,9 +319,9 @@ applying to the organization's employees, with no popup and nothing an employee
 can change. It is still not a setter you reach from your backend, and it has two
 limits that follow from the same reasoning as above. A policy can only tighten,
 never switch an option back on, so it cannot be used to overturn a refusal
-someone already made. And it can never write `legal_basis: "consent"` — an
-employer cannot rest on employee consent, because an answer given to one's
-employer is not freely given. What is owed to the person instead is
+someone already made. And a declared `legal_basis: "consent"` is the
+organization's declaration, not an answer collected from the employee, which
+is generally presumed not to be freely given at work. What is owed to the person instead is
 transparency: a statement of what was decided, by whom, and on what basis.
 
 Which is also why the imposed mode does not solve "I would rather not show my

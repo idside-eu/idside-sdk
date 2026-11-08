@@ -1,7 +1,7 @@
 # idside — AI Consent Infrastructure (Python SDK)
 
-Cryptographic proof that you honored your users' AI consent — for every AI call
-your backend makes.
+A signed proof of the AI consent each call was authorized against — for every AI
+call your backend makes.
 
 > ⚠️ **Pre-release.** The SDK is implemented and tested, but end-to-end use
 > requires the ID Side cloud (`idside.eu`), which is not yet publicly

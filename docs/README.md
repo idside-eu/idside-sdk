@@ -1,7 +1,7 @@
 # ID Side SDK — documentation
 
-AI consent infrastructure: cryptographic proof, attached to every AI API call,
-that you honored the end user's choices. This is the documentation set for the
+AI consent infrastructure: a signed proof, attached to every AI API call, of the
+choices it was authorized against and the settings forced on it. This is the documentation set for the
 source-available SDKs.
 
 ## Start here
