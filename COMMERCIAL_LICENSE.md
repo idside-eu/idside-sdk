@@ -49,11 +49,11 @@ use policy and an AI Act annex. Ask for it at the address below.
 
 ## Why it is arranged this way
 
-A patent and a permissive public license do not survive each other. The terms
-this repository used to carry granted every recipient a perpetual, worldwide,
-**irrevocable** patent license — so publishing under them would have given away
-the invention to anyone who ran `git clone`, and invited the obvious question of
-why a patent was filed at all.
+A patent and a permissive public license do not survive each other. A
+permissive license of the usual kind grants every recipient a perpetual,
+worldwide, **irrevocable** patent license — so publishing under one would give
+away the invention to anyone who ran `git clone`, and invite the obvious question
+of why a patent was filed at all.
 
 The answer is not to hide the code. It is to separate two things that are
 usually conflated: **reading** the implementation, which should be free because

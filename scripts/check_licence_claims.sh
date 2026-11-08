@@ -15,7 +15,7 @@
 #
 # What it enforces:
 #
-#   1. No tracked file names the licence this repository used to carry.
+#   1. No tracked file names a permissive licence as this repository's own.
 #   2. Nothing asserts that this repository is open source, open-core or
 #      OSI-approved. Saying it is NOT is the point of several documents, so the
 #      rule is about the assertion rather than the words: an assertion must be
@@ -239,7 +239,7 @@ named = sorted(
 )
 if named:
     fail(
-        "the licence this repository used to carry is named in: "
+        "a permissive licence is named in: "
         + ", ".join(named)
         + "\n     Remove the name. If a dependency genuinely needs crediting, "
         "that belongs\n     in a third-party notice file, and this check needs "

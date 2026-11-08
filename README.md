@@ -160,9 +160,8 @@ Pre-release and under active development. What is true today:
   The **artefacts** are release-ready: `scripts/check_publishable.sh` builds
   each package, installs it outside the repository and exercises it, and the
   [publish workflow](./.github/workflows/publish.yml) hands those exact files to
-  the registries. What is not ready is everything on the registry side — neither
-  name is held, no publishing identity exists, and that is a decision rather
-  than a task. [`RELEASING.md`](./RELEASING.md) is the list.
+  the registries. The first release on both registries is the next step;
+  [`RELEASING.md`](./RELEASING.md) describes how it is cut.
 - **Preference Center widget** — implemented and served by the ID Side cloud:
   three presentations (banner, modal, inline panel), French and English,
   automatic GPC detection, and a host-page API that reports *that* a decision

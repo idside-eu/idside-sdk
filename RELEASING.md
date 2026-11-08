@@ -4,23 +4,19 @@ How `idside` and `@idside/sdk` get published, in what order, and what happens
 when a release goes wrong. What a version number *promises* is
 [`docs/versioning.md`](./docs/versioning.md); this file is the mechanics.
 
-> **Nothing is published yet.** Neither name is taken on its registry, no
-> publishing credential exists, and no release has been cut. §0 is therefore not
-> optional history — it is the next thing that happens, and §6 lists what has to
-> be in place first.
+> **No release has been cut yet.** §0 is the one-time registry setup the first
+> release relies on, and §6 is the checklist to run before it.
 
 Read §7 before the **first** publish. Everything in it is a decision that cannot
 be revisited afterwards, and most of it costs nothing to get right today.
 
 ---
 
-## 0. Hold the two names — do this before anything else
+## 0. One-time registry setup
 
-The names are the only part of this document with a deadline. `idside` on PyPI
-and `@idside` on npm are not reserved, and a name taken by someone else is not
-recovered by asking nicely: PyPI's process for a name already in use is a
-[PEP 541](https://peps.python.org/pep-0541/) dispute, which takes weeks and can
-be refused.
+The npm scope `@idside` belongs to the `idside` organisation on npm. On PyPI, the
+project `idside` is created by its first upload, through the trusted publisher
+described in §0.2.
 
 The two registries work differently here, and the difference is the whole reason
 this section exists.
@@ -278,17 +274,17 @@ Withdrawing a **build** is this section. Retiring an **API** is
 [`docs/versioning.md` §4](./docs/versioning.md#4-deprecation); they are different
 things and `npm deprecate` is not how a function is deprecated.
 
-## 6. What is missing before the button can be pressed
+## 6. Before the first release
 
 None of it is code, and none of it can be done from inside this repository.
 
-| # | What | Who | Why it blocks |
-| --- | --- | --- | --- |
-| 1 | An npm account with 2FA, an `idside` organisation, and one manual `npm publish` (§0.1) | founder | the scope is unheld, and npm has no OIDC path for a first publish |
-| 2 | A PyPI account with 2FA and a **pending** trusted publisher for `idside` (§0.2) | founder | without it the workflow has no way to authenticate, and the name stays unheld |
-| 3 | Two GitHub **environments** on this repository, named `pypi` and `npm`, each with at least one required reviewer | founder | GitHub otherwise creates a named-but-absent environment with no protection; the workflow checks the selected environments through the read-only API and stops before CI/build if either the environment or its reviewer rule is absent |
-| 4 | A TestPyPI rehearsal (§0.2 step 3) | founder | the only place a first publish can be got wrong for free |
-| 5 | A decision on §7 | founder | every line of it is irreversible after the first upload |
+| # | What | Why |
+| --- | --- | --- |
+| 1 | One manual `npm publish` of `@idside/sdk`, then its trusted publisher (§0.1) | npm has no OIDC path for a first publish |
+| 2 | A **pending** trusted publisher for `idside` on PyPI and on TestPyPI (§0.2) | without it the workflow has no way to authenticate |
+| 3 | Two GitHub **environments** on this repository, named `pypi` and `npm`, each with at least one required reviewer | GitHub otherwise creates a named-but-absent environment with no protection; the workflow checks the selected environments through the read-only API and stops before CI/build if either the environment or its reviewer rule is absent |
+| 4 | A TestPyPI rehearsal (§0.2 step 3) | the only place a first publish can be got wrong for free |
+| 5 | A read of §7 | every line of it is irreversible after the first upload |
 
 Explicitly **not** needed, and not to be created: a PyPI API token, an npm
 automation token, or any repository secret. Both registries publish from GitHub

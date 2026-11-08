@@ -188,16 +188,7 @@ onwards, this file is the record and the git log is the detail.
   `ConsentRefreshRequiredError` before `ConsentUnreachableError`, stop the AI
   request and show the visitor the widget again; never retry it with backoff.
   Any other 409 is unchanged.
-- **Licensing — source-available, not open source.** This is recorded here
-  because a changelog that skipped it would be a changelog that let a reader
-  assume the terms never moved. The repository stopped being offered under the
-  permissive terms it was bootstrapped with on 2026-09-08, and the irrevocable
-  patent grant those terms convey was withdrawn with them. That withdrawal is
-  complete rather than prospective, and only because of a timing fact: the
-  repository was private, with no fork, no watcher and nothing published to
-  either registry, so nobody had received the code and nobody holds that grant.
-  Had it been public for a single day, the grant would have survived for every
-  version published while it stood. The reasoning is in
+- **Licensing — source-available, not open source.** The reasoning is in
   [`COMMERCIAL_LICENSE.md`](./COMMERCIAL_LICENSE.md), and why terms cannot be
   withdrawn from a version once it is published is in
   [`RELEASING.md` §7](./RELEASING.md#7-what-the-first-publish-freezes).

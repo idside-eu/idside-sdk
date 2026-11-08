@@ -84,10 +84,9 @@ exist, and it is what the maintainers follow today.
 
 **Outside contributions are not being accepted yet, and this section is why.**
 
-Under the terms this repository used to carry, the question was settled by the
-licence itself: contributions came in and went out under the same permissive
-terms, symmetrically, so nobody had to negotiate anything. A source-available
-licence is not symmetric. ID Side licenses this software
+Under a permissive licence, the question is settled by the licence itself:
+contributions come in and go out under the same terms, symmetrically, so nobody
+has to negotiate anything. A source-available licence is not symmetric. ID Side licenses this software
 commercially, so it needs inbound rights broad enough to relicense what it
 receives — otherwise a single contributed patch would be a piece of the product
 that cannot be sold, and no amount of goodwill afterwards fixes that.
