@@ -23,6 +23,8 @@ the process. No network.
 from __future__ import annotations
 
 import asyncio
+import base64
+import importlib
 import json
 from typing import Any
 
@@ -167,48 +169,64 @@ _MESSAGE_SSE = _sse(
 )
 
 
-def _answer(request: httpx.Request) -> httpx.Response:
-    """A plausible 200 for whichever endpoint was hit."""
+def _answer(request: Any, http: Any = httpx) -> Any:
+    """A plausible 200 for whichever endpoint was hit.
+
+    ``http`` is the HTTP library the client sends on: ``httpx``, or ``httpx2``
+    for ``anthropic>=2``, which refuses an ``httpx`` client outright.
+    """
     path = request.url.path
     body = json.loads(request.content) if request.content else {}
     if path.endswith(":streamGenerateContent"):
-        return httpx.Response(
+        return http.Response(
             200,
             content=b"data: " + json.dumps(_GEMINI_OK).encode() + b"\r\n\r\n",
             headers={"content-type": "text/event-stream"},
         )
     if path.endswith(":generateContent"):
-        return httpx.Response(200, json=_GEMINI_OK)
+        return http.Response(200, json=_GEMINI_OK)
     if path.endswith("/messages"):
         if body.get("stream"):
-            return httpx.Response(
+            return http.Response(
                 200, content=_MESSAGE_SSE, headers={"content-type": "text/event-stream"}
             )
-        return httpx.Response(200, json=_MESSAGE_OK)
+        return http.Response(200, json=_MESSAGE_OK)
     if path.endswith("/responses"):
-        return httpx.Response(200, json=_RESPONSE_OK)
+        return http.Response(200, json=_RESPONSE_OK)
     if path.endswith("/conversations"):
-        return httpx.Response(200, json=_CONVERSATION_OK)
+        return http.Response(200, json=_CONVERSATION_OK)
     if body.get("stream"):
-        return httpx.Response(
+        return http.Response(
             200, content=_CHAT_SSE, headers={"content-type": "text/event-stream"}
         )
-    return httpx.Response(200, json=_CHAT_OK)
+    return http.Response(200, json=_CHAT_OK)
+
+
+def _http_of(library: Any) -> Any:
+    """``httpx2`` when the library's base client sends on it, else ``httpx``."""
+    base = importlib.import_module(f"{library.__name__}._base_client")
+    return getattr(base, "httpx2", httpx)
 
 
 class _Wire:
     """Every request that would have left the process."""
 
     def __init__(self) -> None:
-        self.requests: list[httpx.Request] = []
+        self.requests: list[Any] = []
 
-    def handler(self, request: httpx.Request) -> httpx.Response:
-        request.read()
-        self.requests.append(request)
-        return _answer(request)
+    def transport(self, http: Any = httpx) -> Any:
+        def handler(request: Any) -> Any:
+            request.read()
+            self.requests.append(request)
+            return _answer(request, http)
 
-    def transport(self) -> httpx.MockTransport:
-        return httpx.MockTransport(self.handler)
+        return http.MockTransport(handler)
+
+    def client(self, library: Any, *, asynchronous: bool = False) -> Any:
+        """An HTTP client of the kind ``library`` sends on, recording here."""
+        http = _http_of(library)
+        maker = http.AsyncClient if asynchronous else http.Client
+        return maker(transport=self.transport(http))
 
     def body(self, index: int = -1) -> dict[str, Any]:
         return dict(json.loads(self.requests[index].content))
@@ -239,7 +257,7 @@ def _anthropic(wire: _Wire, key: str = "sk-ant-test-default") -> Any:
     return anthropic.Anthropic(
         api_key=key,
         max_retries=0,
-        http_client=httpx.Client(transport=wire.transport()),
+        http_client=wire.client(anthropic),
     )
 
 
@@ -247,7 +265,7 @@ def _async_anthropic(wire: _Wire) -> Any:
     return anthropic.AsyncAnthropic(
         api_key="sk-ant-test-default",
         max_retries=0,
-        http_client=httpx.AsyncClient(transport=wire.transport()),
+        http_client=wire.client(anthropic, asynchronous=True),
     )
 
 
@@ -871,8 +889,16 @@ def test_a_header_map_the_sdk_cannot_read_is_refused(headers: Any) -> None:
         {"X-Api-Key": "sk-ant-test-default"},
         {"x-api-key": "sk-ant-test-default"},
         "omit-then-bearer",
+        {"anthropic-workspace-id": "wrkspc_test_other"},
+        {"Anthropic-User-Profile-Id": "uprof_test_other"},
     ],
-    ids=["X-Api-Key", "x-api-key", "omit-and-Authorization"],
+    ids=[
+        "X-Api-Key",
+        "x-api-key",
+        "omit-and-Authorization",
+        "workspace",
+        "user-profile",
+    ],
 )
 @pytest.mark.parametrize("routed", [False, True], ids=["unrouted", "routed"])
 def test_anthropic_reserved_headers_are_refused(headers: Any, routed: bool) -> None:
@@ -899,6 +925,81 @@ def test_anthropic_reserved_headers_are_refused(headers: Any, routed: bool) -> N
         wire,
         UnenforceableOptionError,
     )
+
+
+@pytest.mark.parametrize(
+    ("argument", "header"),
+    [
+        ({"workspace_id": "wrkspc_test_other"}, "anthropic-workspace-id"),
+        ({"user_profile_id": "uprof_test_other"}, "anthropic-user-profile-id"),
+    ],
+    ids=["workspace_id", "user_profile_id"],
+)
+@pytest.mark.parametrize("route", ["create", "parse", "stream"])
+def test_anthropic_arguments_sent_as_headers_are_refused(
+    argument: dict[str, str], header: str, route: str
+) -> None:
+    """Named like body fields, sent as headers: outside the hash, and routing.
+
+    The first half shows where the library really puts them, so the refusal
+    below is not of something that would have been hashed anyway.
+    """
+    kwargs: dict[str, Any] = {
+        "model": "claude-sonnet-4-5",
+        "max_tokens": 16,
+        "messages": _MESSAGES,
+    }
+    raw_wire = _Wire()
+    _anthropic(raw_wire).messages.create(**kwargs, **argument)
+    assert raw_wire.requests[0].headers[header] == next(iter(argument.values()))
+    assert not set(argument) & set(raw_wire.body())
+
+    wire, cloud = _Wire(), _Cloud()
+    client = consent.wrap(_anthropic(wire), consent_client=cloud)
+    method = getattr(client.messages, route)
+
+    refused = _refused_before_authorize(
+        lambda: (
+            _drain_manager(method(**kwargs, **argument, user_id=_USER))
+            if route == "stream"
+            else method(**kwargs, **argument, user_id=_USER)
+        ),
+        cloud,
+        wire,
+        UnenforceableOptionError,
+    )
+    assert f"`{next(iter(argument))}`" in str(refused)
+    assert "_test_other" not in str(refused)
+
+
+@pytest.mark.parametrize("site", ["chat", "responses"])
+def test_openai_prompt_cache_options_are_refused(site: str) -> None:
+    """A cache lifetime the forced ``prompt_cache_retention`` does not bound."""
+    wire, cloud = _Wire(), _Cloud(forced={"prompt_cache_retention": "in_memory"})
+    client = consent.wrap(_openai(wire), consent_client=cloud)
+    options = {"ttl": "12h"}
+
+    refused = _refused_before_authorize(
+        lambda: (
+            client.chat.completions.create(
+                model="gpt-5.6",
+                messages=_MESSAGES,
+                prompt_cache_options=options,
+                user_id=_USER,
+            )
+            if site == "chat"
+            else client.responses.create(
+                model="gpt-5.6",
+                input="hello",
+                prompt_cache_options=options,
+                user_id=_USER,
+            )
+        ),
+        cloud,
+        wire,
+        UnenforceableOptionError,
+    )
+    assert "`prompt_cache_options`" in str(refused)
 
 
 @pytest.mark.parametrize(
@@ -1139,7 +1240,7 @@ def test_derived_default_headers_may_not_touch_a_reserved_header(derive: Any) ->
         anthropic.Anthropic(
             api_key="sk-ant-test-default",
             default_headers={"X-Api-Key": "sk-ant-test-default"},
-            http_client=httpx.Client(transport=wire.transport()),
+            http_client=wire.client(anthropic),
         ),
         consent_client=cloud,
     )
@@ -1192,6 +1293,12 @@ def _a_middleware(request: Any, call_next: Any) -> Any:
     return call_next(request)
 
 
+#: What `openai>=3` takes as `provider=`: a third-party API that configures the
+#: client's authentication and base URL. Refused on its arguments, so its shape
+#: does not matter here.
+_A_PROVIDER = object()
+
+
 @pytest.mark.parametrize(
     ("maker", "derive"),
     [
@@ -1202,7 +1309,12 @@ def _a_middleware(request: Any, call_next: Any) -> Any:
         (_openai, lambda c: c.with_options(_extra_kwargs={"base_url": _ATTACKER})),
         (_openai, lambda c: c.with_options(_enforce_credentials=False)),
         (_openai, lambda c: c.with_options(future_option=1)),
-        (_anthropic, lambda c: c.with_options(http_client=httpx.Client())),
+        (_openai, lambda c: c.with_options(data_residency="eu")),
+        (_openai, lambda c: c.copy(provider=_A_PROVIDER)),
+        (
+            _anthropic,
+            lambda c: c.with_options(http_client=_http_of(anthropic).Client()),
+        ),
         (_anthropic, lambda c: c.with_options(middleware=[_a_middleware])),
         (_anthropic, lambda c: c.with_middleware(_a_middleware)),
         (_anthropic, lambda c: c.copy(default_query={"beta": "true"})),
@@ -1215,6 +1327,8 @@ def _a_middleware(request: Any, call_next: Any) -> Any:
         "openai-_extra_kwargs",
         "openai-_enforce_credentials",
         "openai-unknown",
+        "openai-data_residency",
+        "openai-provider",
         "anthropic-http_client",
         "anthropic-middleware",
         "anthropic-with_middleware",
@@ -1298,7 +1412,9 @@ def test_harmless_derivation_options_still_derive_an_enforced_client() -> None:
     )
     anthropic_wire = _Wire()
     anthropic_client = consent.wrap(_anthropic(anthropic_wire), consent_client=_Cloud())
-    anthropic_client.copy(webhook_key="whk_test", timeout=5.0).messages.create(
+    anthropic_client.copy(
+        webhook_key="whk_test", timeout=5.0, open_telemetry=False
+    ).messages.create(
         model="claude-sonnet-4-5", max_tokens=16, messages=_MESSAGES, user_id=_USER
     )
 
@@ -1937,6 +2053,105 @@ def test_gemini_declared_functions_are_not_automatic_function_calling() -> None:
     assert len(wire.requests) == 1
 
 
+#: A Gemini answer that stopped before the end and says how to resume it.
+_GEMINI_CONTINUING = {
+    "candidates": [
+        {
+            "content": {"parts": [{"text": "half of it"}], "role": "model"},
+            "finishReason": "CONTINUATION",
+            "continuationToken": base64.b64encode(b"opaque-resume-state").decode(),
+        }
+    ]
+}
+
+
+class _ContinuingWire(_Wire):
+    """Answers the first request with ``CONTINUATION``, every later one in full."""
+
+    def transport(self, http: Any = httpx) -> Any:
+        def handler(request: Any) -> Any:
+            request.read()
+            self.requests.append(request)
+            if len(self.requests) > 1:
+                return _answer(request, http)
+            if request.url.path.endswith(":streamGenerateContent"):
+                event = b"data: " + json.dumps(_GEMINI_CONTINUING).encode()
+                return http.Response(
+                    200,
+                    content=event + b"\r\n\r\n",
+                    headers={"content-type": "text/event-stream"},
+                )
+            return http.Response(200, json=_GEMINI_CONTINUING)
+
+        return http.MockTransport(handler)
+
+
+def _generate(client: Any, stream: bool, **kwargs: Any) -> Any:
+    if stream:
+        return list(
+            client.models.generate_content_stream(
+                model="gemini-2.0-flash", contents="hello", **kwargs
+            )
+        )
+    return client.models.generate_content(
+        model="gemini-2.0-flash", contents="hello", **kwargs
+    )
+
+
+@pytest.mark.parametrize("stream", [False, True], ids=["generate", "stream"])
+@pytest.mark.parametrize(
+    "config",
+    [None, {"temperature": 0.2}, "typed", {"automaticContinuation": False}],
+    ids=["no-config", "dict", "typed", "camel-off"],
+)
+def test_gemini_does_not_resume_on_its_own_under_one_token(
+    stream: bool, config: Any
+) -> None:
+    """google-genai resends a ``CONTINUATION`` answer by itself, token and all.
+
+    Unwrapped, the library follows the continuation token with a second request
+    — the first half of this test shows it, so the second is not passing for
+    want of a loop. Wrapped, the call is one request under one token, and the
+    answer comes back with its ``continuation_token`` for the developer to
+    resume with: a new call, authorized and proven like the first.
+    """
+    turned_off = isinstance(config, dict) and "automaticContinuation" in config
+    if config == "typed":
+        config = genai_types.GenerateContentConfig(temperature=0.2)
+    kwargs = {} if config is None else {"config": config}
+
+    raw_wire = _ContinuingWire()
+    _generate(_gemini(raw_wire), stream, **dict(kwargs))
+    assert len(raw_wire.requests) == (1 if turned_off else 2), (
+        "the library no longer resumes by itself"
+    )
+
+    wire, cloud = _ContinuingWire(), _Cloud()
+    client = consent.wrap(_gemini(wire), consent_client=cloud)
+    _generate(client, stream, user_id=_USER, **kwargs)
+
+    assert len(cloud.calls) == 1
+    assert len(wire.requests) == 1
+
+
+def test_gemini_automatic_continuation_asked_for_is_refused_before_authorize() -> None:
+    wire, cloud = _ContinuingWire(), _Cloud()
+    client = consent.wrap(_gemini(wire), consent_client=cloud)
+
+    refused = _refused_before_authorize(
+        lambda: client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents="hello",
+            config={"automatic_continuation": True},
+            user_id=_USER,
+        ),
+        cloud,
+        wire,
+        UnenforceableOptionError,
+    )
+    assert "config.automatic_continuation" in str(refused)
+
+
 # ── what must keep working ───────────────────────────────────────────────────
 
 
@@ -2035,7 +2250,13 @@ def test_anthropic_beta_header_parse_stream_and_routing_still_work() -> None:
     assert len(wire.requests) == 3
     for request in wire.requests:
         assert request.headers["anthropic-beta"] == "prompt-caching-2024-07-31"
-        assert request.headers.get_list("x-api-key") == ["sk-ant-test-routed"]
+        # `anthropic<2` sent the key as `X-Api-Key`, `anthropic>=2` as a bearer
+        # token: either way, the routed key and only it.
+        keys = request.headers.get_list("x-api-key") + [
+            value.removeprefix("Bearer ")
+            for value in request.headers.get_list("authorization")
+        ]
+        assert keys == ["sk-ant-test-routed"]
 
 
 def test_mistral_retries_timeout_and_routing_still_work() -> None:
@@ -2139,8 +2360,16 @@ _PINNED_HASHES = {
     "gemini-http-dict": (
         "sha256:303a37d63dd200e4a12b451b6051a6d7eb5c01533f7e46d2b394a4d5bf6ada6e"
     ),
+    # A TYPED config is hashed through `model_dump()`, which writes every field
+    # the installed google-genai declares, `None` included. So this one value
+    # follows the library rather than the SDK: google-genai 2.33 and 3.1 added
+    # four fields to `GenerateContentConfig` (`store`, `continuation_token`,
+    # `automatic_continuation`, `generation_output_config`) and moved it from
+    # `sha256:aa1edc8c…5d8b63cd`, its value under 2.11, with this SDK
+    # unchanged. Re-pinned on 2026-11-11 against both; a dict config does not
+    # move, as `gemini-http-dict` shows.
     "gemini-retry-object": (
-        "sha256:aa1edc8c0b2579d4a9ada554ce84ca326d342784b1e96e09d880e5fd5d8b63cd"
+        "sha256:fe176f3ec42f4f1c9be58d1db9a3221ae65b7c5c45c4cd0e74910d8017cef997"
     ),
 }
 

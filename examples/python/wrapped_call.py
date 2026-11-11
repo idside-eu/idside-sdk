@@ -14,6 +14,7 @@ Live:    see ../README.md#going-live — it is a two-line diff.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -97,7 +98,12 @@ def openai_stub(request: httpx.Request) -> httpx.Response:
     print("4. What actually left this process")
     print(f"   POST {request.url}")
     print(f"   X-AI-Consent-Token: {request.headers.get('X-AI-Consent-Token')}")
-    print(f"   body: {request.content.decode()}")
+    # Keys sorted: the order on the wire is the openai library's own, and it
+    # differs between versions of that library. The content is what left.
+    body = json.dumps(
+        json.loads(request.content), sort_keys=True, separators=(",", ":")
+    )
+    print(f"   body: {body}")
     print()
     return httpx.Response(
         200,

@@ -33,6 +33,7 @@ import {
   UnsupportedProviderError,
 } from "../src/index.ts";
 import type { AuthorizeRequest, ConsentClient, ConsentDecision } from "../src/transport.ts";
+import { requestHash } from "../src/requestHash.ts";
 
 const USER = "usr_marie_456";
 const ATTACKER_KEY = "sk-ATTACKER-never-in-a-message"; // pragma: allowlist secret
@@ -303,11 +304,13 @@ test("options that choose where the request goes, or how it is built, are refuse
     __streamClass: class {},
     __metadata: { hasStreamingBody: true },
     __synthesizeEventData: true,
+    __streamMode: "events",
   };
   for (const [name, make] of Object.entries(STAINLESS_ENDPOINTS)) {
     for (const [key, value] of Object.entries(vectors)) {
       const error = await assertRefusedBeforeAuthorize(make(), { [key]: value }, `${name} ${key}`);
-      assert.match(error.message, new RegExp(`\`${key.replace(/[$_]/g, "\\$&")}\``), "the message names the option");
+      // `__metadata` is read key by key, and the refusal names the key.
+      assert.match(error.message, new RegExp(`\`${key.replace(/[$_]/g, "\\$&")}(\\.\\w+)?\``), "the message names the option");
     }
   }
 });
@@ -320,6 +323,157 @@ test("an option this SDK has never heard of is refused, not waved through", asyn
   }
 });
 
+// ── B2. body keys the library sends somewhere else, or the cloud cannot force ─
+
+test("anthropic: workspace_id and user_profile_id leave the body as headers, and are refused", async () => {
+  // @anthropic-ai/sdk 1.x destructures both out of the body and sends them as
+  // `anthropic-workspace-id` / `anthropic-user-profile-id`: outside the hashed
+  // body, choosing the workspace a credential acts in, or a profile whose
+  // programs can require retention and human review.
+  for (const key of ["workspace_id", "user_profile_id"]) {
+    const w = wire(() => json(MESSAGE));
+    const cc = cloud();
+    const client = wrap(anthropic(w), { consentClient: cc });
+    const error = await outcome(() =>
+      client.messages.create({
+        model: "claude-sonnet-4-5",
+        max_tokens: 16,
+        messages: MESSAGES,
+        user_id: USER,
+        [key]: "wrkspc_medhelp_other",
+      } as never),
+    );
+    assert.ok(error instanceof UnenforceableOptionError, `${key}: got ${String(error)}`);
+    assert.ok(error.message.includes(`\`${key}\``), "the message names the argument");
+    assert.ok(!error.message.includes("wrkspc_medhelp_other"), "the message never repeats the value");
+    assert.equal(cc.calls.length, 0, key);
+    assert.equal(w.sent.length, 0, key);
+  }
+});
+
+test("openai: prompt_cache_options is refused, its ttl being a cache lifetime nothing can force", async () => {
+  for (const name of ["openai chat.completions.create", "openai responses.create"]) {
+    const w = openaiWire();
+    const cc = cloud();
+    const client = wrap(openai(w), { consentClient: cc });
+    const options = { prompt_cache_options: { ttl: "12h" } };
+    const error = await outcome(() =>
+      name.endsWith("responses.create")
+        ? client.responses.create({ model: "gpt-4o", input: "a private sentence", user_id: USER, ...options } as never)
+        : client.chat.completions.create({ model: "gpt-4o", messages: MESSAGES, user_id: USER, ...options } as never),
+    );
+    assert.ok(error instanceof UnenforceableOptionError, `${name}: got ${String(error)}`);
+    assert.match(error.message, /`prompt_cache_options`/);
+    assert.equal(cc.calls.length, 0, name);
+    assert.equal(w.sent.length, 0, name);
+  }
+});
+
+test("a body key refused on one library is an ordinary parameter on another", async () => {
+  // The list is per library: Mistral has no workspace header to move it into.
+  const endpoint = mistralEndpoint();
+  const error = await outcome(() =>
+    endpoint.client.chat.complete({
+      model: "mistral-small-latest",
+      messages: MESSAGES,
+      user_id: USER,
+      prompt_cache_options: { ttl: "12h" },
+    } as never),
+  );
+  assert.ok(!(error instanceof UnenforceableOptionError), String(error));
+  assert.equal(endpoint.cloud.calls.length, 1);
+});
+
+// ── B3. what the newest libraries added to the options object ────────────────
+
+test("anthropic: a per-call openTelemetry option only names the local span, and passes", async () => {
+  const endpoint = STAINLESS_ENDPOINTS["anthropic messages.create"]!();
+  await endpoint.call({ openTelemetry: { conversationId: "conv_medhelp_42" } });
+  assert.equal(endpoint.cloud.calls.length, 1);
+  assert.equal(endpoint.wire.sent.length, 1);
+  const sent = endpoint.wire.sent[0]!;
+  assert.ok(!sent.body.includes("conv_medhelp_42"), "the conversation id is a span attribute, not request data");
+  assert.ok(![...sent.headers.values()].some((value) => value.includes("conv_medhelp_42")));
+});
+
+test("openai: the helper metadata a stream injects passes, and nothing else under that name", async () => {
+  const make = STAINLESS_ENDPOINTS["openai responses.create"]!;
+  const helper = make();
+  await helper.call({ __metadata: { helperMethod: "stream" } });
+  assert.equal(helper.wire.sent.length, 1);
+  assert.equal(helper.wire.sent[0]!.headers.get("X-Stainless-Helper-Method"), "stream");
+
+  for (const metadata of [
+    { helperMethod: "stream", model: "gpt-4o-deployment-other" },
+    { streamFromBody: true },
+    { helperMethod: 42 },
+    { captureResponseParser: "not a function" },
+    "helperMethod",
+  ]) {
+    await assertRefusedBeforeAuthorize(make(), { __metadata: metadata }, JSON.stringify(metadata));
+  }
+});
+
+test("openai: a response-parser hook is handed a read-only copy of the body, never the request", async () => {
+  // `responses.stream()` injects `__metadata.captureResponseParser`, which the
+  // library calls with the request it is building, after the body is encoded and
+  // before the headers are. Handed that object, a function could rewrite the
+  // request the proof was signed for; it is handed a read-only view of the body.
+  const endpoint = STAINLESS_ENDPOINTS["openai responses.create"]!();
+  const seen: unknown[] = [];
+  await endpoint.call({
+    __metadata: {
+      captureResponseParser(prepared: Record<string, unknown>) {
+        seen.push(Object.keys(prepared));
+        const body = prepared.body as Record<string, unknown>;
+        seen.push(body.model);
+        prepared.fetchOptions = { body: "{\"store\":true}" };
+        prepared.headers = { Authorization: `Bearer ${ATTACKER_KEY}` };
+        assert.throws(() => {
+          body.store = true;
+        }, TypeError);
+        assert.throws(() => {
+          delete body.model;
+        }, TypeError);
+      },
+    },
+  });
+  assert.deepEqual(seen, [["body"], "gpt-4o"]);
+  assert.equal(endpoint.wire.sent.length, 1);
+  const sent = endpoint.wire.sent[0]!;
+  assert.doesNotMatch(sent.body, /"store":true/);
+  assert.ok(!sent.headers.get("Authorization")?.includes(ATTACKER_KEY));
+});
+
+test("openai: responses.parse() keeps parseAs, a parser that is never sent", async () => {
+  const w = openaiWire();
+  const cc = cloud();
+  const client = wrap(openai(w), { consentClient: cc });
+  await client.responses.parse({ model: "gpt-4o", input: "a private sentence", user_id: USER } as never, {
+    parseAs: null,
+  } as never);
+  assert.equal(cc.calls.length, 1);
+  assert.equal(w.sent.length, 1);
+  assert.doesNotMatch(w.sent[0]!.body, /parseAs/);
+});
+
+test("responses.stream() still authorizes once, with the parser hook it injects", async () => {
+  const w = wire(
+    () =>
+      new Response(
+        `event: response.completed\ndata: ${JSON.stringify({ type: "response.completed", sequence_number: 0, response: RESPONSE })}\n\n`,
+        { status: 200, headers: { "content-type": "text/event-stream" } },
+      ),
+  );
+  const cc = cloud();
+  const client = wrap(openai(w), { consentClient: cc });
+  const stream = client.responses.stream({ model: "gpt-4o", input: "a private sentence", user_id: USER } as never);
+  await outcome(() => stream.finalResponse());
+  assert.equal(cc.calls.length, 1);
+  assert.equal(w.sent.length, 1);
+  assert.equal(w.sent[0]!.headers.get("X-Stainless-Helper-Method"), "stream");
+});
+
 // ── C. headers that choose the credential ────────────────────────────────────
 
 test("a per-call header naming the credential is refused, in every spelling and shape", async () => {
@@ -327,7 +481,16 @@ test("a per-call header naming the credential is refused, in every spelling and 
     "openai chat.completions.create": ["Authorization", "OpenAI-Project", "openai-organization", "api-key", "X-AI-Consent-Token"],
     "openai responses.create": ["authorization", "OPENAI-PROJECT", "x-ai-consent-token"],
     "deepseek chat.completions.create": ["Authorization", "OpenAI-Organization"],
-    "anthropic messages.create": ["x-api-key", "Authorization", "api-key", "X-AI-Consent-Token"],
+    "anthropic messages.create": [
+      "x-api-key",
+      "Authorization",
+      "api-key",
+      "X-AI-Consent-Token",
+      // A credential that can act on several workspaces picks one with this
+      // header; a user profile can require retention and human review.
+      "anthropic-workspace-id",
+      "Anthropic-User-Profile-Id",
+    ],
   };
   for (const [name, headers] of Object.entries(reserved)) {
     const make = STAINLESS_ENDPOINTS[name]!;
@@ -425,6 +588,43 @@ test("the streaming and parsing helpers still go through, with the options they 
   assert.equal(acc.calls.length, 1, "messages.stream() must still authorize exactly once");
   assert.equal(aw.sent.length, 1);
   assert.equal(aw.sent[0]!.headers.get("X-Stainless-Helper-Method"), "stream");
+});
+
+test("anthropic: the span messages.stream() hands create() changes nothing that is sent", async () => {
+  // @anthropic-ai/sdk 1.x passes its own `__span` (the call's tracing span) to
+  // create(). Admitted, so the helper works; this is what admitting it costs:
+  // the same URL, the same body and the same headers as the plain streaming
+  // call, bar the helper's name and trace context.
+  const stream = () =>
+    new Response(
+      [
+        `event: message_start\ndata: ${JSON.stringify({ type: "message_start", message: { ...MESSAGE, content: [] } })}\n\n`,
+        `event: message_stop\ndata: ${JSON.stringify({ type: "message_stop" })}\n\n`,
+      ].join(""),
+      { status: 200, headers: { "content-type": "text/event-stream" } },
+    );
+  const body = { model: "claude-sonnet-4-5", max_tokens: 16, messages: MESSAGES, user_id: USER };
+
+  const viaHelper = wire(stream);
+  const helperCloud = cloud();
+  await outcome(() => wrap(anthropic(viaHelper), { consentClient: helperCloud }).messages.stream(body).done());
+  const direct = wire(stream);
+  const directStream = await wrap(anthropic(direct), { consentClient: cloud() }).messages.create({ ...body, stream: true });
+  for await (const _event of directStream as AsyncIterable<unknown>) void _event;
+
+  assert.equal(helperCloud.calls.length, 1, "messages.stream() authorizes exactly once");
+  assert.equal(viaHelper.sent.length, 1);
+  const [a, b] = [viaHelper.sent[0]!, direct.sent[0]!];
+  assert.equal(a.url, b.url);
+  assert.equal(a.method, b.method);
+  assert.deepEqual(JSON.parse(a.body), JSON.parse(b.body));
+  const ignored = new Set(["x-stainless-helper-method", "traceparent", "tracestate", "baggage", "x-stainless-timeout"]);
+  const names = (headers: Headers) => [...headers.keys()].filter((name) => !ignored.has(name)).sort();
+  assert.deepEqual(names(a.headers), names(b.headers));
+  for (const name of names(a.headers)) {
+    if (name === "x-stainless-retry-count" || name.startsWith("x-stainless-")) continue;
+    assert.equal(a.headers.get(name), b.headers.get(name), name);
+  }
 });
 
 test("a helper that forwards its options to create() cannot smuggle a refused one through", async () => {
@@ -528,6 +728,8 @@ test("gemini: httpOptions that rewrite the body or move the request are refused"
     baseUrl: "https://evil.example",
     apiVersion: "v1alpha",
     baseUrlResourceScope: "COLLECTION",
+    // @google/genai 3.x: a per-call fetch, the request sent on another transport.
+    fetch: async () => new Response("{}"),
     somethingNew: true,
   };
   for (const [key, value] of Object.entries(vectors)) {
@@ -590,6 +792,94 @@ test("gemini: an executable tool is refused before the library can loop on one t
     assert.equal(cc.calls.length, 0, label);
     assert.equal(w.sent.length, 0, label);
   }
+});
+
+// ── E2. Gemini automatic continuation ────────────────────────────────────────
+
+const CONTINUED = {
+  candidates: [
+    {
+      content: { role: "model", parts: [{ text: "first half" }] },
+      finishReason: "CONTINUATION",
+      continuationToken: "Y29udGludWF0aW9uX3Rva2Vu",
+      index: 0,
+    },
+  ],
+};
+
+test("gemini: a CONTINUATION answer is not followed under the same token", async () => {
+  // @google/genai 3.x resends the request with the continuation token, by
+  // itself and by default, until the model finishes — every hop under the one
+  // ACT token authorized for the first. The adapter turns that off; the next
+  // part is a call of its own, authorized and proved like any other.
+  for (const method of ["generateContent", "generateContentStream"] as const) {
+    // The first answer asks to be continued, the second finishes: a library left
+    // to itself sends twice, and stops there rather than looping on the stub.
+    let answered = 0;
+    const w = wire(() => {
+      const answer = answered++ === 0 ? CONTINUED : GEMINI_RESPONSE;
+      return method === "generateContent"
+        ? json(answer)
+        : new Response(`data: ${JSON.stringify(answer)}\r\n\r\n`, {
+            status: 200,
+            headers: { "content-type": "text/event-stream" },
+          });
+    });
+    const cc = cloud();
+    await withGlobalFetch(w, async () => {
+      const client = wrap(gemini(), { consentClient: cc });
+      await outcome(async () => {
+        const result = await client.models[method]({ model: "gemini-2.0-flash", contents: "a private sentence", user_id: USER });
+        if (method === "generateContentStream") {
+          for await (const _chunk of result as AsyncIterable<unknown>) void _chunk;
+        }
+      });
+    });
+    assert.equal(cc.calls.length, 1, method);
+    assert.equal(w.sent.length, 1, `${method}: one authorization, one request`);
+  }
+});
+
+test("gemini: asking for automatic continuation is refused; turning it off, or resuming by hand, is not", async () => {
+  const asked = await geminiCall({ automaticContinuation: true });
+  assert.ok(asked.error instanceof UnenforceableOptionError, String(asked.error));
+  assert.match(asked.error.message, /config\.automaticContinuation/);
+  assert.equal(asked.cloud.calls.length, 0);
+  assert.equal(asked.wire.sent.length, 0);
+
+  for (const config of [{ automaticContinuation: false }, { continuationToken: "Y29udGludWF0aW9uX3Rva2Vu" }, { store: false }]) {
+    const { error, cloud: cc, wire: w } = await geminiCall(config);
+    assert.ok(!(error instanceof Error), `${JSON.stringify(config)}: ${String(error)}`);
+    assert.equal(cc.calls.length, 1);
+    assert.equal(w.sent.length, 1);
+  }
+});
+
+test("gemini: turning continuation off moves no request hash", async () => {
+  // Forced after the hash, like every other parameter the adapter injects: a
+  // call that left the default alone hashes as it always did.
+  const unset = await geminiCall({ temperature: 0.2 });
+  assert.equal(unset.cloud.calls.length, 1);
+  assert.equal(
+    unset.cloud.calls[0]!.requestHash,
+    requestHash({ model: "gemini-2.0-flash", contents: "a private sentence", config: { temperature: 0.2 } }),
+  );
+  // The forwarded config does carry it, and the wire does not: it is the
+  // library's own switch, never sent.
+  assert.doesNotMatch(unset.wire.sent[0]!.body, /automaticContinuation|automatic_continuation/);
+});
+
+test("gemini: output written to a storage bucket is refused", async () => {
+  // The provider writes the generated media to the gs:// prefix named here: a
+  // destination, and a retention, the proof says nothing about.
+  const { error, cloud: cc, wire: w } = await geminiCall({
+    generationOutputConfig: { outputUriPrefix: "gs://medhelp-other-bucket/out/" },
+  });
+  assert.ok(error instanceof UnenforceableOptionError, String(error));
+  assert.match(error.message, /config\.generationOutputConfig/);
+  assert.ok(!error.message.includes("medhelp-other-bucket"));
+  assert.equal(cc.calls.length, 0);
+  assert.equal(w.sent.length, 0);
 });
 
 // ── D. every field that can hand the model a tool ────────────────────────────
@@ -1194,6 +1484,8 @@ test("a derivation may still change timeouts, retries, logging and webhook secre
       logLevel: "warn",
       dangerouslyAllowBrowser: false,
       webhookKey: "whsec_medhelp_test", // pragma: allowlist secret
+      // @anthropic-ai/sdk 1.x: where its spans go, and whether they carry content.
+      openTelemetry: false,
     }),
   );
 });
@@ -1208,6 +1500,8 @@ test("a derivation cannot change the credential: credentials are declared to wra
       organization: "org_medhelp_other",
       project: "proj_medhelp_other",
       workloadIdentity: { provider: "gcp" },
+      // openai 7.x: a certificate credential built with `fromX509`.
+      credential: { certificate: "medhelp-other" },
     }],
     ["anthropic", () => wrap(anthropic(wire(() => json(MESSAGE))), { consentClient: cloud() }), {
       apiKey: ATTACKER_KEY,
@@ -1239,6 +1533,9 @@ test("a derivation cannot change how requests are built: that is a new client, w
       fetchOptions: { body: "{\"store\":true}" },
       defaultQuery: { exfiltrate: "yes" },
       provider: { name: "azure" },
+      // openai 7.x: a regional endpoint, and the transport an X.509 identity sends on.
+      dataResidency: "eu",
+      x509Transport: { fetch: async () => new Response("{}") },
       somethingNew: true,
     }],
     ["anthropic", () => wrap(anthropic(wire(() => json(MESSAGE))), { consentClient: cloud() }), {
@@ -1810,6 +2107,9 @@ const NEXTGEN_POSTS: Record<string, (ai: NextGen) => Promise<unknown>> = {
   webhooks: (ai) => ai.webhooks!.create!({ url: "https://hooks.invalid/inbox" } as never),
   triggers: (ai) => ai.triggers!.create!({ name: "nightly" } as never),
   environments: (ai) => ai.environments!.create!({ displayName: "sandbox" } as never),
+  // @google/genai 3.x: two more surfaces, each building a client of its own.
+  credentials: (ai) => ai.credentials!.create!({ displayName: "medhelp" } as never),
+  voices: (ai) => ai.voices!.create!({ displayName: "narrator" } as never),
 };
 
 test("gemini: every NextGen surface refuses a body-bearing request, and says where it belongs", async () => {
@@ -1859,7 +2159,8 @@ test("gemini: a NextGen retrieval still goes out, like any other bodyless call",
     const client = wrap(gemini(), { consentClient: cloud() }) as unknown as NextGen;
     await client.interactions!.get!("int_1" as never);
   });
-  assert.deepEqual(w.sent.map((s) => [s.method, new URL(s.url).pathname]), [["GET", "/v1beta/interactions/int_1"]]);
+  // The path is the library's: @google/genai 3.x reads interactions from `/v1`.
+  assert.deepEqual(w.sent.map((s) => [s.method, new URL(s.url).pathname]), [["GET", "/v1/interactions/int_1"]]);
 });
 
 test("gemini: wrapping says nothing on the experimental surfaces it does not touch", async () => {

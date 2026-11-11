@@ -19,10 +19,31 @@ without mutating the caller's objects.
 
 from __future__ import annotations
 
+import functools
+import importlib
 from typing import Any
 
 from idside.adapters.base import ProviderAdapter, _merge_headers
 from idside.exceptions import ConsentTokenError
+
+
+@functools.cache
+def _resumes_on_its_own() -> bool:
+    """Whether the installed google-genai follows a ``CONTINUATION`` by itself.
+
+    From google-genai 2.30, ``generate_content`` and its stream answer a
+    response that stopped with ``finish_reason=CONTINUATION`` by sending the
+    same request again with its ``continuation_token`` — on by default, under
+    the same config, so under the same ACT token. Read off the library's own
+    config model rather than its version number: an older one has no such
+    field, and would refuse a config naming it.
+    """
+    try:
+        types = importlib.import_module("google.genai.types")
+    except ImportError:
+        return False
+    fields = getattr(types.GenerateContentConfig, "model_fields", {})
+    return "automatic_continuation" in fields
 
 
 def _as_dict(value: Any, what: str) -> dict[str, Any]:
@@ -71,6 +92,14 @@ class GeminiAdapter(ProviderAdapter):
         }
         config = _as_dict(new.get("config"), "config")
         config.update(safe)
+        if _resumes_on_its_own():
+            # One token proves one request (invariant #4). An explicit `True`
+            # was refused before the cloud was asked; this turns off the
+            # default. The answer then comes back with its continuation token,
+            # and resuming is a call of its own. Local to the library, never
+            # sent, and set after the hash, so no request hash moves.
+            config.pop("automaticContinuation", None)
+            config["automatic_continuation"] = False
         # google-genai also takes `httpOptions`, and refuses a config holding
         # both spellings: the token must join the caller's own options, not sit
         # beside them under the other name.

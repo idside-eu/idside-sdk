@@ -139,3 +139,64 @@ def test_gemini_adapter_handles_a_real_generate_content_config() -> None:
     # caller's object untouched
     assert original.http_options.headers == {"X-Trace": "1"}
     assert original.temperature == 0.5
+
+
+@pytest.mark.parametrize(
+    "config",
+    [None, {"temperature": 0.5}, {"automaticContinuation": False}],
+    ids=["no-config", "dict", "camel-spelling"],
+)
+def test_gemini_adapter_turns_automatic_continuation_off(config: Any) -> None:
+    """google-genai would follow a CONTINUATION answer under the same token."""
+    types = pytest.importorskip("google.genai.types")
+    from idside.adapters import GeminiAdapter
+    from idside.providers import load_descriptors as descriptors
+
+    adapter = GeminiAdapter(descriptors()["gemini"])
+    kwargs: dict[str, Any] = {"model": "gemini-2.0-flash", "contents": "hi"}
+    if config is not None:
+        kwargs["config"] = config
+    before = adapter.extract_request_metadata(**kwargs)["request_hash"]
+
+    applied = adapter.apply(kwargs, {}, "tok_1")["config"]
+
+    assert applied["automatic_continuation"] is False
+    assert "automaticContinuation" not in applied  # one spelling, or genai refuses
+    types.GenerateContentConfig.model_validate(applied)
+    # Applied after the hash, like every forced value: no hash moves for it.
+    assert adapter.extract_request_metadata(**kwargs)["request_hash"] == before
+
+
+def test_gemini_adapter_leaves_a_library_without_continuation_alone(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A google-genai older than the field would refuse a config naming it."""
+    pytest.importorskip("google.genai.types")
+    from idside.adapters import GeminiAdapter, gemini
+
+    monkeypatch.setattr(gemini, "_resumes_on_its_own", lambda: False)
+    adapter = GeminiAdapter(load_descriptors()["gemini"])
+
+    applied = adapter.apply(
+        {"model": "gemini-2.0-flash", "contents": "hi", "config": {"seed": 1}},
+        {},
+        "tok_1",
+    )["config"]
+
+    assert "automatic_continuation" not in applied
+
+
+def test_without_google_genai_nothing_resumes_on_its_own(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from idside.adapters import gemini
+
+    def _missing(name: str) -> Any:
+        raise ImportError(name)
+
+    gemini._resumes_on_its_own.cache_clear()
+    monkeypatch.setattr(gemini.importlib, "import_module", _missing)
+    try:
+        assert gemini._resumes_on_its_own() is False
+    finally:
+        gemini._resumes_on_its_own.cache_clear()

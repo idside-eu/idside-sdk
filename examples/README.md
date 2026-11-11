@@ -81,7 +81,7 @@ $ uv run wrapped_call.py
 4. What actually left this process
    POST https://api.openai.com/v1/chat/completions
    X-AI-Consent-Token: act.eyJhbGciOiJFUzI1NiJ9.fake.signature
-   body: {"messages":[{"role":"user","content":"Summarize my last consultation."}],"model":"gpt-4o-mini","store":false}
+   body: {"messages":[{"content":"Summarize my last consultation.","role":"user"}],"model":"gpt-4o-mini","store":false}
 
 5. What the provider replied
    'ok'
@@ -112,8 +112,8 @@ $ uv run async_wrapped_call.py
    a blocking client would have made them queue, one round trip each
 
 4. What left this process (sorted, because the loop decides the order)
-   {"messages":[{"role":"user","content":"Summarize my last consultation."}],"model":"gpt-4o-mini","store":false}
-   {"messages":[{"role":"user","content":"When is my next appointment?"}],"model":"gpt-4o-mini","store":false}
+   {"messages":[{"content":"Summarize my last consultation.","role":"user"}],"model":"gpt-4o-mini","store":false}
+   {"messages":[{"content":"When is my next appointment?","role":"user"}],"model":"gpt-4o-mini","store":false}
 
    Both carry store=false, which ID Side decided and the SDK applied.
    Neither carries a user_id: it never reaches the provider, so these

@@ -24,6 +24,7 @@ import {
   assertDerivableOptions,
   assertEnforceableClient,
   assertEnforceableOptions,
+  forwardableOptions,
 } from "./adapters/callOptions.ts";
 import type { ProviderAdapter } from "./adapters/base.ts";
 import { headersToObject, isPlainObject } from "./adapters/base.ts";
@@ -1021,7 +1022,7 @@ function makeEnforced(
       throw error;
     }
     const enforcedArgs = adapter.buildEnforcedArgs(
-      [allowed, ...rest],
+      [allowed, ...forwardableOptions(adapter.descriptor, rest)],
       decision.paramsForced,
       decision.actToken,
       route.headers,

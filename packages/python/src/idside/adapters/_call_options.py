@@ -93,6 +93,17 @@ class _Library(NamedTuple):
     snapshot, which is closed: a new option is in neither it nor ``permitted``.
     ``tests/test_request_options.py`` compares it with the live schema, so it
     fails the day the two drift rather than the day a customer finds out.
+
+    ``refused_fields`` are names the body schema declares and an enforced call
+    may not carry all the same. Two reasons put a field there, and the trip-wire
+    looks for the first one by itself. A library can declare a field in the
+    schema it type-checks and send it somewhere else: ``anthropic>=2`` takes
+    ``workspace_id`` beside the body and writes it into a header, where the
+    request hash does not reach and where it picks the workspace — the unit
+    credential routing chooses. Or a field can undo, from inside the body, a
+    refusal the cloud cannot force back: a ``prompt_cache_options.ttl`` of
+    ``12h`` is a cache lifetime the forced ``prompt_cache_retention`` does not
+    bound.
     """
 
     permitted: frozenset[str]
@@ -100,6 +111,7 @@ class _Library(NamedTuple):
     transport: frozenset[str]
     body_schemas: Mapping[str, tuple[str, ...]]
     body_fields: Mapping[str, frozenset[str]]
+    refused_fields: frozenset[str] = frozenset()
 
 
 def _fields(names: str) -> frozenset[str]:
@@ -131,6 +143,10 @@ LIBRARIES: Mapping[str, _Library] = {
                 "verbosity",
                 "response_id",
                 "starting_after",
+                # `responses.parse()`: the type the output is parsed INTO, read
+                # in `_output_text_parser` and never sent. Hashed as its JSON
+                # schema, as `text_format` is.
+                "parse_as",
             }
         ),
         refused=frozenset({"extra_body", "extra_query"}),
@@ -150,21 +166,23 @@ LIBRARIES: Mapping[str, _Library] = {
                 "logprobs max_completion_tokens max_tokens messages "
                 "metadata modalities model moderation n parallel_tool_calls "
                 "prediction presence_penalty prompt_cache_key "
-                "prompt_cache_retention reasoning_effort response_format "
-                "safety_identifier seed service_tier stop store "
-                "stream_options temperature tool_choice tools top_logprobs "
-                "top_p user verbosity web_search_options"
+                "prompt_cache_options prompt_cache_retention reasoning_effort "
+                "response_format safety_identifier seed service_tier stop "
+                "store stream_options temperature tool_choice tools "
+                "top_logprobs top_p user verbosity web_search_options"
             ),
             "responses.create": _fields(
-                "background context_management conversation include input "
-                "instructions max_output_tokens max_tool_calls metadata "
-                "model moderation parallel_tool_calls previous_response_id "
-                "prompt prompt_cache_key prompt_cache_retention reasoning "
+                "access_programs background context_management conversation "
+                "image include input instructions max_output_tokens "
+                "max_tool_calls metadata model moderation parallel_tool_calls "
+                "previous_response_id prompt prompt_cache_key "
+                "prompt_cache_options prompt_cache_retention reasoning "
                 "safety_identifier service_tier store stream_options "
                 "temperature text tool_choice tools top_logprobs top_p "
                 "truncation user"
             ),
         },
+        refused_fields=frozenset({"prompt_cache_options"}),
     ),
     "anthropic": _Library(
         permitted=frozenset({"timeout", "extra_headers", "output_format"}),
@@ -177,11 +195,13 @@ LIBRARIES: Mapping[str, _Library] = {
         },
         body_fields={
             "messages.create": _fields(
-                "cache_control container inference_geo max_tokens messages "
-                "metadata model output_config service_tier stop_sequences "
-                "system temperature thinking tool_choice tools top_k top_p"
+                "cache_control container diagnostics inference_geo max_tokens "
+                "messages metadata model output_config service_tier speed "
+                "stop_sequences system thinking tool_choice tools "
+                "user_profile_id workspace_id"
             ),
         },
+        refused_fields=frozenset({"workspace_id", "user_profile_id"}),
     ),
     "mistralai": _Library(
         permitted=frozenset({"http_headers", "retries", "timeout_ms"}),
@@ -198,18 +218,22 @@ LIBRARIES: Mapping[str, _Library] = {
         },
         body_fields={
             "chat.complete": _fields(
-                "frequency_penalty guardrails max_tokens messages metadata "
-                "model n parallel_tool_calls prediction presence_penalty "
-                "prompt_cache_key prompt_mode random_seed reasoning_effort "
-                "response_format safe_prompt stop stream temperature "
-                "tool_choice tools top_p"
+                "frequency_penalty guardrails logprobs max_tokens messages "
+                "metadata min_tokens model n parallel_tool_calls prediction "
+                "presence_penalty prompt_cache_key prompt_logprobs "
+                "prompt_mode random_seed reasoning_effort repetition_penalty "
+                "response_format safe_prompt service_tier stop stream "
+                "temperature tool_choice tools top_k top_logprobs top_p "
+                "top_prompt_logprobs"
             ),
             "chat.stream": _fields(
-                "frequency_penalty guardrails max_tokens messages metadata "
-                "model n parallel_tool_calls prediction presence_penalty "
-                "prompt_cache_key prompt_mode random_seed reasoning_effort "
-                "response_format safe_prompt stop stream temperature "
-                "tool_choice tools top_p"
+                "frequency_penalty guardrails logprobs max_tokens messages "
+                "metadata min_tokens model n parallel_tool_calls prediction "
+                "presence_penalty prompt_cache_key prompt_logprobs "
+                "prompt_mode random_seed reasoning_effort repetition_penalty "
+                "response_format safe_prompt service_tier stop stream "
+                "temperature tool_choice tools top_k top_logprobs top_p "
+                "top_prompt_logprobs"
             ),
             "fim.complete": _fields(
                 "max_tokens metadata min_tokens model prompt "
@@ -222,16 +246,20 @@ LIBRARIES: Mapping[str, _Library] = {
                 "temperature top_p"
             ),
             "agents.complete": _fields(
-                "agent_id frequency_penalty guardrails max_tokens messages "
-                "metadata n parallel_tool_calls prediction presence_penalty "
-                "prompt_cache_key prompt_mode random_seed reasoning_effort "
-                "response_format stop stream tool_choice tools"
+                "agent_id frequency_penalty guardrails logprobs max_tokens "
+                "messages metadata min_tokens n parallel_tool_calls "
+                "prediction presence_penalty prompt_cache_key prompt_logprobs "
+                "prompt_mode random_seed reasoning_effort repetition_penalty "
+                "response_format service_tier stop stream tool_choice tools "
+                "top_k top_logprobs top_prompt_logprobs"
             ),
             "agents.stream": _fields(
-                "agent_id frequency_penalty guardrails max_tokens messages "
-                "metadata n parallel_tool_calls prediction presence_penalty "
-                "prompt_cache_key prompt_mode random_seed reasoning_effort "
-                "response_format stop stream tool_choice tools"
+                "agent_id frequency_penalty guardrails logprobs max_tokens "
+                "messages metadata min_tokens n parallel_tool_calls "
+                "prediction presence_penalty prompt_cache_key prompt_logprobs "
+                "prompt_mode random_seed reasoning_effort repetition_penalty "
+                "response_format service_tier stop stream tool_choice tools "
+                "top_k top_logprobs top_prompt_logprobs"
             ),
             "beta.conversations.start": _fields(
                 "agent_id agent_version completion_args description "
@@ -243,17 +271,34 @@ LIBRARIES: Mapping[str, _Library] = {
 }
 
 #: ``google-genai`` takes exactly ``model``, ``contents`` and ``config``, so its
-#: options live inside ``config``: the fields no request converter reads. All
-#: three pass, and only one is read further. ``should_return_http_response``
-#: changes what the library hands back, not what it sends.
-#: ``automatic_function_calling`` configures a loop that only runs when a tool
-#: is a local callable — and that is refused on its own, whatever this says,
-#: because one token would then cover several requests. ``http_options`` is
-#: inspected field by field below.
+#: options live inside ``config``: the fields no request converter reads.
+#: ``should_return_http_response`` changes what the library hands back, not
+#: what it sends. ``automatic_function_calling`` configures a loop that only
+#: runs when a tool is a local callable — and that is refused on its own,
+#: whatever this says, because one token would then cover several requests.
+#: ``automatic_continuation`` (google-genai 2.30 and later) is that loop again
+#: without any tool, and ON by default: a response that stops with
+#: ``finish_reason=CONTINUATION`` is followed by the same request carrying its
+#: ``continuation_token``, under the same config and so the same ACT token.
+#: Asking for it is refused, and the Gemini adapter turns it off on every
+#: enforced call; resuming is a call of its own, with ``continuation_token``,
+#: authorized and proven like any other. ``http_options`` is inspected field by
+#: field below.
 GENAI_MODULE = "google.genai"
 GENAI_CONFIG_OPTIONS = frozenset(
-    {"http_options", "should_return_http_response", "automatic_function_calling"}
+    {
+        "http_options",
+        "should_return_http_response",
+        "automatic_function_calling",
+        "automatic_continuation",
+    }
 )
+#: Config fields the converters DO send, and that an enforced call may not carry
+#: anyway. ``generation_output_config.output_uri_prefix`` has the provider write
+#: the generated media to a ``gs://`` location of the caller's choosing and hand
+#: back a link instead of the bytes: a copy of the output, kept somewhere the
+#: proof never names, for as long as the bucket keeps it.
+GENAI_CONFIG_REFUSED = frozenset({"generation_output_config"})
 #: The only arguments ``models.generate_content(_stream)`` accepts. Anything
 #: else is refused before the cloud is asked, rather than failing as a
 #: ``TypeError`` inside the provider library after a proof was signed for it.
@@ -304,6 +349,28 @@ _WHY = {
     "httpx_client": "sends this request on another HTTP client",
     "httpx_async_client": "sends this request on another HTTP client",
     "aiohttp_client": "sends this request on another HTTP client",
+    "workspace_id": (
+        "is sent as the `anthropic-workspace-id` header, outside the hashed body, "
+        "and moves the call to another workspace — the unit credential routing "
+        "chooses, with its own retention and residency"
+    ),
+    "user_profile_id": (
+        "is sent as the `anthropic-user-profile-id` header, outside the hashed "
+        "body, and attributes the call to a user profile whose programs can "
+        "require retention and human review"
+    ),
+    "prompt_cache_options": (
+        "sets a prompt-cache lifetime (`ttl`) that the forced "
+        "`prompt_cache_retention` does not bound and the SDK cannot force"
+    ),
+    "generation_output_config": (
+        "has the provider write the generated media to a storage bucket the "
+        "proof never names"
+    ),
+    "automatic_continuation": (
+        "makes the library send the request again, on its own, under the one "
+        "ACT token authorized for this call, and one token proves one request"
+    ),
 }
 _WHY_UNKNOWN = "is not an option this SDK knows to leave the request as authorized"
 
@@ -341,7 +408,7 @@ def refuse_unenforceable(
     for name, value in kwargs.items():
         if name in library.permitted or name == "stream" or is_not_given(value):
             continue
-        if name not in body:
+        if name in library.refused_fields or name not in body:
             _refuse_option(name, name)
 
 
@@ -475,13 +542,22 @@ DERIVATIONS: Mapping[str, _Derivation] = {
                 "set_default_query",
                 "websocket_base_url",
                 "api_version",
+                # `openai>=3`: a regional endpoint, or a third-party provider
+                # that sets the authentication and the base URL. Either is
+                # another destination: a client of its own, wrapped on its own.
+                "data_residency",
+                "provider",
                 "_enforce_credentials",
                 "_extra_kwargs",
             }
         ),
     ),
     "anthropic": _Derivation(
-        harmless=frozenset({"timeout", "max_retries", "webhook_key"}),
+        # `open_telemetry` (anthropic>=2): the tracer, what a span records, and
+        # whether requests carry the trace-context headers — the propagator's,
+        # which the parent client already writes by default. What is traced,
+        # like what is logged; nothing about where or on which key.
+        harmless=frozenset({"timeout", "max_retries", "webhook_key", "open_telemetry"}),
         checked=frozenset({"base_url", _MIDDLEWARE}) | _DERIVED_HEADERS,
         credentials=frozenset(
             {
@@ -755,6 +831,10 @@ def _refuse_genai_config(descriptor: ProviderDescriptor, config: Any) -> None:
             _refuse_local_tools(value)
         elif name == "http_options" and not is_not_given(value):
             _refuse_http_options(descriptor, "config.http_options", value)
+        elif name == "automatic_continuation" and value:
+            _refuse_option("config.automatic_continuation", name)
+        elif name in GENAI_CONFIG_REFUSED and not is_not_given(value):
+            _refuse_option(f"config.{name}", name)
 
 
 def _refuse_http_options(

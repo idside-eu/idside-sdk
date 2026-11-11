@@ -655,6 +655,11 @@ enforcement *after* the SDK had applied it:
 | `server_url` / `serverURL` (Mistral), `http_options.base_url` / `api_version` (Gemini), a second argument's `path`, `defaultBaseURL`, `query` (Node), `extra_query` (Python) | sent the prompt, the ACT token and your API key to another host |
 | a per-call `Authorization`, `X-Api-Key`, `x-goog-api-key`, `OpenAI-Project`… | moved the call onto another credential, defeating the posture the user's answer required — invisibly, since header values are not part of the request hash |
 | a local tool on Gemini: a Python function, an MCP session, a Node `CallableTool` | turned one authorized call into up to ten requests with different bodies under **one** token, which is exactly what a token must never cover |
+| `automatic_continuation=True` / `automaticContinuation: true` (Gemini) | made the library answer a `CONTINUATION` response by sending the request again, by itself, under the same token. It is on by default in `google-genai` 2.30+ and `@google/genai` 3.x, so the SDK turns it off on every enforced call, and refuses a call that asks for it |
+| `workspace_id`, `user_profile_id` (Anthropic) | look like body fields and are sent as the `anthropic-workspace-id` and `anthropic-user-profile-id` headers, outside the request hash: the first moves the call to another workspace — the unit [credential routing](./providers.md#6-credential-routing) chooses — and the second attributes it to a user profile whose programs can require retention and human review. Both headers are reserved too |
+| `prompt_cache_options` (OpenAI) | sets a prompt-cache lifetime (`ttl`, up to `12h`) that the forced `prompt_cache_retention` does not bound, so a user's refusal of extended caching could be recorded beside a twelve-hour cache |
+| `generation_output_config` / `generationOutputConfig` (Gemini) | had the provider write the generated media to a `gs://` bucket of the caller's choosing — a copy of the output kept somewhere the proof never names |
+| a per-call `fetch` in `httpOptions` (`@google/genai`) | sent the request on a transport nobody wrapped |
 
 So on an enforced call the SDK accepts a **closed list** of per-call options:
 timeouts, retry settings, an abort signal, an idempotency key, and headers that
@@ -664,6 +669,13 @@ refused until someone has checked what it does. The message names the option or
 the header, never its value: a value that found its way into a header is too
 often a key.
 
+The body itself stays open: a request parameter a newer provider library adds
+is hashed, proven and sent. The exceptions are the fields above that the
+library declares in its body schema and that an enforced call still may not
+carry — because the library sends them somewhere the hash does not reach, or
+because they undo a refusal from inside the body where nothing can force them
+back.
+
 What to do: drop the option. If you need a request parameter your provider
 library does not type yet, upgrade the library rather than smuggling it through
 the body. If you need a different host, credential or proxy, build a client
@@ -671,7 +683,10 @@ with it and wrap *that* client — `wrap()` fixes the host it will allow when it
 wraps, and [credential routing](./providers.md#6-credential-routing) is how a
 call moves onto another key. For Gemini tools, declare the functions and run the
 calling loop yourself: each turn is then a call of its own, authorized and
-proven.
+proven. The same goes for a Gemini answer that stops with
+`finish_reason=CONTINUATION`: resume it with a new enforced call carrying the
+answer's `continuation_token` in its config. For an Anthropic workspace, wrap a
+client whose key belongs to it, or declare one per posture to `credentials=`.
 
 ---
 

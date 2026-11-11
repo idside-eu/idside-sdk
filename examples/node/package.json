@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@idside/sdk": "file:../../packages/node",
-    "openai": "^6.47.0"
+    "openai": "^7.55.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

@@ -47,10 +47,12 @@ import {
  *   what is sent, where, or on which credential.
  * - `headers`: per-request headers. Allowed, except the names a descriptor
  *   reserves (`isReservedHeader`).
+ * - `metadata`: `openai`'s `__metadata`, a bag of internal flags the library's
+ *   own helpers fill in. Read key by key against `OPENAI_HELPER_METADATA`.
  * - `refused`: changes what is sent, where it goes, how it is built, or how the
  *   response is read.
  */
-export type OptionEffect = "harmless" | "headers" | "refused";
+export type OptionEffect = "harmless" | "headers" | "metadata" | "refused";
 
 /** `openai` (OpenAI, DeepSeek, Azure): the `RequestOptions` of every call site. */
 export const OPENAI_REQUEST_OPTIONS = {
@@ -66,12 +68,47 @@ export const OPENAI_REQUEST_OPTIONS = {
   path: "refused",
   query: "refused",
   stream: "refused",
+  // Read key by key: the stream helpers put their name in it, and the rest of
+  // what it can hold (`model` for an Azure deployment, `streamFromBody`,
+  // `finalizeMultipart`…) decides where and how the request is built.
+  __metadata: "metadata",
   __binaryResponse: "refused",
-  __metadata: "refused",
   __security: "refused",
   __streamClass: "refused",
+  // openai 7: whether a stream is read as legacy chunks or as events. Only
+  // ever set by the library on its own retrieval routes, never by a helper
+  // on create(); like `__streamClass`, it decides how the response is read.
+  __streamMode: "refused",
   __synthesizeEventData: "refused",
 } as const satisfies Readonly<Record<string, OptionEffect>>;
+
+/**
+ * `openai` `responses.parse()`: `parseAs` picks the type the output is parsed
+ * into, on this side. The library deletes it before it calls `create()` —
+ * "without sending it to the API", in its own words — so it passes.
+ */
+export const OPENAI_RESPONSES_PARSE_OPTIONS = {
+  parseAs: "harmless",
+} as const satisfies Readonly<Record<string, OptionEffect>>;
+
+/**
+ * The `__metadata` keys an enforced openai call may carry: the two openai 7's
+ * own stream helpers put there on the way to `create()`.
+ *
+ * - `helperMethod`, a string, becomes the `X-Stainless-Helper-Method` header.
+ * - `captureResponseParser`, a function, is called by the library with the
+ *   request it is building, after the body is encoded and before the headers
+ *   are, to choose how the response will be parsed. Handed that object, any
+ *   function could rewrite the request a proof was signed for; so what is
+ *   forwarded is a wrapper that hands it a read-only view of the body and
+ *   nothing else (`forwardableOptions`). That is all the library's own reads.
+ *
+ * Every other key is refused, whoever wrote it.
+ */
+export const OPENAI_HELPER_METADATA = {
+  helperMethod: "string",
+  captureResponseParser: "function",
+} as const satisfies Readonly<Record<string, "string" | "function">>;
 
 /** `@anthropic-ai/sdk`: the same Stainless shape, plus request middleware. */
 export const ANTHROPIC_REQUEST_OPTIONS = {
@@ -92,7 +129,52 @@ export const ANTHROPIC_REQUEST_OPTIONS = {
   stream: "refused",
   __binaryResponse: "refused",
   __streamClass: "refused",
+  // @anthropic-ai/sdk 1.x: `{ conversationId }`, set as `gen_ai.conversation.id`
+  // on the call's local span (internal/tracing.js) and, in the library's words,
+  // not sent to the API.
+  openTelemetry: "harmless",
 } as const satisfies Readonly<Record<string, OptionEffect>>;
+
+/**
+ * Options `@anthropic-ai/sdk`'s own helpers hand the patched `create()` that
+ * its `RequestOptions` type does not declare, so the type tripwire cannot list
+ * them; merged in at run time.
+ *
+ * `__span` is the tracing span `messages.stream()` opened for the call. The
+ * library records on it (method, URL, and the content when the client's
+ * content mode says so) and keeps the trace-context headers out of what
+ * backend middleware signs, then puts them back as they were. It never touches
+ * the URL, the body or any other header: `test/callTimeEscapes.test.ts`
+ * compares a streamed request with and without it.
+ */
+export const ANTHROPIC_HELPER_OPTIONS = {
+  __span: "harmless",
+} as const satisfies Readonly<Record<string, OptionEffect>>;
+
+/**
+ * Request parameters an enforced call may not carry, per library, and why.
+ *
+ * The body is open everywhere else, because what is in it is hashed and proved
+ * as written. These are the exceptions: a key the library takes out of the body
+ * and sends somewhere the hash does not reach, or one whose effect the cloud
+ * cannot force back. Python refuses the same keys (`refused_fields` in
+ * `_call_options.py`).
+ */
+export const REFUSED_BODY_KEYS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  anthropic: {
+    workspace_id:
+      "is sent as the `anthropic-workspace-id` header, outside the request that is hashed, and picks the workspace a " +
+      "credential acts in — the unit credential routing chooses, with its retention and its region",
+    user_profile_id:
+      "is sent as the `anthropic-user-profile-id` header, outside the request that is hashed, and attributes the call to " +
+      "a user profile whose programs can require Anthropic to retain the request and let its staff review it",
+  },
+  openai: {
+    prompt_cache_options:
+      "sets, through `ttl`, a minimum lifetime for the prompt cache that is independent of the `prompt_cache_retention` " +
+      "ID Side forces when a user refuses the extended cache, and nothing can force it back yet",
+  },
+};
 
 /**
  * `@mistralai/mistralai`: Speakeasy flattens `RequestInit` into the options and
@@ -147,6 +229,8 @@ export const GEMINI_HTTP_OPTIONS = {
   baseUrl: "refused",
   baseUrlResourceScope: "refused",
   extraBody: "refused",
+  // @google/genai 3.x: a fetch of the caller's own for this one request.
+  fetch: "refused",
 } as const satisfies Readonly<Record<string, OptionEffect>>;
 
 /**
@@ -160,6 +244,16 @@ export const GEMINI_HTTP_OPTIONS = {
  *   canonicalized, and it used to make the hash throw, so leaving it out moves
  *   no existing hash.
  * - `transport`: `httpOptions`, checked against `GEMINI_HTTP_OPTIONS`.
+ * - `continuation`: `automaticContinuation`. @google/genai 3.x, by default,
+ *   answers a `CONTINUATION` finish by sending the request again with the
+ *   continuation token, until the model is done — every hop under the one ACT
+ *   token, which proves one request. An explicit `true` is refused, and the
+ *   adapter forwards `false` otherwise, after the hash is computed: the next
+ *   part is the developer's own call, with `continuationToken`, authorized and
+ *   proved like any other.
+ * - `refused`: `generationOutputConfig`, which has the provider write the
+ *   generated media to the `gs://` prefix it names: a destination and a
+ *   retention the proof says nothing about.
  *
  * At run time a field this list does not name is treated as `request`, because
  * the config is the body, and a newer library's generation parameter is a
@@ -169,11 +263,15 @@ export const GEMINI_HTTP_OPTIONS = {
 export const GEMINI_CONFIG_FIELDS = {
   abortSignal: "unhashed",
   automaticFunctionCalling: "local",
+  automaticContinuation: "continuation",
   httpOptions: "transport",
+  generationOutputConfig: "refused",
   audioTimestamp: "request",
   audioTranscriptionConfig: "request",
   cachedContent: "request",
   candidateCount: "request",
+  // A manual resume: a call of its own, its token hashed and proved with it.
+  continuationToken: "request",
   enableEnhancedCivicAnswers: "request",
   frequencyPenalty: "request",
   imageConfig: "request",
@@ -195,6 +293,9 @@ export const GEMINI_CONFIG_FIELDS = {
   serviceTier: "request",
   speechConfig: "request",
   stopSequences: "request",
+  // Whether Google logs this request. Hashed and proved as written; a lever the
+  // cloud could force one day, as it forces `store` on OpenAI.
+  store: "request",
   systemInstruction: "request",
   temperature: "request",
   thinkingConfig: "request",
@@ -202,7 +303,9 @@ export const GEMINI_CONFIG_FIELDS = {
   tools: "request",
   topK: "request",
   topP: "request",
-} as const satisfies Readonly<Record<string, "request" | "local" | "unhashed" | "transport">>;
+} as const satisfies Readonly<
+  Record<string, "request" | "local" | "unhashed" | "transport" | "continuation" | "refused">
+>;
 
 /**
  * What one option passed to `withOptions()` / `copy()` does to the derived client.
@@ -247,6 +350,8 @@ export const OPENAI_DERIVATION_OPTIONS = {
   organization: "credential",
   project: "credential",
   workloadIdentity: "credential",
+  // openai 7: a certificate credential (`fromX509`).
+  credential: "credential",
   // Azure: `endpoint` names the host; the API version and the deployment
   // choose what the request addresses.
   apiVersion: "refused",
@@ -256,6 +361,10 @@ export const OPENAI_DERIVATION_OPTIONS = {
   fetch: "refused",
   fetchOptions: "refused",
   provider: "refused",
+  // openai 7: a regional endpoint in place of the base URL, and the transport
+  // an X.509 workload identity sends on.
+  dataResidency: "refused",
+  x509Transport: "refused",
 } as const satisfies Readonly<Record<string, DerivationEffect>>;
 
 /** `@anthropic-ai/sdk`: the `ClientOptions` `withOptions()` accepts. */
@@ -266,6 +375,10 @@ export const ANTHROPIC_DERIVATION_OPTIONS = {
   maxRetries: "harmless",
   timeout: "harmless",
   webhookKey: "harmless",
+  // @anthropic-ai/sdk 1.x: the tracer provider, whether trace context is sent
+  // (W3C trace headers, nothing reserved) and whether spans record content.
+  // What is traced, like what is logged.
+  openTelemetry: "harmless",
   baseURL: "origin",
   defaultHeaders: "headers",
   apiKey: "credential",
@@ -387,8 +500,8 @@ const REQUEST_OPTIONS: ReadonlyMap<string, Readonly<Record<string, OptionEffect>
   string,
   Readonly<Record<string, OptionEffect>>
 >([
-  ["openai", OPENAI_REQUEST_OPTIONS],
-  ["anthropic", ANTHROPIC_REQUEST_OPTIONS],
+  ["openai", { ...OPENAI_REQUEST_OPTIONS, ...OPENAI_RESPONSES_PARSE_OPTIONS }],
+  ["anthropic", { ...ANTHROPIC_REQUEST_OPTIONS, ...ANTHROPIC_HELPER_OPTIONS }],
   ["mistralai", MISTRAL_REQUEST_OPTIONS],
 ]);
 
@@ -406,6 +519,10 @@ export function assertEnforceableOptions(
   if (descriptor.clientModule === "google.genai") {
     assertGeminiOptions(descriptor, params);
     return;
+  }
+  const refusedKeys = REFUSED_BODY_KEYS[descriptor.clientModule] ?? {};
+  for (const key of Object.keys(params)) {
+    if (Object.hasOwn(refusedKeys, key) && params[key] !== undefined) throw refusedBodyKey(key, refusedKeys[key]!);
   }
   assertRequestOptions(descriptor, rest[0], REQUEST_OPTIONS.get(descriptor.clientModule) ?? GENERIC_REQUEST_OPTIONS);
 }
@@ -438,6 +555,16 @@ function assertGeminiOptions(descriptor: ProviderDescriptor, params: Record<stri
   const config = asMapping(params.config);
   if (config === undefined) return;
 
+  for (const key of Object.keys(config)) {
+    const role = Object.hasOwn(GEMINI_CONFIG_FIELDS, key)
+      ? GEMINI_CONFIG_FIELDS[key as keyof typeof GEMINI_CONFIG_FIELDS]
+      : undefined;
+    if (role === "refused" && config[key] !== undefined && config[key] !== null) {
+      throw refusedOption(`config.${key}`);
+    }
+    if (role === "continuation" && config[key] === true) throw automaticContinuation();
+  }
+
   const httpOptions = asMapping(config.httpOptions);
   if (httpOptions !== undefined) {
     for (const key of Object.keys(httpOptions)) {
@@ -464,11 +591,74 @@ function assertOption(
 ): void {
   const effect = Object.hasOwn(effects, key) ? effects[key] : undefined;
   if (effect === "harmless") return;
+  if (effect === "metadata") {
+    assertHelperMetadata(value, where);
+    return;
+  }
   if (effect !== "headers") throw refusedOption(where);
   for (const name of headerNames(value, where)) {
     if (isReservedHeader(descriptor, name.trim())) throw reservedHeader(name, where);
   }
 }
+
+/** `__metadata` holding only what openai's own helpers put there, each of the expected type. */
+function assertHelperMetadata(value: unknown, where: string): void {
+  if (!isPlainObject(value)) throw refusedOption(where);
+  for (const [key, item] of Object.entries(value)) {
+    const expected = Object.hasOwn(OPENAI_HELPER_METADATA, key)
+      ? OPENAI_HELPER_METADATA[key as keyof typeof OPENAI_HELPER_METADATA]
+      : undefined;
+    if (expected === undefined || typeof item !== expected) throw refusedOption(`${where}.${key}`);
+  }
+}
+
+/**
+ * The options as they are forwarded to the provider, once checked.
+ *
+ * Everything is passed on as it was given, except openai's
+ * `__metadata.captureResponseParser`: the library calls it with the request it
+ * is building, which a function could rewrite after the proof was signed. It
+ * receives `{ body }` instead, the body behind a read-only view — all that the
+ * library's own hook reads. Never mutates the caller's objects.
+ */
+export function forwardableOptions(descriptor: ProviderDescriptor, rest: readonly unknown[]): unknown[] {
+  const [options, ...tail] = rest;
+  if (descriptor.clientModule !== "openai" || !isPlainObject(options)) return [...rest];
+  const metadata = options.__metadata;
+  if (!isPlainObject(metadata) || typeof metadata.captureResponseParser !== "function") return [...rest];
+  const capture = metadata.captureResponseParser as (prepared: unknown) => unknown;
+  const guarded = (prepared: unknown): unknown =>
+    capture({ body: readOnlyView((prepared as { body?: unknown } | null | undefined)?.body) });
+  return [{ ...options, __metadata: { ...metadata, captureResponseParser: guarded } }, ...tail];
+}
+
+/** A view of `value` that reads like it and refuses every write, at any depth. */
+function readOnlyView(value: unknown): unknown {
+  if (value === null || typeof value !== "object") return value;
+  return new Proxy(value, READ_ONLY);
+}
+
+const READ_ONLY: ProxyHandler<object> = {
+  get(target, key, receiver) {
+    const item: unknown = Reflect.get(target, key, receiver);
+    // A frozen property must come back as itself, or the Proxy invariants throw.
+    const descriptor = Object.getOwnPropertyDescriptor(target, key);
+    if (descriptor !== undefined && descriptor.configurable === false && descriptor.writable === false) return item;
+    return readOnlyView(item);
+  },
+  set() {
+    throw new TypeError("This view of the request body is read-only.");
+  },
+  defineProperty() {
+    throw new TypeError("This view of the request body is read-only.");
+  },
+  deleteProperty() {
+    throw new TypeError("This view of the request body is read-only.");
+  },
+  setPrototypeOf() {
+    throw new TypeError("This view of the request body is read-only.");
+  },
+};
 
 /**
  * The header names a caller passed, in any shape a library accepts.
@@ -527,6 +717,24 @@ function refusedOption(where: string): UnenforceableOptionError {
       "that. Put request parameters in the request itself and configure the client when you construct it. An " +
       "enforced call accepts timeouts, retries, cancellation, idempotency keys and headers that do not choose " +
       "a credential.",
+  );
+}
+
+function refusedBodyKey(key: string, why: string): UnenforceableOptionError {
+  return new UnenforceableOptionError(
+    `\`${key}\` cannot be passed on a consent-enforced call: it ${why}. ${NOT_MADE} Leave it out of the request; ` +
+      "where it chooses a workspace or an account, build a client for it and declare it to " +
+      "consent.wrap(client, { credentials }).",
+  );
+}
+
+function automaticContinuation(): UnenforceableOptionError {
+  return new UnenforceableOptionError(
+    "`config.automaticContinuation: true` cannot be passed on a consent-enforced call: @google/genai would send the " +
+      "request again by itself, with the continuation token, until the model finishes — several requests under the " +
+      `one ACT token authorized for this one, and a token proves one request. ${NOT_MADE} Leave it unset: the SDK ` +
+      "turns it off, and a response that stops with finishReason CONTINUATION is resumed by a call of your own, " +
+      "passing config.continuationToken, which is authorized and proved like any other.",
   );
 }
 

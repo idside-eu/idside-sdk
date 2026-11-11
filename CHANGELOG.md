@@ -14,7 +14,75 @@ version number promises — and what it deliberately does not — is
 
 ## [Unreleased]
 
-Nothing yet.
+The per-call option lists are brought up to the provider libraries a fresh
+install gets today, and CI now runs against them: `openai` 3.49 (Python) and
+7.55 (Node), `anthropic` 2.8 and `@anthropic-ai/sdk` 1.8, `google-genai` 3.1
+(2.33 on Python 3.10, which 3.x no longer supports) and `@google/genai` 3.1,
+`mistralai` 3.7 and `@mistralai/mistralai` 3.5. No protocol change: the request
+hash function, the call-site ids and `/v1/authorize` are unchanged. One
+descriptor change, additive: two more `reserved_headers` on Anthropic. One
+thing the hash function already did shows with these libraries: in Python, a
+Gemini `config` passed as a typed `GenerateContentConfig` is hashed through its
+`model_dump()`, which writes every field the installed `google-genai` declares,
+`None` included — so the same call hashes differently under `google-genai` 2.11
+and 2.33 or later, which added four fields. A `config` passed as a dict does not
+move.
+
+### Changed
+
+- **Gemini: automatic continuation is turned off on every enforced call.**
+  `google-genai` 2.30+ and `@google/genai` 3.x answer a response that stops with
+  `finish_reason` `CONTINUATION` by sending the request again, by themselves,
+  with its continuation token — on by default, and under the same ACT token,
+  which proves one request. With an older SDK and a current library, one
+  authorized call could become several requests. The SDK now forwards
+  `automatic_continuation=False` (`automaticContinuation: false`) after the
+  request hash is computed, so no hash moves; such an answer comes back with its
+  `continuation_token`, and you resume with a new enforced call passing it in
+  `config`. Asking for it (`automatic_continuation=True`) raises
+  `UnenforceableOptionError` before `/v1/authorize`.
+- **Refused on an enforced call, with `UnenforceableOptionError` before
+  `/v1/authorize`:**
+  - Anthropic `workspace_id=` and `user_profile_id=` (new in `anthropic` 2.x /
+    `@anthropic-ai/sdk` 1.x). They look like body fields and are sent as the
+    `anthropic-workspace-id` and `anthropic-user-profile-id` headers, outside
+    the request hash: the first picks the workspace a credential acts in — the
+    unit credential routing chooses, with its own retention and region — and
+    the second attributes the call to a user profile whose programs can require
+    retention and human review. Both headers are now in the Anthropic
+    descriptor's `reserved_headers`, so `extra_headers` / `options.headers`
+    cannot set them either. Instead: wrap a client whose key belongs to the
+    workspace, or declare one per posture to `credentials=`.
+  - OpenAI `prompt_cache_options=` (new in `openai` 3.x / 7.x). Its `ttl` sets a
+    minimum cache lifetime, up to `12h`, that the forced `prompt_cache_retention`
+    does not bound and that cannot be forced yet. Leave it out;
+    `prompt_cache_retention` and `prompt_cache_key` still pass.
+  - Gemini `generation_output_config` / `generationOutputConfig`: the provider
+    would write the generated media to the `gs://` location it names.
+  - Node: `config.httpOptions.fetch` (`@google/genai` 3.x) and the openai 7
+    internal `__streamMode`.
+- **Accepted**, after reading what each does: Python `parse_as=` and Node
+  `parseAs` on `responses.parse()` (the type the output is parsed into, never
+  sent); Node `openTelemetry` per call on Anthropic (a local span attribute);
+  the options openai 7's and `@anthropic-ai/sdk` 1.x's own `stream()` helpers
+  now pass to `create()` (`__metadata.helperMethod`, a response-parser hook that
+  is handed a read-only view of the body, and `__span`); every new body field
+  the libraries added (OpenAI `access_programs`, `image`; Anthropic
+  `diagnostics`, `speed`; Mistral `service_tier`, `top_k`, `min_tokens`,
+  `repetition_penalty` and the log-probability fields; Gemini `store` and
+  `continuation_token`), which are hashed and proven as written.
+- **Derived clients**: `with_options()` / `copy()` / `withOptions()` with
+  OpenAI's `data_residency` / `dataResidency`, `provider` or `x509Transport`
+  raise `UnsupportedProviderError` (another destination: build that client and
+  wrap it), a Node `credential` raises `CredentialRoutingError`, and
+  Anthropic's `open_telemetry` / `openTelemetry` derives normally. Unclassified,
+  all of these were already refused.
+- **Node: the Gemini NextGen surfaces `credentials` and `voices`**
+  (`@google/genai` 3.x) are under the net like the other five.
+- **Python: `anthropic` 2.x no longer accepts `temperature`, `top_k` or `top_p`
+  on `messages.create`.** An enforced call passing one is refused with
+  `UnenforceableOptionError` before `/v1/authorize`, where the library alone
+  would raise a `TypeError`.
 
 ## [0.1.0.dev1] — 2026-11-11
 

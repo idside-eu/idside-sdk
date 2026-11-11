@@ -519,6 +519,10 @@ function findGeminiRequests(root: object): Scan {
  * `@google/genai` 2.22 carries a second API beside `models` / `chats` /
  * `files`: five prototype getters on `GoogleGenAI` — `interactions`,
  * `webhooks`, `agents`, `triggers`, `environments` — and `getNextGenClient()`.
+ * 3.x adds two more of the same make, `credentials` and `voices`: each is a
+ * `GeminiNextGen…` class whose `getClient(apiVersion)` calls
+ * `buildGoogleGenAIClient(parentClient)`, a generated client of its own, exactly
+ * as `webhooks` does.
  * They are accessors, so they appear in no `Object.keys(client)` and the walk
  * below never reaches them; and none of them sends through `ApiClient.apiCall`,
  * where the net sits. Each builds a generated Speakeasy client whose own
@@ -534,7 +538,7 @@ function findGeminiRequests(root: object): Scan {
  *   first use, and `getClient(api_version)` builds a NEW one on EVERY call. So
  *   what is patched is `getClient` itself, and the net goes on whatever it
  *   hands back, every time;
- * - three of the getters print an experimental-usage warning on first access.
+ * - four of the getters print an experimental-usage warning on first access.
  *   Reading them at `wrap()` to reach what they build would print warnings the
  *   developer never caused, so each is shadowed by an own accessor that defers
  *   to the real one only when the developer asks for it;
@@ -552,7 +556,7 @@ function findGeminiRequests(root: object): Scan {
  * properties, so a resource behind a PROTOTYPE accessor is invisible to it. The
  * obvious generalisation — read every prototype accessor and look for a
  * transport — is the one thing that must not be done. Reading an accessor runs
- * somebody else's code: three of these five print a warning the developer never
+ * somebody else's code: four of these seven print a warning the developer never
  * asked for, and nothing says a getter in another library is free of worse.
  * `wrap()` causing side effects on the client it was handed is not a trade this
  * SDK makes.
@@ -583,6 +587,8 @@ const NEXTGEN_SURFACES = [
   "agents",
   "triggers",
   "environments",
+  "credentials",
+  "voices",
 ] as const;
 
 /** Private marker holding, on one client, the installs its surfaces must carry. */
@@ -599,7 +605,7 @@ interface NextGenInstall {
 /** Added to the refusal, because the generic advice does not name this door. */
 const NEXTGEN_HINT =
   "This one went out on a Gemini NextGen surface — interactions, webhooks, agents, triggers, " +
-  "environments, or the client getNextGenClient() returns. No provider descriptor declares a call site " +
+  "environments, credentials, voices, or the client getNextGenClient() returns. No provider descriptor declares a call site " +
   "there, so there is no endpoint for ID Side to decide and nothing on those routes can be authorized: " +
   "use a second, unwrapped GoogleGenAI client for them.";
 

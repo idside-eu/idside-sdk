@@ -43,7 +43,9 @@
   "reserved_headers": [
     "X-Api-Key",
     "Authorization",
-    "api-key"
+    "api-key",
+    "anthropic-workspace-id",
+    "anthropic-user-profile-id"
   ],
   "forceable_params": [],
   "forceable_params_note": "EMPTY since 2026-07-27, and that is a statement rather than an omission. `inference_geo` is a real named parameter of `messages.create`, it lands in the request BODY, and it was verified live — but no option forces it any more: `data_residency` was downgraded to `account` because its two settings (`global`, `us`) do not answer \"inside my region\" for a European user, and we never learn anyone's region. An allowlist entry nothing forces is a door left open for no reason, so it is closed until the option comes back. History worth keeping: this descriptor injected `inference_geo` into HEADERS until 2026-07-26, where Anthropic does not read it — the call succeeded, the residency choice did not apply, and the public matrix showed it as enforced. `param_target` is `kwargs` now. The body schema stays strict (400 `Extra inputs are not permitted`), which is why this allowlist is checked against the real signature by tests/test_forceable_params.py.",
@@ -103,6 +105,6 @@
   "enforcement_verified_at": "2026-07-26",
   "credential_routing": {
     "unit": "workspace",
-    "note": "API keys belong to a workspace, and `allowed_inference_geos` / retention are workspace settings. Routing means selecting the key, not a header."
+    "note": "API keys belong to a workspace, and `allowed_inference_geos` / retention are workspace settings. Routing means selecting the key, not a header. A credential that can act on several workspaces picks one per request with `anthropic-workspace-id`, and `anthropic-user-profile-id` attributes the request to a user profile whose programs can require retention and human review; both are reserved, and the `workspace_id` / `user_profile_id` arguments the libraries turn into them are refused on an enforced call, so a call cannot leave the workspace and the terms its key routes to."
   }
 }

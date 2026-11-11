@@ -58,11 +58,11 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@anthropic-ai/sdk": "^0.111.0",
-    "@google/genai": "^2.22.0",
-    "@mistralai/mistralai": "^2.4.1",
+    "@anthropic-ai/sdk": "^1.8.0",
+    "@google/genai": "^3.1.0",
+    "@mistralai/mistralai": "^3.5.0",
     "@types/node": "^22.10.2",
-    "openai": "^6.47.0",
+    "openai": "^7.55.0",
     "typescript": "^5.7.2"
   }
 }

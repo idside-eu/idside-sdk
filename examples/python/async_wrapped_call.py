@@ -18,6 +18,7 @@ Live:    see ../README.md#going-live — it is a two-line diff.
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -92,7 +93,11 @@ class FakeAsyncCloud:
 
 def openai_stub(request: httpx.Request) -> httpx.Response:
     """Stands in for api.openai.com, and keeps what left."""
-    wire.append(request.content.decode())
+    # Keys sorted: the order on the wire is the openai library's own, and it
+    # differs between versions of that library. The content is what left.
+    wire.append(
+        json.dumps(json.loads(request.content), sort_keys=True, separators=(",", ":"))
+    )
     return httpx.Response(
         200,
         json={

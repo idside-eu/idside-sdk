@@ -183,10 +183,14 @@ anything derived from *it*, recursively.
 
 A derivation is checked before it is handed back, because it is a one-line way to
 rebuild the client around everything a per-call option is refused for. Timeouts
-and retry counts pass. A different provider or a different host is refused
-([`UnsupportedProviderError`](./errors.md#unsupportedprovidererror)): the derived
-client inherits the origin `wrap()` fixed on its parent, it never fixes a new
-one. So is a transport, a default query or a middleware — in Python, middleware
+and retry counts pass, and so do Anthropic's `open_telemetry` / `openTelemetry`
+settings, which decide what is traced, not what is sent. A different provider or
+a different host is refused
+([`UnsupportedProviderError`](./errors.md#unsupportedprovidererror)), including
+OpenAI's regional endpoint and third-party provider options (`data_residency=` /
+`provider=` in Python, `dataResidency` / `provider` / `x509Transport` in Node): the
+derived client inherits the origin `wrap()` fixed on its parent, it never fixes a
+new one. So is a transport, a default query or a middleware — in Python, middleware
 is judged on what it would *change*, so `with_middleware()` handed none derives
 normally while `with_middleware(m)` is refused. A new key, token,
 organization or project, or a reserved header in the default headers, is refused
@@ -239,7 +243,9 @@ anywhere.
 
 What the guard cannot see is a network layer you install yourself when you
 build the client — a custom `http_client` / `fetch`, `httpx` event hooks, a
-Mistral `before_request` hook, an Anthropic client-level middleware. Those run
+Mistral `before_request` hook, an Anthropic client-level middleware, an
+OpenTelemetry propagator you register for the whole process (the Anthropic
+libraries write its trace-context headers on every request). Those run
 after it, with the request in hand. They are your code, not an option the SDK
 offers, and no library running inside your process can police them; the ledger
 then records what was authorized, not what that layer chose to send. What is
@@ -249,7 +255,11 @@ a client built with a body override (`http_options.extra_body` on `google-genai`
 `method` or `headers` on the Node `openai` and `anthropic` clients) or with a
 reserved header in its construction options. Per-call options able to do the same thing are
 refused before authorization — see
-[`UnenforceableOptionError`](./errors.md#unenforceableoptionerror).
+[`UnenforceableOptionError`](./errors.md#unenforceableoptionerror). So is
+anything that makes the library send more than one request under one token:
+a local Gemini tool, and Gemini's automatic continuation, which `google-genai`
+2.30+ and `@google/genai` 3.x turn on by default and which both SDKs turn off on
+every enforced call.
 
 **What this now refuses on a wrapped client:**
 
@@ -260,7 +270,7 @@ refused before authorization — see
 | `beta.*` namespaces | previews, by definition not in a descriptor |
 | Gemini `chats.create(...).send_message` | the chat session posts on its own |
 | Gemini `client.aio.*` (Python) | the async surface of that same client, declared by no descriptor |
-| Gemini `interactions` · `agents` · `triggers` · `webhooks` · `environments` (Node) | the NextGen surfaces: a second API on the same client, each building its own HTTP client, declared by no descriptor |
+| Gemini `interactions` · `agents` · `triggers` · `webhooks` · `environments` · `credentials` · `voices` (Node) | the NextGen surfaces: a second API on the same client, each building its own HTTP client, declared by no descriptor |
 | anything a provider adds after this release | which is the point |
 
 **And what passes because it is already enforced: the response wrappers.**

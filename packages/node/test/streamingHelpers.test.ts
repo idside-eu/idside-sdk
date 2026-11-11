@@ -178,6 +178,57 @@ test("a stream without an identity never reaches the wire", async () => {
   assert.deepEqual(wire.calls, []);
 });
 
+test("responses.parse() on a wrapped client still parses its output", async () => {
+  // openai 7's parse() puts a `__metadata.captureResponseParser` hook on the
+  // request, which the SDK forwards behind a read-only view of the body. The
+  // call must still authorize once, send once, and come back parsed.
+  const sent: string[] = [];
+  const answer = {
+    id: "resp_1",
+    object: "response",
+    created_at: 0,
+    status: "completed",
+    model: "gpt-5",
+    output: [
+      {
+        type: "message",
+        id: "msg_1",
+        role: "assistant",
+        status: "completed",
+        content: [{ type: "output_text", text: '{"answer":4}', annotations: [] }],
+      },
+    ],
+  };
+  const raw = new OpenAI({
+    apiKey: "sk-test", // pragma: allowlist secret
+    maxRetries: 0,
+    fetch: (async (_url: unknown, init?: { body?: unknown }) => {
+      sent.push(typeof init?.body === "string" ? init.body : "");
+      return new Response(JSON.stringify(answer), { headers: { "content-type": "application/json" } });
+    }) as typeof fetch,
+  });
+  const consent = fakeConsentClient();
+  const client = wrap(raw, { consentClient: consent });
+
+  const parsed = await client.responses.parse({
+    model: "gpt-5",
+    input: "What is 2+2?",
+    text: {
+      format: {
+        type: "json_schema",
+        name: "answer",
+        strict: true,
+        schema: { type: "object", properties: { answer: { type: "number" } }, required: ["answer"] },
+      },
+    },
+    user_id: "usr_marie_456",
+  } as never);
+
+  assert.equal(consent.calls.length, 1);
+  assert.equal(sent.length, 1);
+  assert.deepEqual((parsed as { output_parsed: unknown }).output_parsed, { answer: 4 });
+});
+
 // ── the resuming form of the same helper ─────────────────────────────────────
 
 test("resuming a response is not an AI call, and is not enforced as one", async () => {

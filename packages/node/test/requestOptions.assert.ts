@@ -32,6 +32,7 @@ import type {
   MISTRAL_REQUEST_OPTIONS,
   OPENAI_DERIVATION_OPTIONS,
   OPENAI_REQUEST_OPTIONS,
+  OPENAI_RESPONSES_PARSE_OPTIONS,
 } from "../src/adapters/callOptions.ts";
 
 /**
@@ -59,6 +60,13 @@ export type OpenAIResponses = Expect<
 // The aliases forward their options to `create`, so they must not widen them.
 export type OpenAIParse = Expect<
   Equal<Classified<typeof OPENAI_REQUEST_OPTIONS>, OptionKeys<OpenAI["chat"]["completions"]["parse"]>>
+>;
+// `responses.parse()` adds one option of its own, a parser that is never sent.
+export type OpenAIResponsesParse = Expect<
+  Equal<
+    Classified<typeof OPENAI_REQUEST_OPTIONS> | Classified<typeof OPENAI_RESPONSES_PARSE_OPTIONS>,
+    OptionKeys<OpenAI["responses"]["parse"]>
+  >
 >;
 
 export type AnthropicMessages = Expect<

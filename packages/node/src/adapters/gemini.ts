@@ -62,6 +62,11 @@ export class GeminiAdapter extends GenericAdapter {
 
     const config = asDict(out.config, "config");
     Object.assign(config, safe);
+    // After the hash, never in it: @google/genai 3.x follows a CONTINUATION
+    // finish by resending the request under the same token, and one token
+    // proves one request. An explicit `true` never gets here (callOptions.ts);
+    // a library older than the switch ignores the key.
+    config.automaticContinuation = false;
 
     const httpOptions = asDict(config.httpOptions, "config.httpOptions");
     const injectedHeaders: Record<string, unknown> = { [this.descriptor.tokenHeader]: token };

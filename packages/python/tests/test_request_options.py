@@ -65,7 +65,8 @@ _EXPECTED: dict[tuple[str, str, str], frozenset[str]] = {
     ("openai", "chat.completions.create", "parse"): _STAINLESS,
     ("openai", "chat.completions.create", "stream"): _STAINLESS,
     ("openai", "responses.create", "create"): _STAINLESS,
-    ("openai", "responses.create", "parse"): _STAINLESS | {"text_format", "verbosity"},
+    ("openai", "responses.create", "parse"): _STAINLESS
+    | {"parse_as", "text_format", "verbosity"},
     ("openai", "responses.create", "stream"): _STAINLESS
     | {"response_id", "starting_after", "text_format"},
     ("deepseek", "chat.completions.create", "create"): _STAINLESS,
@@ -241,6 +242,136 @@ def test_the_trip_wire_catches_an_option_a_library_adds() -> None:
     assert _unclassified(surface, "openai") == {"extra_transport"}
 
 
+# ── body fields an enforced call may not carry ──────────────────────────────
+
+#: The fields a library declares in its body schema that an enforced call may
+#: not carry anyway. Pinned like `_EXPECTED`: change it only together with
+#: `refused_fields` in `_call_options.py`.
+_REFUSED_FIELDS: dict[str, frozenset[str]] = {
+    # `ttl` sets a minimum cache lifetime the forced `prompt_cache_retention`
+    # does not bound, and nothing can force a nested `ttl` yet.
+    "openai": frozenset({"prompt_cache_options"}),
+    # Declared in the body schema, sent as the `anthropic-workspace-id` and
+    # `anthropic-user-profile-id` headers.
+    "anthropic": frozenset({"workspace_id", "user_profile_id"}),
+    "mistralai": frozenset(),
+}
+
+_POSTED_KEY = re.compile(r'^\s+"(\w+)": \w+,$', re.M)
+
+
+def _posted_body(method: Callable[..., Any]) -> frozenset[str]:
+    """The keys of the ``body={…}`` a Stainless method hands to ``_post``.
+
+    Read from the method's source: the body schema is what the library
+    TYPE-CHECKS, this is what it SENDS, and a field can be in the first and
+    not the second — ``anthropic>=2`` declares ``workspace_id`` in
+    ``MessageCreateParamsBase`` and sends it as a header.
+    """
+    source = inspect.getsource(method)
+    body = source[source.index("body=") :]
+    return frozenset(_POSTED_KEY.findall(body[: body.index("options=")]))
+
+
+def test_the_refused_fields_are_exactly_the_pinned_ones() -> None:
+    assert {m: lib.refused_fields for m, lib in LIBRARIES.items()} == _REFUSED_FIELDS
+
+
+@pytest.mark.parametrize("provider", ["openai", "deepseek", "anthropic"])
+def test_a_schema_field_the_library_does_not_post_is_refused(provider: str) -> None:
+    """What travels outside the body travels outside the hash: refused.
+
+    Reading the live schema lets every body field through, and that is right
+    for a field that goes in the body. One that the library moves into a
+    header goes nowhere the request hash covers — ``workspace_id`` picks the
+    Anthropic workspace, which is the unit credential routing chooses.
+    """
+    descriptor = _DESCRIPTORS[provider]
+    library = LIBRARIES[descriptor.client_module]
+    for site in descriptor.call_sites:
+        schema = _call_options._body_fields(library.body_schemas[site.id])
+        assert schema is not None
+        for client in _clients(provider):
+            posted = _posted_body(_resolve(client, site.path, site.path[-1]))
+            assert posted, f"{provider}:{site.id}: no body found in the source"
+            outside = schema - posted
+            assert outside <= library.refused_fields, (
+                f"{provider}:{site.id} declares {sorted(outside)} in its body "
+                "schema and sends it elsewhere. Decide what it does, and refuse "
+                "it in _call_options.LIBRARIES[...].refused_fields until then."
+            )
+
+
+def test_the_posted_body_reader_sees_a_field_left_out() -> None:
+    """The check above, seen failing on a method shaped like the real one."""
+
+    def create(*, model: str, workspace_id: str) -> None:  # pragma: no cover
+        _post(
+            "/v1/messages",
+            body={
+                "model": model,
+            },
+            options=None,
+        )
+
+    assert frozenset({"model", "workspace_id"}) - _posted_body(create) == {
+        "workspace_id"
+    }
+
+
+def _post(*_args: Any, **_kwargs: Any) -> None:  # pragma: no cover
+    return None
+
+
+@pytest.mark.parametrize("module", sorted(LIBRARIES))
+def test_a_refused_field_is_a_field_of_the_library(module: str) -> None:
+    library = LIBRARIES[module]
+    declared = frozenset().union(*library.body_fields.values())
+
+    assert library.refused_fields <= declared
+    assert not library.refused_fields & library.permitted
+
+
+_REFUSED_FIELD_CASES = sorted(
+    (module, site, name)
+    for module, lib in LIBRARIES.items()
+    for site, fields in lib.body_fields.items()
+    for name in lib.refused_fields & fields
+)
+
+
+@pytest.mark.parametrize(("module", "site", "name"), _REFUSED_FIELD_CASES)
+def test_a_refused_body_field_is_refused(module: str, site: str, name: str) -> None:
+    descriptor = next(d for d in _DESCRIPTORS.values() if d.client_module == module)
+
+    with pytest.raises(UnenforceableOptionError) as caught:
+        refuse_unenforceable(descriptor, site, {name: {"anything": "secret-value"}})
+
+    assert f"`{name}`" in str(caught.value)
+    assert "secret-value" not in str(caught.value)
+    # And not for want of a reason: each has its own, not the unknown-option one.
+    assert "is not an option this SDK knows" not in str(caught.value)
+
+
+def test_a_refused_body_field_is_refused_even_when_the_schema_cannot_be_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(_call_options, "_body_fields", lambda _candidates: None)
+
+    with pytest.raises(UnenforceableOptionError):
+        refuse_unenforceable(
+            _DESCRIPTORS["anthropic"], "messages.create", {"workspace_id": "wrkspc_1"}
+        )
+
+
+def test_a_refused_body_field_that_asks_for_nothing_is_not_refused() -> None:
+    refuse_unenforceable(
+        _DESCRIPTORS["anthropic"],
+        "messages.create",
+        {"workspace_id": anthropic.omit, "user_profile_id": None},
+    )
+
+
 @pytest.mark.parametrize("module", sorted(LIBRARIES))
 def test_no_classified_option_is_left_over(module: str) -> None:
     """A classification naming an option no library has is a stale one."""
@@ -284,6 +415,76 @@ def test_every_gemini_http_option_is_classified() -> None:
 
     assert fields == GENAI_HTTP_PERMITTED | GENAI_HTTP_REFUSED
     assert not GENAI_HTTP_PERMITTED & GENAI_HTTP_REFUSED
+
+
+def test_the_refused_gemini_config_fields_are_fields_the_library_sends() -> None:
+    """Refused although the converters send them: pinned, and never stale."""
+    assert {"generation_output_config"} == _call_options.GENAI_CONFIG_REFUSED
+    assert _read_by_converters() >= _call_options.GENAI_CONFIG_REFUSED
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        {"generation_output_config": {"output_uri_prefix": "gs://collector/x/"}},
+        {"generationOutputConfig": {"outputUriPrefix": "gs://collector/x/"}},
+        "typed",
+    ],
+    ids=["snake", "camel", "typed"],
+)
+def test_gemini_output_written_to_a_bucket_is_refused(config: Any) -> None:
+    """The provider would write the generated media to storage the proof never names."""
+    if config == "typed":
+        config = genai_types.GenerateContentConfig(
+            generation_output_config=genai_types.GenerationOutputConfig(
+                output_uri_prefix="gs://collector/x/"
+            )
+        )
+
+    with pytest.raises(UnenforceableOptionError) as caught:
+        refuse_unenforceable(
+            _DESCRIPTORS["gemini"], "models.generate_content", {"config": config}
+        )
+
+    assert "config.generation_output_config" in str(caught.value)
+    assert "collector" not in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        {"automatic_continuation": True},
+        {"automaticContinuation": True},
+        "typed",
+    ],
+    ids=["snake", "camel", "typed"],
+)
+def test_gemini_automatic_continuation_asked_for_is_refused(config: Any) -> None:
+    """Several requests under one token: refused, as executable tools are."""
+    if config == "typed":
+        config = genai_types.GenerateContentConfig(automatic_continuation=True)
+
+    with pytest.raises(UnenforceableOptionError) as caught:
+        refuse_unenforceable(
+            _DESCRIPTORS["gemini"], "models.generate_content_stream", {"config": config}
+        )
+
+    assert "config.automatic_continuation" in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        {"automatic_continuation": False},
+        {"automaticContinuation": None},
+        {"store": False, "continuation_token": b"opaque"},
+    ],
+    ids=["off", "unset", "manual-resume"],
+)
+def test_gemini_continuation_that_stays_one_request_passes(config: Any) -> None:
+    refuse_unenforceable(
+        _DESCRIPTORS["gemini"], "models.generate_content", {"config": config}
+    )
 
 
 # ── the classification is what the runtime does ─────────────────────────────
@@ -502,6 +703,8 @@ def test_gemini_tools_that_are_not_a_list_hold_no_local_function() -> None:
 #: parameters of its deriving methods as the pinned libraries declare them.
 _OPENAI_COPY = frozenset(
     {
+        "provider",
+        "data_residency",
         "api_key",
         "admin_api_key",
         "workload_identity",
@@ -532,6 +735,7 @@ _ANTHROPIC_TAIL = frozenset(
         "default_query",
         "set_default_query",
         "middleware",
+        "open_telemetry",
         "_extra_kwargs",
     }
 )
@@ -551,6 +755,7 @@ _DERIVING: dict[tuple[str, str], frozenset[str]] = {
         "aws_secret_key",
         "aws_access_key",
         "aws_region",
+        "aws_profile",
         "aws_session_token",
         "api_key",
     },
@@ -559,6 +764,7 @@ _DERIVING: dict[tuple[str, str], frozenset[str]] = {
         "aws_secret_key",
         "aws_access_key",
         "aws_region",
+        "aws_profile",
         "aws_session_token",
         "api_key",
     },
@@ -581,6 +787,7 @@ _DERIVING: dict[tuple[str, str], frozenset[str]] = {
         "workspace_id",
         "skip_auth",
         "auth_token",
+        "credentials",
         "webhook_key",
     },
 }
