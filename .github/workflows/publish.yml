@@ -232,7 +232,7 @@ jobs:
       - name: What is about to be uploaded
         run: ls -l "$RUNNER_TEMP/artefacts"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-artefacts
           path: ${{ runner.temp }}/artefacts
