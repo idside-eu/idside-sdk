@@ -45,10 +45,22 @@ holds `@idside`.
    here because the first publish of a scoped package fails without it.
 
    **`--tag next` is not optional for a pre-release.** `npm publish` moves the
-   `latest` tag by default, whatever the version says, so publishing
-   `0.1.0-dev.0` without it makes `npm install @idside/sdk` serve a development
+   `latest` tag by default, whatever the version says, so publishing a
+   pre-release without it makes `npm install @idside/sdk` serve a development
    build to everyone. The package's `publishConfig.tag` is set to `next` for
    exactly this reason; the flag is belt and braces.
+
+   **It did not hold on the very first publish.** On the first publish of
+   `@idside/sdk`, npm set `latest` to that version despite `--tag next`: since 2026-11-11, `latest` and `next` both name
+   `0.1.0-dev.0`. That is what was observed, not something npm's documentation
+   states. Later publishes with `--tag next` leave `latest` where it is, so while
+   only pre-releases exist, `latest` stays on the first one until a maintainer
+   moves it (§2 step 8).
+
+   That first publish went through **staging** (`npm stage publish`), and
+   staging a package that does not exist yet makes npm publish a public
+   placeholder version, `0.0.0-stage`. It is still listed in the package's
+   versions; nothing installs it unless asked for by name.
 
    > Why by hand? Because npm's trusted publisher is configured **on a package
    > that already exists** — `npm trust` says so outright ("the package you're
@@ -61,13 +73,26 @@ holds `@idside`.
 
    ```bash
    npm install -g npm@latest        # needs npm >= 11.15.0 for `npm trust`
-   npm trust github @idside/sdk     # asks for your 2FA code
+   npm trust github @idside/sdk --file publish.yml --repo idside-eu/idside-sdk \
+     --env npm --allow-stage-publish   # asks for your 2FA code
    npm trust list @idside/sdk
    ```
 
    or the same thing through `npmjs.com → the package → Settings → Trusted
    Publisher`: GitHub owner `idside-eu`, repository `idside-sdk`, workflow file
-   `publish.yml`, environment `npm`, allowed action `npm publish`.
+   `publish.yml`, environment `npm`, and the default permission,
+   **`npm stage publish`** only. Leave direct `npm publish` and `npm dist-tag`
+   unticked: the [publish workflow](.github/workflows/publish.yml) runs
+   `npm stage publish`, so what CI uploads waits for a maintainer's 2FA approval
+   before anyone can install it (§2 step 8). Ticking `npm publish` instead would
+   need the workflow's command changed back, **on the tag** — the workflow file
+   is read from the tag being published.
+
+   A new trusted publisher shows *Pending validation* and must complete a first
+   successful publish within 48 hours; unvalidated, it expires and can no longer
+   publish, and the only way back is to delete it and create it again, which
+   starts a new 48 hours. Run the first release through it — staged *and*
+   approved — inside that window.
 
 ### 0.2 PyPI — a pending publisher, then the first publish from CI
 
@@ -98,8 +123,8 @@ A `0.1.0.dev0` upload is the right thing to hold the name with. While it is the
 only release, a plain `pip install idside` installs it: pip falls back to
 pre-releases when no final release exists. From the first final release on, pip
 serves that one and a pre-release needs `--pre`. npm has no such rule — a
-publish moves `latest` whatever the version says — which is why §0.1 insists on
-`--tag next`.
+publish moves `latest` whatever the version says unless `--tag` names another —
+which is why §0.1 insists on `--tag next`.
 
 ---
 
@@ -163,12 +188,12 @@ One version number, both packages, one tag. In order:
    the CLI (or the equivalent REST API) to name the tag explicitly:
 
    ```bash
-   gh workflow run publish.yml --ref v0.1.0.dev0 \
-     -f version=0.1.0.dev0 -f packages=both -f npm_tag=next -f confirm=publish
+   gh workflow run publish.yml --ref v0.1.0.dev1 \
+     -f version=0.1.0.dev1 -f packages=both -f npm_tag=next -f confirm=publish
    ```
 
    The tag and `version` input use the PEP 440 spelling, for example
-   `v0.1.0.dev0` and `0.1.0.dev0`. The workflow verifies the tag and manifest
+   `v0.1.0.dev1` and `0.1.0.dev1`. The workflow verifies the tag and manifest
    versions, then invokes the complete CI matrix from that same commit before
    building release artifacts. Protect release tags against replacement/deletion
    and restrict the `npm`/`pypi` environments to release tags in repository
@@ -189,8 +214,33 @@ One version number, both packages, one tag. In order:
    Nothing is built until all four check out and the selected registry
    environments have a required reviewer. That reviewer is the last chance to
    stop an upload. Order and failure handling: §3.
-8. **Verify from the registries** — §4.
-9. **Write the GitHub release** from the CHANGELOG section, pointing at the tag.
+8. **Approve the staged npm version.** The workflow's npm job *stages* the
+   tarball (`npm stage publish`); the version number is taken, but nobody can
+   install it until a maintainer approves it with 2FA. The OIDC token the
+   workflow holds cannot do this step.
+
+   ```bash
+   npm stage list @idside/sdk          # the stage id is also in the job's log
+   npm stage approve <stage-id>        # asks for your 2FA code
+   ```
+
+   or `npmjs.com → the package → Staged Packages → Approve`. A staged version
+   whose tag or contents are wrong is rejected (`npm stage reject <stage-id>`)
+   rather than approved — the tag cannot be changed on a staged version.
+
+   While only pre-releases exist, then point `latest` at the new one, so that a
+   plain `npm install @idside/sdk` gets it (§0.1 explains why it does not
+   move by itself):
+
+   ```bash
+   npm dist-tag add @idside/sdk@<version> latest   # e.g. 0.1.0-dev.1; 2FA code
+   ```
+
+   From the first stable release on, skip this: `latest` is the stable line, and
+   a pre-release stays on `next`.
+9. **Verify from the registries** — §4.
+10. **Write the GitHub release** from the CHANGELOG section, pointing at the
+    tag.
 
 ## 3. In which order the two packages go out
 
@@ -200,7 +250,10 @@ where the attention is needed:
 
 - The npm publish is the one that cannot be fully automated for a first release
   (§0.1) and the one where a missing dist-tag is instantly visible to every
-  installer. It goes first, while a human is watching.
+  installer. It goes first, while a human is watching. It also ends staged:
+  the PyPI job starts once the npm version is staged, not once it is approved,
+  so the PyPI release is installable before the npm one, until §2 step 8 is
+  done.
 - The PyPI publish is the workflow's job, and once a final release exists a
   pre-release there is invisible to a plain `pip install`.
 
@@ -216,8 +269,9 @@ new version.
 
 ## 4. After publishing — check the registry, not the repository
 
-The packages the world gets are the ones on the registries. Install them the way
-a stranger would, outside this repository:
+The packages the world gets are the ones on the registries. Once the staged npm
+version is approved (§2 step 8), install them the way a stranger would, outside
+this repository:
 
 ```bash
 # Node — from the registry, into an empty directory

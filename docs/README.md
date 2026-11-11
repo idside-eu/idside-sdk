@@ -64,8 +64,12 @@ Pre-release, under active development.
 
 - The Python and Node.js SDKs are implemented and tested — enforcement
   (`consent.wrap()`) and offline proof verification (`verify_act()` /
-  `verifyAct()`). Both are published as pre-releases: `idside` `0.1.0.dev0` on
-  PyPI and `@idside/sdk` `0.1.0-dev.0` on npm, under the `next` dist-tag.
+  `verifyAct()`). Both are published as pre-releases: `idside` `0.1.0.dev1` on
+  PyPI and `@idside/sdk` `0.1.0-dev.1` on npm, under the `next` dist-tag.
+  Install them with `pip install idside` and `npm install @idside/sdk`: the SDK
+  wraps the provider client you already use and does not replace it. Starting
+  from nothing, `pip install 'idside[openai]'` or
+  `npm install @idside/sdk openai` installs both.
 - The Preference Center widget is implemented and served by the ID Side cloud —
   three presentations, French and English, GPC detection, and a host-page API
   that never exposes what a user chose. It is a `<script>` tag rather than a

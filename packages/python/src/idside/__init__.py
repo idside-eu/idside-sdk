@@ -13,9 +13,9 @@ Intended usage::
 
 Anyone holding a proof can check it offline, with no call to ID Side::
 
-    from idside import verify_act
+    from idside import request_hash, verify_act
 
-    proof = verify_act(token, jwks=jwks, request_hash=request_hash)
+    proof = verify_act(token, jwks=jwks, request_hash=request_hash(payload))
 
 Invariants (see docs/versioning.md §3): opaque tunnel (no preference setter),
 fail-closed, one ACT token = one request. No private key in this package: it
@@ -31,6 +31,7 @@ from __future__ import annotations
 
 from idside import consent, verify
 from idside.__about__ import __version__
+from idside._request_hash import request_hash
 from idside._transport import (
     DEFAULT_BASE_URL,
     AsyncConsentClient,
@@ -153,6 +154,9 @@ __all__ = [
     "consent",
     "decidable_options",
     "disclosures",
+    # The request-hash formula, so a verifier can compute the `request_hash=`
+    # it pins `verify_act()` to. Node exports the same function as `requestHash`.
+    "request_hash",
     "verify",
     "verify_act",
 ]

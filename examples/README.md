@@ -43,8 +43,9 @@ checked instead against fixed cross-language vectors in both test suites.
 
 **Each example project resolves the SDK from this clone**, so that CI tests the
 code beside it. It is one line in `python/pyproject.toml` and one in
-`node/package.json`, both marked; in your own project write `idside[openai]` or
-`@idside/sdk@next` instead.
+`node/package.json`, both marked; in your own project write `idside` or
+`@idside/sdk` instead, beside the provider client you already depend on (or
+`idside[openai]`, which brings `openai` with it).
 
 ## Python
 

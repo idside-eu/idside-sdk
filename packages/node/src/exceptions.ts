@@ -396,9 +396,10 @@ export class ActNotYetValidError extends ActVerificationError {}
 /**
  * The token's `iss` is not an accepted issuer.
  *
- * Production proofs are issued by `idside.eu`. Development tokens
- * (`test.idside.eu`) are rejected unless the caller explicitly opts in — a dev
- * token must never silently pass as a real one.
+ * The production service issues every proof as `idside.eu`, a test key's
+ * included (its `mode` claim says `"test"`). Tokens from a deployment of the
+ * cloud that is not the production service (`test.idside.eu`) are rejected
+ * unless the caller explicitly opts in.
  */
 export class ActIssuerError extends ActVerificationError {}
 

@@ -16,6 +16,10 @@ def test_public_surface() -> None:
     assert callable(consent.wrap)
     assert "consent" in idside.__all__
     assert issubclass(ConsentUnreachableError, IDSideError)
+    # What a verifier needs: the proof checker, and the hash it pins it to.
+    for name in ("verify_act", "request_hash"):
+        assert name in idside.__all__, name
+        assert callable(getattr(idside, name)), name
 
 
 def test_full_exception_hierarchy_is_exported() -> None:

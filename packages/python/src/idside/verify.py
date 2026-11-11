@@ -207,8 +207,10 @@ def verify_act(
         at ``/.well-known/jwks.json``). Fetched on every call: for repeated
         verification, fetch once yourself and pass ``jwks=`` instead.
     :param issuer: accepted issuer, or several. Defaults to ``idside.eu`` only.
-    :param allow_test_issuer: also accept ``test.idside.eu``. Off by default so
-        a development token can never silently pass as a production proof.
+    :param allow_test_issuer: also accept ``test.idside.eu``, the issuer of a
+        deployment of the cloud that is not the production service. Off by
+        default. A test key's proof from the production service is signed
+        ``idside.eu`` either way: read ``mode`` for that.
     :param allow_legacy_without_mode: accept proofs minted before the signed
         ``mode`` claim existed. Off by default; when enabled, ``VerifiedAct.mode``
         is ``None`` for such a proof. Invalid present values are always rejected.

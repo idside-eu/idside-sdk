@@ -262,6 +262,7 @@ assert len(load_descriptors()) >= 4, "descriptors did not load"
 assert idside.catalogue(), "consent catalogue did not load"
 assert idside.decidable_options(["openai", "anthropic"]), "no decidable options"
 assert idside.disclosures(["openai", "gemini"]), "no disclosures"
+assert idside.request_hash({"model": "gpt-5", "messages": []}).startswith("sha256:"), "bad request hash"
 # What help(idside) shows an installed consumer.
 assert "Patents: https://sdk.idside.eu/patents" in (idside.__doc__ or ""), "no patent marking"
 

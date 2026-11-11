@@ -12,12 +12,11 @@ Subclass and override for providers whose API does not fit the declarative model
 
 from __future__ import annotations
 
-import hashlib
 import re
 from collections.abc import Mapping
 from typing import Any, NamedTuple
 
-from idside import _jcs
+from idside._request_hash import request_hash as _request_hash
 from idside.adapters._call_options import (
     is_not_given,
     is_sentinel,
@@ -310,12 +309,13 @@ class ProviderAdapter:
                 if key not in transport:
                     raise
         try:
-            blob = _jcs.canonicalize(payload)
+            # The single source of the formula, shared with the public
+            # `idside.request_hash()` a verifier recomputes it with.
+            request_hash = _request_hash(payload)
         except ValueError as exc:
             raise ConsentTokenError(
                 f"Cannot compute a deterministic request_hash: {exc}"
             ) from exc
-        request_hash = "sha256:" + hashlib.sha256(blob).hexdigest()
         return {"model": kwargs.get("model", ""), "request_hash": request_hash}
 
     def apply_constraints(

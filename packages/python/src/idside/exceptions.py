@@ -385,10 +385,11 @@ class ActNotYetValidError(ActVerificationError):
 class ActIssuerError(ActVerificationError):
     """The token's ``iss`` is not an accepted issuer.
 
-    Production proofs are issued by ``idside.eu``. Development tokens
-    (``test.idside.eu``) are rejected unless the caller explicitly opts in with
-    ``allow_test_issuer=True`` — a dev token must never silently pass as a real
-    one. What to do: verify against the environment you meant to audit.
+    The production service issues every proof as ``idside.eu``, a test key's
+    included (its ``mode`` claim says ``"test"``). Tokens from a deployment of the
+    cloud that is not the production service (``test.idside.eu``) are rejected
+    unless the caller explicitly opts in with ``allow_test_issuer=True``. What to
+    do: verify against the environment you meant to audit.
     """
 
 

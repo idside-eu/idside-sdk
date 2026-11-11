@@ -1,7 +1,8 @@
 # Versioning, compatibility and deprecation
 
-> **Status.** The first pre-release is `0.1.0.dev0` (`idside` on PyPI) /
-> `0.1.0-dev.0` (`@idside/sdk` on npm). This page was written *before* that
+> **Status.** The current pre-release is `0.1.0.dev1` (`idside` on PyPI) /
+> `0.1.0-dev.1` (`@idside/sdk` on npm); the first was `0.1.0.dev0` /
+> `0.1.0-dev.0`. This page was written *before* that
 > first publish on purpose: the moment a package is installable, the promise it
 > makes has already been made, and the first unannounced break costs trust that
 > is not won back.
@@ -163,7 +164,7 @@ What the promise covers:
 | --- | --- | --- |
 | Entry point | `consent.wrap()` and its keyword arguments | `consent.wrap()` / `wrap()` and `WrapOptions` |
 | The call contract | `user_id=` / `ubt=` on an enforced call, and the closed list of per-call options it accepts — adding to that list is not a break, removing from it is | `user_id` / `ubt`, the `Enforced<T>` type, and the same closed list |
-| Verification | `verify_act()` and every field of `VerifiedAct` | `verifyAct()`, `VerifiedAct` |
+| Verification | `verify_act()` and every field of `VerifiedAct`; `request_hash()` | `verifyAct()`, `VerifiedAct`; `requestHash()` |
 | Errors | every exported exception **class name** and its place in the hierarchy | the same, plus `error.name` |
 | Options | `catalogue()`, `decidable_options()`, `disclosures()` and the shape they return | `catalogue()`, `decidableOptions()`, `disclosures()` |
 | Providers | `ProviderAdapter` and the three methods an adapter implements | `ProviderAdapter`, `RequestMetadata` |
@@ -258,8 +259,8 @@ API is the paragraph above; withdrawing a build is that one.
 
 ## 5. If you are pinning today
 
-While only pre-releases exist, pin the exact version: `== 0.1.0.dev0` /
-`0.1.0-dev.0`. From `0.1.0` onwards:
+While only pre-releases exist, pin the exact version: `== 0.1.0.dev1` /
+`0.1.0-dev.1`. From `0.1.0` onwards:
 
 - pin `~= 0.1.0` / `^0.1.0` and read the CHANGELOG on a minor bump;
 - pin the **cloud** nowhere — it is a service, and §1 is the promise that

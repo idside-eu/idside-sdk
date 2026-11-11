@@ -3,10 +3,11 @@
 From nothing to a consent-enforced AI call. Five minutes, three steps: install,
 wrap, call.
 
-> **Status.** Pre-release: `idside` is published on PyPI as `0.1.0.dev0`. A real
-> call needs an ID Side account — sign up at
+> **Status.** Pre-release: `idside` is published on PyPI as `0.1.0.dev1`. A real
+> call needs an ID Side API key — sign up at
 > <https://sdk.idside.eu/dashboard/signup>, the free plan covers 10,000 calls a
-> month. Step 3 shows the real code;
+> month, or take a 24-hour test key from the no-account sandbox
+> ([step 3](#3-configure-and-call)). Step 3 shows the real code;
 > [step 6](#6-run-it-offline-without-an-account) runs the whole mechanism end to
 > end offline, with no account.
 
@@ -15,19 +16,28 @@ wrap, call.
 ## 1. Requirements
 
 - Python 3.10 or newer.
-- One provider client library — `openai`, `anthropic`, `google-genai` or
-  `mistralai`. See [providers](./providers.md).
+- The provider client library you already use — `openai`, `anthropic`,
+  `google-genai` or `mistralai`. See [providers](./providers.md).
 - The SDK's only required runtime dependency is `httpx`. Local token
   verification adds `cryptography`, through the optional `[verify]` extra.
 
 ## 2. Install
 
 ```bash
-pip install 'idside[openai]'
-# extras: openai · anthropic · gemini · mistral · verify · all
+pip install idside
 ```
 
-That is all an application needs.
+The SDK wraps the provider client library you already use; it does not replace
+it, and it does not need you to choose a provider when you install it. That is
+all an application needs.
+
+**Starting from nothing**, an extra installs a provider's client library in the
+same command:
+
+```bash
+pip install 'idside[openai]'
+# extras: openai · anthropic · gemini · mistral · all — and verify, for step 7
+```
 
 **From a checkout instead** — to read the code, run its tests or try a change:
 
@@ -51,8 +61,15 @@ pip install -e '/path/to/idside-sdk/packages/python[openai]'
 
 ## 3. Configure and call
 
-You need one ID Side API key — from the dashboard, after signing up at
-<https://sdk.idside.eu/dashboard/signup> — and your usual provider key.
+You need one ID Side API key and your usual provider key. The ID Side key comes
+from one of two places:
+
+- **the dashboard**, after signing up at
+  <https://sdk.idside.eu/dashboard/signup> — the free plan covers 10,000 calls a
+  month;
+- **the no-account sandbox**, *Test without an account* on
+  <https://sdk.idside.eu/sdk> — an `sk_test_` key valid for 24 hours and
+  limited to 20 calls, to see a real proof before you sign up.
 
 ```bash
 # IDSIDE_BASE_URL is optional: https://sdk.idside.eu is the default.
@@ -136,9 +153,11 @@ so `jwks_url=` raises `ValueError` there. Fetch the key set yourself and pass
 it as `jwks=` ([step 7](#7-verify-a-proof-yourself)). That cloud is not
 production, so it signs as the test issuer, `test.idside.eu`, which
 `verify_act()` refuses unless told otherwise — hence `allow_test_issuer=True` in
-that branch, and only there (the *test tokens* detail of step 7). The `https://`
-branch assumes production; any other cloud served over `https://` signs as the
-test issuer too, and needs `allow_test_issuer=True` as well:
+that branch, and only there (the *issuer* detail of step 7). The `https://`
+branch assumes the production service; any other cloud served over `https://`
+signs as the test issuer too, and needs `allow_test_issuer=True` as well. An
+`sk_test_` key on the production service does not: its proofs carry the
+production issuer, and `proof.mode` is what says they are test ones.
 
 ```python
 import os
@@ -375,6 +394,7 @@ read exactly what left the process.
 ```python
 """Everything below is fake except the ID Side SDK itself."""
 
+import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -439,7 +459,10 @@ class FakeCloud:
 def openai_stub(request: httpx.Request) -> httpx.Response:
     """Stands in for api.openai.com so we can read what actually left."""
     print(f"[openai] X-AI-Consent-Token: {request.headers.get('X-AI-Consent-Token')}")
-    print(f"[openai] body: {request.content.decode()}")
+    # Keys sorted: the order on the wire is the openai library's own, and it
+    # differs between versions of that library. The content is what left.
+    body = json.dumps(json.loads(request.content), sort_keys=True, separators=(",", ":"))
+    print(f"[openai] body: {body}")
     return httpx.Response(
         200,
         json={
@@ -482,10 +505,12 @@ $ python dryrun.py
 [cloud] identity: user_id='usr_marie_456' ubt=None  <- no prompt here
 [cloud] credential_postures=[]  <- labels, never keys
 [openai] X-AI-Consent-Token: act.eyJhbGciOiJFUzI1NiJ9.fake.signature
-[openai] body: {"messages":[{"role":"user","content":"Hello!"}],"model":"gpt-4o-mini","store":false}
+[openai] body: {"messages":[{"content":"Hello!","role":"user"}],"model":"gpt-4o-mini","store":false}
 ```
 
-Three things are worth reading twice:
+The body is printed with its keys sorted, so the line is the same whichever
+version of `openai` you have: the order on the wire is that library's, and it
+has changed between versions. Three things are worth reading twice:
 
 - the cloud saw a hash, not the prompt;
 - `store: false` — the cloud's decision — reached OpenAI's request body;
@@ -512,19 +537,36 @@ pip install 'idside[verify]'      # adds cryptography
 ```
 
 ```python
-from idside import verify_act
+from idside import request_hash, verify_act
+
+# The request this proof must belong to: the arguments of the call, without
+# user_id / ubt and extra_headers, which the SDK never hashes.
+expected_hash = request_hash(
+    {"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "Hello!"}]}
+)
+# → "sha256:3ff33a93d528feaaa859078c68af6a379567b262ed5600b5bd91300673f5cf76"
 
 proof = verify_act(
     token,                          # the raw X-AI-Consent-Token value
     jwks=jwks,                      # or: jwks_url="https://sdk.idside.eu/.well-known/jwks.json"
     request_hash=expected_hash,     # pin the request this proof must belong to
 )
+if proof.mode != "live":            # a test key's proof verifies too — see below
+    raise ValueError("not production evidence: minted with a test key")
 
 print(proof.app_id, proof.provider, proof.model, proof.binding, proof.mode)
 # app_medhelp openai gpt-4o-mini ubt live
 print(dict(proof.consent_state), proof.source, proof.legal_basis)
 # {'training': False} widget consent
 ```
+
+`request_hash(payload)` is the function the SDK itself hashes every call with:
+the lowercase SHA-256 of the RFC 8785 canonical form of `payload`, prefixed
+`sha256:`. It is the same value Node's `requestHash()` returns for the same
+payload. Leave out what the SDK leaves out — `user_id`, `ubt`, `extra_headers` —
+and do not add what the cloud forced afterwards (`store=False`). Pass JSON
+values (a dict of dicts, lists, strings, numbers, booleans and `None`); anything
+else raises `ValueError`.
 
 `verify_act(token, *, jwks=None, jwks_url=None, issuer=None,
 allow_test_issuer=False, allow_legacy_without_mode=False, leeway=60.0, now=None,
@@ -563,13 +605,19 @@ Six details worth knowing:
 - **`request_hash` is the check that matters.** A valid signature only says
   "ID Side issued this". Pinning the hash says "…for *this* request". Without
   it, a genuine token from another call would pass.
-- **Test tokens do not pass as production.** `test.idside.eu`, the issuer of
-  every cloud that is not production, is rejected unless you set
-  `allow_test_issuer=True`.
-- **Current tokens carry a typed mode.** `proof.mode` is `"test"` or `"live"`.
-  Missing mode is malformed unless you explicitly set
+- **A test key's proof verifies: read `proof.mode`.** A call made with an
+  `sk_test_` key against the ID Side service — the sandbox key included — is
+  signed by the production key and carries `iss: idside.eu`, so it passes
+  `verify_act()` with the default options. Only `proof.mode` tells it apart:
+  `"test"` or `"live"`, the mode of the API key that minted it. Check
+  `proof.mode == "live"` before you treat a proof as production evidence. A
+  token without `mode` is malformed unless you explicitly set
   `allow_legacy_without_mode=True` while reading a known historical archive;
   that compatibility result has `proof.mode is None`.
+- **The issuer check is about the cloud, not the key.** `test.idside.eu` is the
+  issuer of a deployment of the ID Side cloud that is not the production service
+  — a staging cloud, or one on your own machine — and its tokens are rejected
+  unless you set `allow_test_issuer=True`.
 - **Auditing an old call needs `now=`.** ACT tokens live one hour, so an archived
   proof is expired against the wall clock. Pass the instant you are auditing —
   `verify_act(token, jwks=jwks, now=ledger_entry["issued_at"])` — and the answer

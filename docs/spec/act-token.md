@@ -43,7 +43,7 @@ JOSE header: `{ "alg": "ES256", "typ": "act+jwt", "kid": "act-2026q3" }`.
 
 | Claim | Type | Description |
 | ----- | ---- | ----------- |
-| `iss` | string | Issuer — `idside.eu` (`test.idside.eu` for non-production keys) |
+| `iss` | string | Issuer — `idside.eu` on the production service, whatever the mode of the key (`test.idside.eu` on a deployment of the cloud that is not the production service). A test key is told apart by `mode`, not by `iss` |
 | `sub` | string | `user_pseudo_id` — pseudonymized, scoped per app. Never a raw identifier |
 | `app_id` | string | The application the call was authorized for |
 | `iat` | number | Issued-at (epoch) |
@@ -72,7 +72,10 @@ It is a signed claim rather than a question for the issuer because offline
 verification — a JWKS and any JWT library — is a supported path, and a proof
 whose seriousness can only be established by calling the issuer is not
 self-contained. A verifier deciding whether a proof counts should read `mode`
-before anything else.
+before anything else. Nothing else will tell it: a proof minted with a test key
+on the production service carries the production issuer and passes every check
+of §5, so a verifier that wants production evidence requires `mode: "live"`
+itself.
 
 ### `refused_by` — who refused
 
@@ -223,8 +226,10 @@ must not be changed when reconstructing an archived proof.
 
 Canonicalization is not a detail: without it, the SDK, the cloud and an auditor
 would each compute a different hash from the same request, and no proof could be
-independently checked. Implementations must agree byte for byte — the reference
-test vectors live in
+independently checked. Both SDKs export the function they hash every call with —
+`request_hash(payload)` in Python, `requestHash(payload)` in Node — for the
+hashed object described above. Implementations must agree byte for byte — the
+reference test vectors live in
 [`packages/descriptors/testdata/request-hash-vectors.json`](../../packages/descriptors/testdata/request-hash-vectors.json).
 
 ### 3.2 Keys and rotation
@@ -266,7 +271,7 @@ Both SDKs implement this check in the open:
 ```python
 from idside import verify_act  # pip install 'idside[verify]'
 
-proof = verify_act(token, jwks=jwks, request_hash=request_hash)
+proof = verify_act(token, jwks=jwks, request_hash=expected_hash)
 ```
 
 ```ts
@@ -277,8 +282,10 @@ const proof = await verifyAct(token, { jwks, requestHash });
 
 They pin `alg` and `typ` as required above, select the key strictly by `kid`,
 enforce `exp > iat` with a maximum 3600-second validity interval, and reject
-`test.idside.eu` tokens unless the caller opts in — so a development proof can
-never pass as a production one.
+`test.idside.eu` tokens unless the caller opts in — so a proof from a cloud that
+is not the production service cannot pass as one from it. They do not judge
+`mode`: a test key's proof from the production service verifies, and
+`proof.mode == "live"` is the caller's check to make.
 
 Current proofs must carry `mode: "test" | "live"`, exposed as `proof.mode` in
 both SDKs. A proof minted before the claim existed is accepted only through the

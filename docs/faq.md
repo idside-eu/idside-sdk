@@ -221,7 +221,7 @@ from idside import verify_act  # pip install 'idside[verify]'
 proof = verify_act(
     token,
     jwks_url="https://sdk.idside.eu/.well-known/jwks.json",
-    request_hash=request_hash,
+    request_hash=expected_hash,  # idside.request_hash(payload), step 4
 )
 ```
 
@@ -235,15 +235,21 @@ const proof = await verifyAct(token, {
 ```
 
 Anything short of a full pass raises — there is no boolean to misread, and a
-development token (`iss: test.idside.eu`) is refused unless you ask for it
-explicitly. Proofs without `mode` are also refused unless a verifier explicitly
-enables the legacy option for a known historical archive. Full signatures in the quickstarts
+token from a deployment of the cloud that is not the production service
+(`iss: test.idside.eu`) is refused unless you ask for it explicitly. Proofs
+without `mode` are also refused unless a verifier explicitly enables the legacy
+option for a known historical archive. One thing a pass does not say is that the
+proof is production evidence: a call made with an `sk_test_` key on the
+production service carries `iss: idside.eu` and verifies, and only
+`proof.mode` reads `"test"`. Require `proof.mode == "live"` yourself before you
+count a proof. Full signatures in the quickstarts
 ([Python](./quickstart-python.md#7-verify-a-proof-yourself) ·
 [Node.js](./quickstart-node.md#7-verify-a-proof-yourself)) and the failure modes
 in the [verification errors](./errors.md#verification-errors).
 
-Step 4 is where canonicalization matters, and where the SDKs help: the Node SDK
-exports `requestHash(payload)` directly, and both SDKs replay the
+Step 4 is where canonicalization matters, and where the SDKs help: both export
+the function they hash every call with — `request_hash(payload)` in Python,
+`requestHash(payload)` in Node — and both replay the
 [shared hash vectors](../packages/descriptors/testdata/request-hash-vectors.json)
 in CI so that a hash computed in Python, in Node, or by your auditor's own
 implementation agrees byte for byte. A second set of

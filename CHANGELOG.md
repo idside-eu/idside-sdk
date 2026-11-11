@@ -16,6 +16,60 @@ version number promises — and what it deliberately does not — is
 
 Nothing yet.
 
+## [0.1.0.dev1] — 2026-11-11
+
+`idside` `0.1.0.dev1` on PyPI and `@idside/sdk` `0.1.0-dev.1` on npm, under the
+`next` dist-tag. Mostly documentation, from a first rehearsal against the
+published packages and the live service. **Nothing breaks**: no name is
+removed or renamed, the request hash and the proofs are unchanged, and code
+written against `0.1.0.dev0` runs as it did.
+
+### Added
+
+- **`request_hash(payload)` in Python**, exported from `idside` — the twin of
+  Node's `requestHash()`. It returns the `sha256:` hash an ACT token is bound
+  to, so a verifier can compute the `request_hash=` it pins `verify_act()` to;
+  until now the Python quickstart used a value it gave no way to compute. It is
+  the very function the SDK hashes every call with, not a copy: pass the call's
+  arguments without `user_id` / `ubt` and `extra_headers`, as JSON values.
+  Anything else raises `ValueError`. The shared cross-SDK vectors pin it.
+
+### Changed
+
+- **Install commands lead with the bare package**: `pip install idside` and
+  `npm install @idside/sdk`. The SDK wraps the provider client you already use
+  and needs no provider chosen at install time; `idside[openai]` and
+  `npm install @idside/sdk openai` remain, for starting from nothing. Checked:
+  both packages import with no provider library installed.
+- **Where an API key comes from**: both quickstarts now name the no-account
+  sandbox, *Test without an account* on <https://sdk.idside.eu/sdk>, which hands
+  out an `sk_test_` key valid 24 hours and limited to 20 calls, beside signing
+  up.
+- **npm staged publishing.** The publish workflow now runs `npm stage publish`:
+  a release reaches npm staged, and becomes installable once a maintainer
+  approves it with 2FA ([`RELEASING.md`](./RELEASING.md) §2).
+
+### Fixed
+
+- **A test key's proof is not refused by default, and the docs said it was.**
+  A call made with an `sk_test_` key on the ID Side service is signed as
+  `idside.eu`, carries `mode: "test"`, and passes `verify_act()` /
+  `verifyAct()` with the default options. `test.idside.eu`, which the verifiers
+  refuse without `allow_test_issuer` / `allowTestIssuer`, is the issuer of a
+  deployment of the cloud that is not the production service — not of a test
+  key. The quickstarts, both READMEs, the FAQ, the error catalogue and the
+  [ACT spec](./docs/spec/act-token.md) now say so, and tell a verifier to require
+  `proof.mode == "live"` before counting a proof as production evidence. The
+  verification itself is unchanged.
+- **`npm install @idside/sdk` works without `@next`.** The docs said a
+  pre-release had to be installed as `@next`; npm set `latest` to the first
+  pre-release too, so a plain install works while only pre-releases exist.
+  `@next` always names the newest pre-release.
+- **The Python quickstart's dry run prints the same body with every `openai`
+  version.** The order of keys on the wire is the `openai` library's and changed
+  between its versions, so the documented line no longer matched a fresh
+  install; the example now prints the body with sorted keys.
+
 ## [0.1.0.dev0] — 2026-11-11
 
 The first pre-release: `idside` `0.1.0.dev0` on PyPI and `@idside/sdk`
@@ -553,7 +607,10 @@ to discover them:
 
 ## Release history
 
+- `0.1.0.dev1` / `0.1.0-dev.1` — 2026-11-11, documentation fixes and Python
+  `request_hash()`.
 - `0.1.0.dev0` / `0.1.0-dev.0` — 2026-11-11, the first pre-release.
 
-[Unreleased]: https://github.com/idside-eu/idside-sdk/compare/v0.1.0.dev0...HEAD
+[Unreleased]: https://github.com/idside-eu/idside-sdk/compare/v0.1.0.dev1...HEAD
+[0.1.0.dev1]: https://github.com/idside-eu/idside-sdk/compare/v0.1.0.dev0...v0.1.0.dev1
 [0.1.0.dev0]: https://github.com/idside-eu/idside-sdk/releases/tag/v0.1.0.dev0

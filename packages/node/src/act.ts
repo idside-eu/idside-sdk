@@ -187,8 +187,9 @@ export interface VerifyActOptions {
   /** Accepted issuer, or several. Defaults to `idside.eu` only. */
   readonly issuer?: string | readonly string[];
   /**
-   * Also accept `test.idside.eu`. Off by default so a development token can
-   * never silently pass as a production proof.
+   * Also accept `test.idside.eu`, the issuer of a deployment of the cloud that
+   * is not the production service. Off by default. A test key's proof from the
+   * production service is signed `idside.eu` either way: read `mode` for that.
    */
   readonly allowTestIssuer?: boolean;
   /** Accept proofs minted before the signed `mode` claim existed. */

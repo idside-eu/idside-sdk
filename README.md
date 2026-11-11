@@ -15,10 +15,13 @@
 
 </div>
 
-> **Pre-release.** `pip install 'idside[openai]'` ·
-> `npm install @idside/sdk@next`. Create an account at
+> **Pre-release.** `pip install idside` · `npm install @idside/sdk`. The SDK
+> wraps the AI provider client you already use and does not replace it; starting
+> from nothing, `pip install 'idside[openai]'` or
+> `npm install @idside/sdk openai` installs both. Create an account at
 > <https://sdk.idside.eu/dashboard/signup> — the free plan covers 10,000 calls a
-> month. See [Status](#status).
+> month — or test without one at <https://sdk.idside.eu/sdk>. See
+> [Status](#status).
 
 ## The problem
 
@@ -153,10 +156,10 @@ Pre-release and under active development. What is true today:
   typed errors, request-hash vectors, offline `verify_act()`). Blocking and
   async clients alike — `AsyncOpenAI` and `AsyncAnthropic` are enforced with the
   same guarantees, so FastAPI and other ASGI applications are supported.
-  Published on PyPI as `idside` `0.1.0.dev0`.
+  Published on PyPI as `idside` `0.1.0.dev1`.
 - **Node.js SDK** — at parity with Python (including `verifyAct()`), zero
   runtime dependencies, native TypeScript. Published on npm as `@idside/sdk`
-  `0.1.0-dev.0`, under the `next` dist-tag.
+  `0.1.0-dev.1`, under the `next` dist-tag.
 
   `scripts/check_publishable.sh` builds each package, installs it outside the
   repository and exercises it, and the

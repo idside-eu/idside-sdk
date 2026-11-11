@@ -1025,7 +1025,7 @@ an opinion about which library you installed.
 | `ActSignatureError` | the signature does not match header+payload | the token was altered after signing, or never signed by that key. Never retry into acceptance |
 | `ActExpiredError` | past `exp`, beyond the leeway | tokens live one hour. Auditing an archived proof? Pass `now` / `now=` — the instant you are auditing — instead of the wall clock |
 | `ActNotYetValidError` | `iat` or `nbf` in the future, beyond the leeway | clock skew. Check the verifying machine's clock before suspecting the token |
-| `ActIssuerError` | `iss` is not an accepted issuer | a `test.idside.eu` token verified without `allow_test_issuer` / `allowTestIssuer`, so a dev proof cannot silently pass as production |
+| `ActIssuerError` | `iss` is not an accepted issuer | a `test.idside.eu` token — from a deployment of the cloud that is not the production service — verified without `allow_test_issuer` / `allowTestIssuer`. A test key's proof from the production service is signed `idside.eu` and does not raise this: read `proof.mode` |
 | `ActBindingMismatchError` | a pinned `request_hash`, `nonce`, `sub` or `app_id` does not match | **one token = one request** — the proof belongs to a different call, user or app |
 | `ActVerificationUnavailableError` | the ES256 backend is missing (Python: `pip install 'idside[verify]'`); the JWKS URL cannot be fetched or returns something unusable; two keys share a `kid` | verification could not be performed — which is never the same as "valid" |
 

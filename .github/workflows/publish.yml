@@ -239,7 +239,8 @@ jobs:
 
   # npm first: it is the publish that cannot be automated for a first release,
   # and the one where a wrong dist-tag is immediately visible to every
-  # installer. RELEASING.md §3.
+  # installer. It ends with the version staged, not published: a maintainer's
+  # 2FA approval is the step that makes it installable. RELEASING.md §2 and §3.
   npm:
     name: npm — @idside/sdk
     needs: verify
@@ -250,13 +251,14 @@ jobs:
       contents: read
       id-token: write # the OIDC token npm exchanges; no npm token exists
     steps:
-      # Trusted publishing needs npm >= 11.5.1 on Node >= 22.14, and a
-      # GitHub-hosted runner: self-hosted runners are not supported.
+      # Trusted publishing needs npm >= 11.5.1 on Node >= 22.14, and `npm stage`
+      # needs npm >= 11.15.0; both need a GitHub-hosted runner, as self-hosted
+      # runners are not supported.
       - uses: actions/setup-node@v4
         with:
           node-version: "24.x"
 
-      - name: npm new enough for trusted publishing
+      - name: npm new enough for staged trusted publishing
         run: |
           npm install -g npm@latest
           npm --version
@@ -266,15 +268,21 @@ jobs:
           name: release-artefacts
           path: artefacts
 
-      # The tarball built and verified upstream, published as-is. Deliberately
-      # no `registry-url` on setup-node: it would write an .npmrc expecting a
-      # NODE_AUTH_TOKEN, and trusted publishing does not use one. Provenance is
-      # attached automatically for a public repository.
-      - name: Publish
+      # The tarball built and verified upstream, STAGED as-is. The trusted
+      # publisher on npmjs.com allows `npm stage publish` only, so a plain
+      # `npm publish` from here is rejected: the version is uploaded but not
+      # installable until a maintainer approves it with 2FA (`npm stage approve
+      # <stage-id>`, or the package's "Staged Packages" tab) — RELEASING.md §2.
+      # The stage id is in this step's log. The OIDC token this job holds cannot
+      # approve. Deliberately no `registry-url` on setup-node: it would write an
+      # .npmrc expecting a NODE_AUTH_TOKEN, and trusted publishing does not use
+      # one. Provenance is attached automatically only when the repository is
+      # public.
+      - name: Stage for publication
         env:
           TARBALL: ${{ needs.verify.outputs.npm-tarball }}
           NPM_TAG: ${{ github.event.inputs.npm_tag }}
-        run: npm publish "artefacts/$TARBALL" --access public --tag "$NPM_TAG"
+        run: npm stage publish "artefacts/$TARBALL" --access public --tag "$NPM_TAG"
 
   # PyPI second. Once a final release exists, a pre-release there is invisible
   # to a plain `pip install`, which makes it the safer of the two to run

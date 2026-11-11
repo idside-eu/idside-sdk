@@ -3,10 +3,14 @@
 A signed proof of the AI consent each call was authorized against — for every AI
 call your backend makes.
 
-> ⚠️ **Pre-release (`0.1.0.dev0`).** Install with `pip install 'idside[openai]'`.
-> End-to-end use needs an ID Side account: sign up at
-> <https://sdk.idside.eu/dashboard/signup>. The free plan covers 10,000 calls a
-> month.
+> ⚠️ **Pre-release (`0.1.0.dev1`).** Install with `pip install idside`. The SDK
+> wraps the provider client library you already use and does not replace it;
+> starting from nothing, an extra installs one in the same command —
+> `idside[openai]`, `[anthropic]`, `[gemini]`, `[mistral]` or `[all]`.
+> End-to-end use needs an ID Side API key: sign up at
+> <https://sdk.idside.eu/dashboard/signup> (the free plan covers 10,000 calls a
+> month), or take a 24-hour, 20-call test key from the no-account sandbox at
+> <https://sdk.idside.eu/sdk>.
 
 ## Quickstart
 
@@ -46,7 +50,7 @@ OpenAI-compatible providers (Groq, Together, xAI…) work through the `openai`
 client and its descriptor. DeepSeek is the exception: an `OpenAI` client pointed
 at `api.deepseek.com` gets the `deepseek` descriptor, so its proofs say
 `provider: "deepseek"` and it takes no `credentials=` (see `docs/providers.md`). Provider libraries are optional extras:
-`pip install idside[openai]`, `[anthropic]`, `[gemini]`, `[mistral]` or `[all]`.
+`pip install 'idside[openai]'`, `[anthropic]`, `[gemini]`, `[mistral]` or `[all]`.
 
 `client.with_options(...)` and `client.copy(...)` hand back an enforced client,
 recursively, and so do `with_raw_response.*` and `with_streaming_response.*` on
@@ -219,13 +223,17 @@ no account: an auditor, a customer's compliance team, a provider, a supervisory
 authority.
 
 ```python
-from idside import verify_act
+from idside import request_hash, verify_act
 
 proof = verify_act(
     token,                                    # the X-AI-Consent-Token value
     jwks_url="https://sdk.idside.eu/.well-known/jwks.json",
-    request_hash=request_hash,                # one token = one request
+    # one token = one request: the call's arguments, minus user_id/ubt and
+    # extra_headers, hashed exactly as the SDK hashed them
+    request_hash=request_hash({"model": "gpt-4o", "messages": messages}),
 )
+if proof.mode != "live":                      # a test key's proof verifies too
+    raise ValueError("not production evidence: minted with a test key")
 
 proof.binding        # "ubt": the widget bound the identity — the strong proof
 proof.consent_state  # {"training": False}
@@ -245,8 +253,8 @@ What is checked, and never negotiated:
 | `exp` / `iat` / `nbf` | enforced, with 60 s of clock leeway (tune with `leeway=`) |
 | Lifetime | `exp - iat` must not exceed 3600 seconds |
 | Verification time | the real clock, or an epoch you pass as `now=` (see below) |
-| `iss` | `idside.eu` only; `test.idside.eu` requires `allow_test_issuer=True` |
-| `mode` | `test` or `live`; missing mode requires explicit `allow_legacy_without_mode=True` |
+| `iss` | `idside.eu` only; `test.idside.eu`, the issuer of a non-production deployment of the cloud, requires `allow_test_issuer=True` |
+| `mode` | `test` or `live`; missing mode requires explicit `allow_legacy_without_mode=True`. **Not** checked against anything: an `sk_test_` key's proof carries `iss: idside.eu` and passes — read `proof.mode` yourself |
 | Bindings | `request_hash=`, `nonce=`, `subject=`, `app_id=`, when you pass them |
 
 Pass `jwks=` (a JWKS or a single JWK) instead of `jwks_url=` to verify without

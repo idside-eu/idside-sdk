@@ -3,10 +3,11 @@
 From nothing to a consent-enforced AI call with `@idside/sdk`. Same three steps
 as [Python](./quickstart-python.md): install, wrap, call.
 
-> **Status.** Pre-release: `@idside/sdk` is published on npm under the `next`
-> dist-tag. A real call needs an ID Side account — sign up at
+> **Status.** Pre-release: `@idside/sdk` is published on npm as `0.1.0-dev.1`.
+> A real call needs an ID Side API key — sign up at
 > <https://sdk.idside.eu/dashboard/signup>, the free plan covers 10,000 calls a
-> month. [Step 6](#6-run-it-offline-without-an-account) runs the whole mechanism
+> month, or take a 24-hour test key from the no-account sandbox
+> ([step 3](#3-configure-and-call)). [Step 6](#6-run-it-offline-without-an-account) runs the whole mechanism
 > offline, with no account.
 
 ---
@@ -18,18 +19,32 @@ as [Python](./quickstart-python.md): install, wrap, call.
   TypeScript sources in place (checkout paths **b** and **c** below) needs
   **Node ≥ 23.6** instead, for native type stripping. CI covers both floors: the
   test suite on 24.x, the packed tarball on 22.12.
-- One provider client — `openai`, `@anthropic-ai/sdk`, `@google/genai` or
-  `@mistralai/mistralai`. See [providers](./providers.md).
+- The provider client you already use — `openai`, `@anthropic-ai/sdk`,
+  `@google/genai` or `@mistralai/mistralai`. See [providers](./providers.md).
 - No runtime dependencies: the SDK uses the built-in `fetch` and `node:crypto`.
 
 ## 2. Install
 
 ```bash
-npm install @idside/sdk@next openai
+npm install @idside/sdk
 ```
 
-Pre-releases are published under the `next` dist-tag, so name it. That is all
-an application needs.
+The SDK wraps the provider client you already use; it does not replace it, and
+it does not need you to choose a provider when you install it. That is all an
+application needs.
+
+**Starting from nothing**, install the provider's client in the same command:
+
+```bash
+npm install @idside/sdk openai
+```
+
+**Which version that installs.** Only pre-releases exist so far, and a plain
+`npm install @idside/sdk` installs the one npm's `latest` dist-tag points at.
+Every pre-release is published under the `next` dist-tag, which always names the
+newest: `npm install @idside/sdk@next` gets it whatever `latest` says. Once a
+stable release exists, `latest` will be that one, and a pre-release will need
+`@next`.
 
 **From a checkout instead** — to read the code, run its tests or try a change:
 
@@ -45,9 +60,9 @@ Then choose one of the following install paths:
 ```bash
 # a) pack it and install the tarball — the same artifact a release uploads
 cd /path/to/idside-sdk/packages/node
-npm pack   # `prepack` compiles to dist/ → idside-sdk-0.1.0-dev.0.tgz
+npm pack   # `prepack` compiles to dist/ → idside-sdk-0.1.0-dev.1.tgz
 cd /path/to/your-application
-npm install /path/to/idside-sdk/packages/node/idside-sdk-0.1.0-dev.0.tgz
+npm install /path/to/idside-sdk/packages/node/idside-sdk-0.1.0-dev.1.tgz
 ```
 
 ```bash
@@ -75,6 +90,16 @@ exactly why the package ships `dist/` and never raw sources — and why (a) is
 unaffected.
 
 ## 3. Configure and call
+
+You need one ID Side API key and your usual provider key. The ID Side key comes
+from one of two places:
+
+- **the dashboard**, after signing up at
+  <https://sdk.idside.eu/dashboard/signup> — the free plan covers 10,000 calls a
+  month;
+- **the no-account sandbox**, *Test without an account* on
+  <https://sdk.idside.eu/sdk> — an `sk_test_` key valid for 24 hours and
+  limited to 20 calls, to see a real proof before you sign up.
 
 ```bash
 # IDSIDE_BASE_URL is optional: https://sdk.idside.eu is the default.
@@ -176,9 +201,11 @@ so `jwksUrl` throws a `TypeError` there. Fetch the key set yourself and pass it
 as `jwks` ([step 7](#7-verify-a-proof-yourself)). That cloud is not production,
 so it signs as the test issuer, `test.idside.eu`, which `verifyAct()` refuses
 unless told otherwise — hence `allowTestIssuer: true` in that branch, and only
-there (the *test tokens* paragraph of step 7). The `https://` branch assumes
-production; any other cloud served over `https://` signs as the test issuer too,
-and needs `allowTestIssuer: true` as well:
+there (the *issuer* paragraph of step 7). The `https://` branch assumes the
+production service; any other cloud served over `https://` signs as the test
+issuer too, and needs `allowTestIssuer: true` as well. An `sk_test_` key on the
+production service does not: its proofs carry the production issuer, and
+`proof.mode` is what says they are test ones:
 
 ```ts
 import { verifyAct } from "@idside/sdk";
@@ -485,6 +512,11 @@ const proof = await verifyAct(token, {
   requestHash: expectedHash, //   pin the request this proof must belong to
 });
 
+if (proof.mode !== "live") {
+  // a test key's proof verifies too — see below
+  throw new Error("not production evidence: minted with a test key");
+}
+
 console.log(proof.appId, proof.provider, proof.model, proof.binding, proof.mode);
 // app_medhelp openai gpt-4o-mini ubt live
 console.log(proof.consentState, proof.source, proof.legalBasis);
@@ -532,14 +564,20 @@ valid when the call was made?" instead. It moves **only** the `exp` / `iat` /
 identically, so a generous `now` can never turn a forgery into a proof.
 The declared `expiresAt - issuedAt` interval must also be at most 3600 seconds.
 
-Test tokens do not pass as production: `test.idside.eu`, the issuer of every
-cloud that is not production, is rejected unless you set
-`allowTestIssuer: true`.
-
-Current tokens must expose `proof.mode` as `"test"` or `"live"`. Missing mode is
-malformed by default. Set `allowLegacyWithoutMode: true` only while reading a
-known historical archive; the compatibility result then has
+**A test key's proof verifies: read `proof.mode`.** A call made with an
+`sk_test_` key against the ID Side service — the sandbox key included — is
+signed by the production key and carries `iss: idside.eu`, so it passes
+`verifyAct()` with the default options. Only `proof.mode` tells it apart:
+`"test"` or `"live"`, the mode of the API key that minted it. Check
+`proof.mode === "live"` before you treat a proof as production evidence. A token
+without `mode` is malformed by default; set `allowLegacyWithoutMode: true` only
+while reading a known historical archive, and the compatibility result then has
 `proof.mode === undefined`.
+
+**The issuer check is about the cloud, not the key.** `test.idside.eu` is the
+issuer of a deployment of the ID Side cloud that is not the production service —
+a staging cloud, or one on your own machine — and its tokens are rejected unless
+you set `allowTestIssuer: true`.
 
 Pinning `requestHash` is the check that matters: a valid signature only says
 "ID Side issued this", while the hash says "…for *this* request". You can

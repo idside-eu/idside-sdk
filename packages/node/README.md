@@ -12,18 +12,26 @@ opaque tunnel to the ID Side cloud.
 > shared vectors in
 > [`packages/descriptors`](https://github.com/idside-eu/idside-sdk/tree/main/packages/descriptors).
 
-> ⚠️ **Pre-release (`0.1.0-dev.0`).** End-to-end use needs an ID Side account:
-> sign up at <https://sdk.idside.eu/dashboard/signup>. The free plan covers
-> 10,000 calls a month.
+> ⚠️ **Pre-release (`0.1.0-dev.1`).** End-to-end use needs an ID Side API key:
+> sign up at <https://sdk.idside.eu/dashboard/signup> (the free plan covers
+> 10,000 calls a month), or take a 24-hour, 20-call test key from the
+> no-account sandbox at <https://sdk.idside.eu/sdk>.
 
 ## Install
 
 ```bash
-npm install @idside/sdk@next openai
+npm install @idside/sdk
 ```
 
-Pre-releases are published under the `next` dist-tag, so name it. To run the
-SDK from a checkout of the repository instead, see the
+The SDK wraps the provider client you already use (`openai`,
+`@anthropic-ai/sdk`, `@google/genai`, `@mistralai/mistralai`); it does not
+replace it, and you do not choose a provider when you install it. Starting from
+nothing, install both at once: `npm install @idside/sdk openai`.
+
+Only pre-releases exist so far: a plain install gets the one npm's `latest`
+dist-tag points at, and `@idside/sdk@next` always gets the newest. Once a stable
+release exists, `latest` will be that one and a pre-release will need `@next`.
+To run the SDK from a checkout of the repository instead, see the
 [quickstart](https://github.com/idside-eu/idside-sdk/blob/main/docs/quickstart-node.md#2-install).
 
 Requires **Node ≥ 22.12** once installed. The package ships compiled JavaScript
@@ -199,9 +207,13 @@ looked at, and an unknown `kid` is never worked around by trying another key.
   another payload. `nonce`, `subject` and `appId` can be pinned too. Note that
   `sub` is the app-scoped **pseudonym** the cloud derived from the end user; the
   raw `user_id` never enters the token.
-- **Issuers** — `idside.eu` only by default. Development tokens
-  (`test.idside.eu`) need `allowTestIssuer: true`, so a dev token can never
-  silently pass as a production proof.
+- **Issuers** — `idside.eu` only by default. Tokens from a deployment of the
+  cloud that is not the production service (`test.idside.eu`) need
+  `allowTestIssuer: true`.
+- **Test keys** — a call made with an `sk_test_` key on the production service
+  is signed as `idside.eu` and passes with the default options; only
+  `proof.mode` says `"test"`. Check `proof.mode === "live"` before treating a
+  proof as production evidence.
 - **Mode and lifetime** — `proof.mode` is typed as `"test" | "live"`, and the
   declared lifetime cannot exceed 3600 seconds. A missing mode is accepted only
   with `allowLegacyWithoutMode: true` for a known historical archive; that

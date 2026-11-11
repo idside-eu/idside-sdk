@@ -29,7 +29,10 @@
   registry setup and repository protections.
 
 - Integration docs use `https://sdk.idside.eu`, the SDK default, and the
-  registry installs (`pip install 'idside[…]'`, `npm install @idside/sdk@next`).
+  registry installs, bare first (`pip install idside`, `npm install @idside/sdk`:
+  the SDK wraps the provider client a reader already has), then the
+  starting-from-nothing forms (`pip install 'idside[openai]'`,
+  `npm install @idside/sdk openai`).
   `IDSIDE_BASE_URL` is for a local or staging cloud: the origin alone, without
   `/v1` or `/widget`. Strict visitor apps
   need a UBT bound to the same server session; never fall back to `user_id`.
