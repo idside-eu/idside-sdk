@@ -10,7 +10,7 @@ source-available SDKs.
 | --- | --- |
 | [Examples](../examples/) | Three programs to clone and run today — a wrapped call in Python, the same on an async client, and the typed TypeScript one |
 | [Quickstart — Python](./quickstart-python.md) | Install, `consent.wrap()`, your first enforced call, and a runnable offline dry run |
-| [Quickstart — Node.js](./quickstart-node.md) | The same for `@idside/sdk`, including the local install paths while the package is unpublished |
+| [Quickstart — Node.js](./quickstart-node.md) | The same for `@idside/sdk`, including how to run it from a checkout |
 | [Concepts](./concepts.md) | The mental model: consent as infrastructure, the opaque tunnel, **the two modes** (asked and imposed), the ACT token, the ledger, GPC, fail-closed |
 | [Preference Center widget](./widget.md) | The other half of the integration: the `<script>` tag that collects the answers the SDK enforces |
 
@@ -64,16 +64,15 @@ Pre-release, under active development.
 
 - The Python and Node.js SDKs are implemented and tested — enforcement
   (`consent.wrap()`) and offline proof verification (`verify_act()` /
-  `verifyAct()`). Neither is published to a package registry yet (no PyPI
-  release, no npm release): install from a clone you can access or a supplied
-  archive, following the quickstarts.
+  `verifyAct()`). Both are published as pre-releases: `idside` `0.1.0.dev0` on
+  PyPI and `@idside/sdk` `0.1.0-dev.0` on npm, under the `next` dist-tag.
 - The Preference Center widget is implemented and served by the ID Side cloud —
   three presentations, French and English, GPC detection, and a host-page API
   that never exposes what a user chose. It is a `<script>` tag rather than a
   package in this repository; the [guide](./widget.md) is its interface.
-- Cloud access must be provisioned before a real end-to-end call or a live
-  widget can work. Use the service origin supplied with that access; do not
-  assume the SDK default endpoint is available. Without access, both
+- The ID Side cloud is self-service at <https://sdk.idside.eu>, with a free
+  plan, and both SDKs point there by default. A real end-to-end call or a live
+  widget needs an account. Without one, both
   quickstarts include a runnable offline dry run, and [`examples/`](../examples/)
   holds the same mechanism as programs you can run, including the async surface.
 

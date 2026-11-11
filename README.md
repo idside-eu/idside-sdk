@@ -15,9 +15,10 @@
 
 </div>
 
-> **Pre-release.** Both SDKs are implemented and tested, but neither is published
-> to a package registry yet and the ID Side cloud is not publicly available.
-> See [Status](#status).
+> **Pre-release.** `pip install 'idside[openai]'` ·
+> `npm install @idside/sdk@next`. Create an account at
+> <https://sdk.idside.eu/dashboard/signup> — the free plan covers 10,000 calls a
+> month. See [Status](#status).
 
 ## The problem
 
@@ -95,7 +96,7 @@ ID Side. This repository verifies; it never signs.
 | --- | --- |
 | [Examples](./examples/) | Three programs that run today, offline, and print what actually left the process |
 | [Quickstart — Python](./docs/quickstart-python.md) | Install, wrap, first call, and a runnable offline dry run |
-| [Quickstart — Node.js](./docs/quickstart-node.md) | The same for `@idside/sdk`, with the local install paths |
+| [Quickstart — Node.js](./docs/quickstart-node.md) | The same for `@idside/sdk`, with how to run it from a checkout |
 | [Concepts](./docs/concepts.md) | Opaque tunnel, ACT token, ledger, GPC, fail-closed — and the trust model, stated honestly |
 | [Providers](./docs/providers.md) | Supported clients, intercepted call sites, what gets forced and why |
 | [Provider privacy matrix](./docs/providers-privacy-matrix.md) | Option by option, what each provider actually lets you control — and what it does not |
@@ -152,25 +153,25 @@ Pre-release and under active development. What is true today:
   typed errors, request-hash vectors, offline `verify_act()`). Blocking and
   async clients alike — `AsyncOpenAI` and `AsyncAnthropic` are enforced with the
   same guarantees, so FastAPI and other ASGI applications are supported.
-  **Not published on PyPI yet** — install from a clone.
+  Published on PyPI as `idside` `0.1.0.dev0`.
 - **Node.js SDK** — at parity with Python (including `verifyAct()`), zero
-  runtime dependencies, native TypeScript. **Not published on npm yet** —
-  install from a clone.
+  runtime dependencies, native TypeScript. Published on npm as `@idside/sdk`
+  `0.1.0-dev.0`, under the `next` dist-tag.
 
-  The **artefacts** are release-ready: `scripts/check_publishable.sh` builds
-  each package, installs it outside the repository and exercises it, and the
+  `scripts/check_publishable.sh` builds each package, installs it outside the
+  repository and exercises it, and the
   [publish workflow](./.github/workflows/publish.yml) hands those exact files to
-  the registries. The first release on both registries is the next step;
-  [`RELEASING.md`](./RELEASING.md) describes how it is cut.
+  the registries. [`RELEASING.md`](./RELEASING.md) describes how a release is
+  cut.
 - **Preference Center widget** — implemented and served by the ID Side cloud:
   three presentations (banner, modal, inline panel), French and English,
   automatic GPC detection, and a host-page API that reports *that* a decision
   was recorded and never *what* was decided. It is a `<script>` tag, not an npm
   package — see the [integration guide](./docs/widget.md). It needs the cloud,
-  so it requires a provisioned application and service URL.
-- **ID Side cloud** — access must be provisioned. Set `IDSIDE_BASE_URL` to the
-  supplied service origin rather than assuming the default endpoint is
-  available. Both quickstarts also include a runnable offline dry run.
+  so it requires an application created in the dashboard.
+- **ID Side cloud** — self-service at <https://sdk.idside.eu>, with a free
+  plan; both SDKs point there by default. Both quickstarts also include a
+  runnable offline dry run, which needs no account.
 
 ## Contributing
 

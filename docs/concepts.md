@@ -67,7 +67,7 @@ user's browser                         your backend
       │ (widget · GPC · account)             │    + model + request hash
       ▼                                      ▼
   ┌─────────────────────────────────────────────────────┐
-  │                   idside.eu                     │
+  │                 sdk.idside.eu                   │
   │  resolves consent · signs the ACT token · ledger    │
   └─────────────────────────────────────────────────────┘
                                              │
@@ -114,7 +114,7 @@ decided**, and the proof says which:
 | Who decides | the person, for themselves | the organization, for its employees |
 | How they are reached | the Preference Center — a popup in your page | the same widget, as a read-only transparency panel: told, not asked |
 | `source` in the proof | `widget`, `gpc`, `idside_account` | `default_policy` |
-| `legal_basis` in the proof | `consent` | `legitimate_interest`, `contractual_obligation`, `public_task`, `legal_obligation`, `vital_interests`, or `not_established` |
+| `legal_basis` in the proof | `consent` | `legitimate_interest`, `contractual_obligation`, `public_task`, `legal_obligation`, `vital_interests`, `consent` as declared by the organization, or `not_established` |
 | Typical case | a product with end users | a workforce told to use AI at work |
 
 There is a third state, and it is neither mode: a person nobody has asked and no

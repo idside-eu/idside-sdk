@@ -6,7 +6,7 @@ Preference Center — you add one `<script>` tag pointing at ID Side, the way yo
 would for a consent management platform.
 
 ```html
-<script src="https://idside.eu/widget/v1.js"></script>
+<script src="https://sdk.idside.eu/widget/v1.js"></script>
 <script>
   IDSide.init({ publishableKey: "pk_test_…", userId: "usr_marie_456" });
 </script>

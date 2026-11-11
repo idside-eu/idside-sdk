@@ -3,9 +3,8 @@
 # package name.
 #
 # The one line that is not what you would write is the `[tool.uv.sources]`
-# override below. The package is not on PyPI yet, so the dependency is resolved
-# from this clone; when it is published, deleting those two lines is the whole
-# migration.
+# override below. It resolves the dependency from this clone, so that CI tests
+# the code beside these examples; in your own project, delete those two lines.
 [project]
 name = "idside-examples"
 version = "0.0.0"

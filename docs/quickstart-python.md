@@ -3,11 +3,12 @@
 From nothing to a consent-enforced AI call. Five minutes, three steps: install,
 wrap, call.
 
-> **Status.** The SDK is implemented and tested, but Cloud access must be
-> provisioned and the `idside` package is not on PyPI yet.
-> Step 3 shows the real code; [step 6](#6-run-it-today-without-cloud-access)
-> shows how to run the whole mechanism end to end today, offline, without an
-> account.
+> **Status.** Pre-release: `idside` is published on PyPI as `0.1.0.dev0`. A real
+> call needs an ID Side account — sign up at
+> <https://sdk.idside.eu/dashboard/signup>, the free plan covers 10,000 calls a
+> month. Step 3 shows the real code;
+> [step 6](#6-run-it-offline-without-an-account) runs the whole mechanism end to
+> end offline, with no account.
 
 ---
 
@@ -21,9 +22,14 @@ wrap, call.
 
 ## 2. Install
 
-The package is not published on PyPI yet, so install it from a clone. During
-early access the repository is shared on request — write to contact@idside.eu —
-and the clone below works once access is granted:
+```bash
+pip install 'idside[openai]'
+# extras: openai · anthropic · gemini · mistral · verify · all
+```
+
+That is all an application needs.
+
+**From a checkout instead** — to read the code, run its tests or try a change:
 
 ```bash
 git clone https://github.com/idside-eu/idside-sdk.git
@@ -41,29 +47,16 @@ Or into your own virtualenv, with the provider extra you need:
 
 ```bash
 pip install -e '/path/to/idside-sdk/packages/python[openai]'
-# extras: openai · anthropic · gemini · mistral · verify · all
 ```
-
-To install a wheel supplied with your access instead, use a fresh application
-environment rather than an editable checkout:
-
-```bash
-python -m venv .venv
-. .venv/bin/activate
-python -m pip install "/path/to/idside-0.1.0.dev0-py3-none-any.whl[openai]"
-```
-
-Use the exact filename and checksum supplied with that archive. This installs
-the SDK into your application environment; it does not publish it to PyPI.
 
 ## 3. Configure and call
 
-You need one ID Side API key (from the ID Side dashboard, once the service is
-open) and your usual provider key.
+You need one ID Side API key — from the dashboard, after signing up at
+<https://sdk.idside.eu/dashboard/signup> — and your usual provider key.
 
 ```bash
-# Use the HTTPS service origin supplied with your ID Side access.
-export IDSIDE_BASE_URL="https://your-idside-host.example"
+# IDSIDE_BASE_URL is optional: https://sdk.idside.eu is the default.
+export IDSIDE_BASE_URL="https://sdk.idside.eu"
 export IDSIDE_API_KEY="sk_test_your_idside_key"
 export OPENAI_API_KEY="sk-your_openai_key"
 ```
@@ -88,10 +81,10 @@ AI call methods patched in place, so anything already holding a reference to
 `client` — or to `client.chat.completions` — is enforced too. Calling `wrap()`
 twice on the same client is harmless: enforcement never stacks.
 
-The example origin is a placeholder: replace it with the actual ID Side service
-origin, without `/v1` or `/widget`. Use the same deployment for the dashboard,
-widget and backend. The default `https://idside.eu` is not a substitute for
-a working endpoint supplied with your access.
+The default, `https://sdk.idside.eu`, is the ID Side service. Set
+`IDSIDE_BASE_URL` only for a local or staging cloud: the origin alone, without
+`/v1` or `/widget`. Use the same deployment for the dashboard, widget and
+backend.
 
 The call above uses `user_id`, which requires an application that permits that
 identity path. Declare your providers in the dashboard before showing the
@@ -105,11 +98,11 @@ the visitor’s token; do not fall back to `user_id` when bound tokens are requi
 | Setting | Argument | Environment variable | Default |
 | --- | --- | --- | --- |
 | ID Side API key | `consent.wrap(client, api_key=…)` | `IDSIDE_API_KEY` | none (no `Authorization` header) |
-| ID Side base URL | `consent.wrap(client, base_url=…)` | `IDSIDE_BASE_URL` | `https://idside.eu` |
+| ID Side base URL | `consent.wrap(client, base_url=…)` | `IDSIDE_BASE_URL` | `https://sdk.idside.eu` |
 
 The explicit argument wins; an empty environment variable counts as unset. Two
 further arguments, `consent_client=` and `adapter=`, exist for tests and custom
-providers — see [step 6](#6-run-it-today-without-cloud-access) and
+providers — see [step 6](#6-run-it-offline-without-an-account) and
 [providers](./providers.md#7-adding-a-provider).
 
 A fifth, `credentials=`, is what makes training opt-out per-user. The privacy
@@ -272,7 +265,7 @@ token = one request**. Full claim list in
 - **The ledger**, in the ID Side dashboard: one entry per authorized call, with
   its token id — the audit trail you show a data protection authority.
 - **Publicly**, with no API key and no account:
-  `GET https://idside.eu/v1/verify/{token_id}` answers *"is this token
+  `GET https://sdk.idside.eu/v1/verify/{token_id}` answers *"is this token
   genuine?"* — deliberately without revealing what the user consented to. See
   [the spec](./spec/act-token.md#5-verification).
 - **Locally**, with no help from ID Side at all: fetch the JWKS, verify the
@@ -370,7 +363,7 @@ writes nothing, ever, by design. If a call was refused there, you learn it from
 the `UnenforcedCallError` and not from a log line: a guard that recorded the
 paths it saw would be recording your requests.
 
-## 6. Run it today, without cloud access
+## 6. Run it offline, without an account
 
 You do not need an ID Side account — or an OpenAI bill — to watch the mechanism
 work. What follows is one file to copy;
@@ -480,10 +473,10 @@ client.chat.completions.create(
 )
 ```
 
-Save it as `dryrun.py` and run it from `packages/python`:
+Save it as `dryrun.py` and run it where `idside[openai]` is installed:
 
 ```console
-$ uv run python dryrun.py
+$ python dryrun.py
 [cloud] authorize: provider=openai model=gpt-4o-mini call_site=chat.completions.create
 [cloud] request_hash=sha256:3ff33a93d528feaaa859078c68af6a379567b262ed5600b5bd91300673f5cf76
 [cloud] identity: user_id='usr_marie_456' ubt=None  <- no prompt here
@@ -498,7 +491,7 @@ Three things are worth reading twice:
 - `store: false` — the cloud's decision — reached OpenAI's request body;
 - `user_id` did **not** reach OpenAI. It is consumed by the SDK.
 
-Run the [equivalent Node.js script](./quickstart-node.md#6-run-it-today-without-npm)
+Run the [equivalent Node.js script](./quickstart-node.md#6-run-it-offline-without-an-account)
 and you get **the same `request_hash` for the same payload**. That is not a
 coincidence: it is the property that lets an auditor recompute the hash from your
 request, in whatever language they like, and check it against the token.
@@ -523,7 +516,7 @@ from idside import verify_act
 
 proof = verify_act(
     token,                          # the raw X-AI-Consent-Token value
-    jwks=jwks,                      # or: jwks_url="https://idside.eu/.well-known/jwks.json"
+    jwks=jwks,                      # or: jwks_url="https://sdk.idside.eu/.well-known/jwks.json"
     request_hash=expected_hash,     # pin the request this proof must belong to
 )
 
@@ -634,8 +627,6 @@ implementing it in another language.
   (`responses.stream(model=..., input=...)`) is enforced like any other AI call.
 - **`client.with_options(...)` / `client.copy(...)` come back enforced**, and so
   does anything derived from those, recursively.
-- **The cloud is not publicly available yet**, so a real end-to-end call needs an
-  ID Side account that does not exist for the public yet.
 
 ## Next
 

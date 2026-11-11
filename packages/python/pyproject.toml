@@ -73,7 +73,7 @@ all = [
 ]
 
 [project.urls]
-Homepage = "https://idside.eu"
+Homepage = "https://sdk.idside.eu"
 Repository = "https://github.com/idside-eu/idside-sdk"
 Documentation = "https://github.com/idside-eu/idside-sdk/tree/main/docs"
 License = "https://sdk.idside.eu/legal/sdk-licence"

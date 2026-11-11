@@ -51,7 +51,7 @@ it is guarding.
 
 ## How much latency does this add?
 
-One HTTPS round trip to `idside.eu`, before each AI call, on the same
+One HTTPS round trip to `sdk.idside.eu`, before each AI call, on the same
 critical path. There is no benchmark published here — anyone quoting you a
 millisecond figure that does not include *your* region, *your* egress and *your*
 connection reuse is selling something. Measure it yourself; the numbers you can
@@ -166,15 +166,15 @@ the regulation deliberately, and here is how.
 - **Article 25 — data protection by design.** Your backend never being in the
   preference path is not a policy you enforce; it is a shape the API has.
 - **Data minimization.** See the table above: identifier, provider, model, hash.
-- **Data location and retention.** The public endpoint is `idside.eu`.
+- **Data location and retention.** The public endpoint is `sdk.idside.eu`.
   Consent-event logs are kept up to 13 months by default, diagnostic and support
   data 30 days, crash data 180 days. Where the infrastructure sits, and on what
   basis anything leaves the EEA — an adequacy decision *as amended or replaced*,
   and failing one, Chapter V standard contractual clauses with whatever
   supplementary measures apply — is stated in the published policies, and those
   are what bind rather than this page:
-  <https://idside.eu/legal/sdk-privacy> for the SDK, <https://idside.eu/privacy>
-  for the rest, and <https://idside.eu/legal/sub-processors> for who else touches
+  <https://sdk.idside.eu/legal/sdk-privacy> for the SDK, <https://sdk.idside.eu/privacy>
+  for the rest, and <https://sdk.idside.eu/legal/sub-processors> for who else touches
   it. An adequacy decision is a time-limited instrument, so a page that named one
   without that qualifier could go on asserting a basis that had lapsed. What your
   own contract says still governs where it and the policies differ.
@@ -220,7 +220,7 @@ from idside import verify_act  # pip install 'idside[verify]'
 
 proof = verify_act(
     token,
-    jwks_url="https://idside.eu/.well-known/jwks.json",
+    jwks_url="https://sdk.idside.eu/.well-known/jwks.json",
     request_hash=request_hash,
 )
 ```
@@ -229,7 +229,7 @@ proof = verify_act(
 import { verifyAct } from "@idside/sdk"; // node:crypto, no extra dependency
 
 const proof = await verifyAct(token, {
-  jwksUrl: "https://idside.eu/.well-known/jwks.json",
+  jwksUrl: "https://sdk.idside.eu/.well-known/jwks.json",
   requestHash,
 });
 ```
@@ -346,8 +346,8 @@ and the SDK is identical in both:
   is precisely why they have to be told.
 
 Which one applies is a fact about the relationship, not a setting. If the people
-using your product are your users, the first one is the only one that produces
-consent, and it costs a `<script>` tag. If they are your staff, the second is the
+using your product are your users, the first one is the only one that collects
+consent from them, and it costs a `<script>` tag. If they are your staff, the second is the
 only honest one, because an answer an employee gives their employer is not freely
 given.
 
@@ -414,7 +414,7 @@ on the client instance you hand it. So a framework that you *give* a wrapped
 client to will make enforced calls; a framework that constructs its own provider
 client internally will not, unless you can inject yours. This follows from the
 in-place patching design, but it is not covered by the test suite — verify it in
-your own stack with the [dry-run script](./quickstart-python.md#6-run-it-today-without-cloud-access),
+your own stack with the [dry-run script](./quickstart-python.md#6-run-it-offline-without-an-account),
 which shows you exactly what reaches the wire.
 
 ## What if my provider isn't supported?

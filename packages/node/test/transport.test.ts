@@ -1069,7 +1069,7 @@ test("a trailing slash on the base URL does not double up in the path", async ()
 // ── An unconfigured address says so, instead of looking like an outage ──────
 //
 // With neither `baseUrl` nor IDSIDE_BASE_URL the SDK talks to its default,
-// https://idside.eu — a contract, and kept. But a developer who forgot the
+// https://sdk.idside.eu — a contract, and kept. But a developer who forgot the
 // variable met `Could not verify consent (HTTP 404)` and went looking for a
 // network fault or a cloud incident, when one line of configuration was
 // missing. Where the address was the default, the transport failure and the
@@ -1078,7 +1078,7 @@ test("a trailing slash on the base URL does not double up in the path", async ()
 
 const DEFAULT_ORIGIN_SENTENCE =
   "No ID Side address was configured, so the SDK used its default, " +
-  "https://idside.eu: set IDSIDE_BASE_URL to the address shown in your ID " +
+  "https://sdk.idside.eu: set IDSIDE_BASE_URL to the address shown in your ID " +
   "Side dashboard, or pass that address explicitly.";
 
 async function failures(baseUrl: string | undefined): Promise<string[]> {

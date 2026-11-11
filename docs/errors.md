@@ -158,7 +158,7 @@ because it is the one that expresses the fail-closed guarantee.
 
 Raised when:
 
-- the HTTP request to `idside.eu` fails (DNS, TLS, connection reset, proxy);
+- the HTTP request to `sdk.idside.eu` fails (DNS, TLS, connection reset, proxy);
 - it times out — 5 seconds in both SDKs, and configurable in both;
 - the cloud answers `5xx`;
 - the cloud answers a `4xx` that is not one of the qualified ones below;
@@ -184,12 +184,12 @@ layer, where you know whether the user is still waiting.
 
 What to do: treat it as a transient outage. Retry later with backoff, or degrade
 the product path (queue the task, offer a non-AI answer). If it persists, check
-your network path to `idside.eu` and https://status.idside.eu.
+your network path to `sdk.idside.eu`.
 
 When neither `IDSIDE_BASE_URL` nor a base URL argument is set, the SDK talks to
-its default, `https://idside.eu`, and a network failure or an unexpected status
-ends with one more sentence saying so — the class is the same. Set
-`IDSIDE_BASE_URL` to the address shown in your ID Side dashboard.
+its default, `https://sdk.idside.eu`, and a network failure or an unexpected status
+ends with one more sentence saying so — the class is the same. If you run a
+local or staging cloud, set `IDSIDE_BASE_URL` to its origin.
 
 The original exception is chained — `__cause__` in Python, `error.cause` in Node
 — so your logs keep the underlying socket or timeout error. That is also why a

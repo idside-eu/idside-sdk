@@ -916,7 +916,7 @@ def test_missing_base_url_uses_the_public_service_origin(
         monkeypatch.setenv("IDSIDE_BASE_URL", configured)
     captured: dict[str, Any] = {}
     _authorize(_capturing_client(captured))
-    assert captured["url"] == "https://idside.eu/v1/authorize"
+    assert captured["url"] == "https://sdk.idside.eu/v1/authorize"
 
 
 def test_every_phase_of_the_authorize_hop_shares_one_deadline() -> None:
@@ -1294,7 +1294,7 @@ def test_the_async_client_releases_its_connection_when_closed() -> None:
 # ── An unconfigured address says so, instead of looking like an outage ──────
 #
 # With neither `base_url=` nor IDSIDE_BASE_URL the SDK talks to its default,
-# https://idside.eu — a contract, and kept. But a developer who forgot the
+# https://sdk.idside.eu — a contract, and kept. But a developer who forgot the
 # variable met `Could not verify consent (HTTP 404)` and went looking for a
 # network fault or a cloud incident, when one line of configuration was
 # missing. Where the address was the default, the transport failure and the
@@ -1303,7 +1303,7 @@ def test_the_async_client_releases_its_connection_when_closed() -> None:
 
 _DEFAULT_ORIGIN_SENTENCE = (
     "No ID Side address was configured, so the SDK used its default, "
-    "https://idside.eu: set IDSIDE_BASE_URL to the address shown in your ID "
+    "https://sdk.idside.eu: set IDSIDE_BASE_URL to the address shown in your ID "
     "Side dashboard, or pass that address explicitly."
 )
 
@@ -1347,7 +1347,7 @@ def test_a_failure_on_an_address_that_was_given_is_unchanged() -> None:
 
 def test_the_default_address_given_explicitly_counts_as_given() -> None:
     """The sentence is about a missing setting, not about the host."""
-    for message in _failures("https://idside.eu"):
+    for message in _failures("https://sdk.idside.eu"):
         assert _DEFAULT_ORIGIN_SENTENCE not in message, message
 
 
@@ -1404,9 +1404,11 @@ def test_a_qualified_refusal_on_the_default_address_is_left_alone(
             False,
             id="environment",
         ),
-        pytest.param(None, None, "https://idside.eu/v1/authorize", True, id="neither"),
         pytest.param(
-            None, "", "https://idside.eu/v1/authorize", True, id="empty-environment"
+            None, None, "https://sdk.idside.eu/v1/authorize", True, id="neither"
+        ),
+        pytest.param(
+            None, "", "https://sdk.idside.eu/v1/authorize", True, id="empty-environment"
         ),
         pytest.param(
             "https://cloud.arg.test",

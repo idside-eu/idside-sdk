@@ -28,8 +28,10 @@
   complete reusable CI workflow on the same commit. See `RELEASING.md` for
   registry setup and repository protections.
 
-- Integration docs must use the Cloud origin provisioned for the customer:
-  configure `IDSIDE_BASE_URL` without `/v1` or `/widget`. Strict visitor apps
+- Integration docs use `https://sdk.idside.eu`, the SDK default, and the
+  registry installs (`pip install 'idside[…]'`, `npm install @idside/sdk@next`).
+  `IDSIDE_BASE_URL` is for a local or staging cloud: the origin alone, without
+  `/v1` or `/widget`. Strict visitor apps
   need a UBT bound to the same server session; never fall back to `user_id`.
   Employees use a registered work email or external reference, not an anonymous
-  visitor identifier. Document archive installation while distribution is pending.
+  visitor identifier.

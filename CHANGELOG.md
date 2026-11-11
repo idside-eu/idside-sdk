@@ -14,18 +14,25 @@ version number promises — and what it deliberately does not — is
 
 ## [Unreleased]
 
-**Nothing is published yet**, on either registry. So this section is not a list
-of changes against a previous release — it is the inventory the first release
-will carry. Until then the detailed history is the git log; from `0.1.0`
-onwards, this file is the record and the git log is the detail.
+Nothing yet.
+
+## [0.1.0.dev0] — 2026-11-11
+
+The first pre-release: `idside` `0.1.0.dev0` on PyPI and `@idside/sdk`
+`0.1.0-dev.0` on npm, under the `next` dist-tag. This section is not a list of
+changes against a previous release — it is the inventory the first release
+carries. The detailed history before it is the git log; from here on, this file
+is the record and the git log is the detail.
 
 ### Added
 
 - **Three more `legal_basis` values on an imposed policy** (protocol, issued by
   the cloud): `public_task`, `legal_obligation` and `vital_interests` (GDPR
   Article 6(1)(e), (c) and (d)), beside `legitimate_interest`,
-  `contractual_obligation` and `not_established`. Values added, none renamed,
-  and a policy still never writes `consent`
+  `contractual_obligation` and `not_established`. Values added, none renamed.
+  Since 2026-11-08 an organization's policy may also declare `consent`: ID Side
+  collects no answer from the employee, and `source: "default_policy"` shows
+  that the decision was the organization's
   ([spec](./docs/spec/act-token.md#legal_basis--what-each-value-asserts)).
   Neither SDK changes: both carry `legal_basis` as an opaque string, in the
   authorize response and in what `verify_act()` / `verifyAct()` return.
@@ -278,9 +285,9 @@ onwards, this file is the record and the git log is the detail.
   site, so a custom adapter can read that endpoint's `tool_fields`.
 - Node: `.withResponse()` / `.asResponse()` and Anthropic `messages.stream()` work
   on an enforced call again.
-- Use `https://idside.eu` as the default service origin in both SDKs. Explicit
-  `base_url`/`baseUrl` and `IDSIDE_BASE_URL` overrides retain precedence; use the
-  origin supplied with your account until the production service is available.
+- Use `https://sdk.idside.eu` as the default service origin in both SDKs.
+  Explicit `base_url`/`baseUrl` and `IDSIDE_BASE_URL` overrides retain
+  precedence.
 - **`verify_act()` / `verifyAct()` now require the signed `mode` claim** and
   reject a validity window longer than 3600 seconds. A proof minted before the
   claim existed is accepted only through `allow_legacy_without_mode=True` /
@@ -436,11 +443,11 @@ onwards, this file is the record and the git log is the detail.
   it.
 - **A failure on the default address names the missing setting.** With neither
   `base_url` / `baseUrl` nor `IDSIDE_BASE_URL`, both SDKs talk to their default,
-  `https://idside.eu`, and a developer who forgot the variable read
+  `https://sdk.idside.eu`, and a developer who forgot the variable read
   `Could not verify consent (HTTP 404)` with nothing pointing at the
   configuration. A network failure or an unexpected status on the default
   address now ends with the same sentence in both SDKs, naming the default and
-  `IDSIDE_BASE_URL`; the class does not change, the default does not change,
+  `IDSIDE_BASE_URL`; the class does not change,
   and an address that was given — the default spelled out included — adds
   nothing.
 - **Node: a transport built by hand reads `IDSIDE_BASE_URL`, as Python's
@@ -511,10 +518,6 @@ onwards, this file is the record and the git log is the detail.
 Carried into the first release, and stated here so that a reader does not have
 to discover them:
 
-- **The ID Side cloud (`idside.eu`) is not publicly available.** No account
-  exists for the public, so a real end-to-end call is not something an outside
-  developer can make yet. Every example and quickstart runs against an injected
-  stand-in instead.
 - **`google-genai`'s async surface is refused, not enforced.** Its async methods
   live at `client.aio.*`, which no descriptor declares — so they are not patched,
   and the guard refuses them with `UnenforcedCallError` rather than letting an
@@ -550,7 +553,7 @@ to discover them:
 
 ## Release history
 
-None yet. The first entry will appear here when `0.1.0` is published.
+- `0.1.0.dev0` / `0.1.0-dev.0` — 2026-11-11, the first pre-release.
 
-<!-- Link definitions go here once there is something to compare against:
-     [Unreleased]: https://github.com/idside-eu/idside-sdk/compare/v0.1.0...HEAD -->
+[Unreleased]: https://github.com/idside-eu/idside-sdk/compare/v0.1.0.dev0...HEAD
+[0.1.0.dev0]: https://github.com/idside-eu/idside-sdk/releases/tag/v0.1.0.dev0

@@ -21,9 +21,10 @@ needs it more than it might seem: nobody is asked there, so everybody has to be
 told, and this is the surface that tells them. [§11](#11-the-imposed-mode) is
 what changes.
 
-> **Status.** The widget is implemented and served by the ID Side cloud, which
-> requires provisioned access. Everything below is the real interface; obtain
-> an application, its publishable key and its service URL before integrating.
+> **Status.** The widget is implemented and served by the ID Side cloud, at
+> `https://sdk.idside.eu/widget/v1.js`. Everything below is the real interface;
+> create an application and its publishable key in the dashboard
+> (<https://sdk.idside.eu/dashboard/signup>) before integrating.
 > See [release status](./README.md#status).
 
 ---
@@ -34,7 +35,7 @@ There is nothing to `npm install`. You add one `<script>` tag pointing at ID
 Side, exactly as you would for a consent management platform:
 
 ```html
-<script src="https://your-idside-host.example/widget/v1.js"></script>
+<script src="https://sdk.idside.eu/widget/v1.js"></script>
 ```
 
 That script creates a **cross-origin iframe** served by ID Side. Your page
@@ -54,17 +55,16 @@ widget is not code you install, run or vendor. This page is its interface.
 > inline block leaves it with no origin and it refuses to start.
 >
 > **Take the tag from your dashboard, not from this page.** The dashboard emits
-> it from the host actually serving your app, so it is right by construction;
-> the host written above is a placeholder; replace it with the service URL
-> provisioned for your account. Configure your backend `IDSIDE_BASE_URL`
-> with that same service origin.
+> it from the host actually serving your app, so it is right by construction.
+> If you set `IDSIDE_BASE_URL` on your backend, give it that same service
+> origin.
 
 ### If your pages send a Content-Security-Policy
 
 Two directives, and the widget asks nothing else of your policy:
 
 ```http
-Content-Security-Policy: script-src https://your-idside-host.example; frame-src https://your-idside-host.example
+Content-Security-Policy: script-src https://sdk.idside.eu; frame-src https://sdk.idside.eu
 ```
 
 - **`script-src`** — the `<script src>` above. Refuse it and nothing else
@@ -105,7 +105,7 @@ loading fine.
 ## 2. Initialize it
 
 ```html
-<script src="https://your-idside-host.example/widget/v1.js"></script>
+<script src="https://sdk.idside.eu/widget/v1.js"></script>
 <script>
   IDSide.init({
     publishableKey: "pk_test_your_publishable_key",

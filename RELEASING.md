@@ -4,8 +4,9 @@ How `idside` and `@idside/sdk` get published, in what order, and what happens
 when a release goes wrong. What a version number *promises* is
 [`docs/versioning.md`](./docs/versioning.md); this file is the mechanics.
 
-> **No release has been cut yet.** §0 is the one-time registry setup the first
-> release relies on, and §6 is the checklist to run before it.
+> **The first pre-release is `0.1.0.dev0` / `0.1.0-dev.0`.** §0 is the one-time
+> registry setup a first release relies on, and §6 is the checklist that goes
+> before it; both are kept as the record.
 
 Read §7 before the **first** publish. Everything in it is a decision that cannot
 be revisited afterwards, and most of it costs nothing to get right today.
@@ -93,11 +94,11 @@ upload, and only by it.
    project, claims the name, and converts the pending publisher into a normal
    one — "no further configuration is required".
 
-A `0.1.0.dev0` upload is the right thing to hold the name with: it is a
-pre-release, and pip **will not install it** for a plain `pip install idside`
-("pip will only install stable versions … by default"). The name is held, and
-nobody gets a development build by accident. That asymmetry with npm — where the
-same version *would* have become the default install — is why §0.1 insists on
+A `0.1.0.dev0` upload is the right thing to hold the name with. While it is the
+only release, a plain `pip install idside` installs it: pip falls back to
+pre-releases when no final release exists. From the first final release on, pip
+serves that one and a pre-release needs `--pre`. npm has no such rule — a
+publish moves `latest` whatever the version says — which is why §0.1 insists on
 `--tag next`.
 
 ---
@@ -200,8 +201,8 @@ where the attention is needed:
 - The npm publish is the one that cannot be fully automated for a first release
   (§0.1) and the one where a missing dist-tag is instantly visible to every
   installer. It goes first, while a human is watching.
-- The PyPI publish is the workflow's job, and a pre-release there is invisible
-  to `pip install` anyway.
+- The PyPI publish is the workflow's job, and once a final release exists a
+  pre-release there is invisible to a plain `pip install`.
 
 If the second one fails, **do not touch the first.** The failed package's
 version was never consumed — fix the cause and publish it again at the *same*
@@ -328,7 +329,7 @@ once a package is installable. Read it once, on purpose.
 
 - The request-hash definition, including *which* fields are excluded. An auditor
   recomputes it years later; if it moves, old proofs stop checking out.
-- The five mandatory fields of the authorize response. Removing one stops every
+- The ten mandatory fields of the authorize response. Removing one stops every
   older SDK from making AI calls at all.
 - Call-site ids (`chat.completions.create`, …) and consent-option names
   (`training.foundation`, …). Both end up inside **signed** tokens and in the

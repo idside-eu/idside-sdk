@@ -4,7 +4,7 @@ contact_links:
     url: https://github.com/idside-eu/idside-sdk/security/advisories/new
     about: >-
       Do NOT open a public issue for a security flaw. Use private reporting
-      (Security → Report a vulnerability) or security@idside.eu. See SECURITY.md.
+      (Security → Report a vulnerability) or contact@idside.eu. See SECURITY.md.
   - name: 💬 Questions & discussions
     url: https://github.com/idside-eu/idside-sdk/discussions
     about: For usage questions and ideas, please use Discussions.

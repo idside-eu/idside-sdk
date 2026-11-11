@@ -4,7 +4,7 @@
   "description": "AI consent enforcement for provider SDKs (OpenAI, Anthropic, Gemini, Mistral). The developer never touches the end user's consent preferences. Patents: sdk.idside.eu/patents",
   "license": "SEE LICENSE IN LICENSE",
   "author": "ID Side <dev@idside.eu>",
-  "homepage": "https://idside.eu",
+  "homepage": "https://sdk.idside.eu",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/idside-eu/idside-sdk.git",

@@ -79,7 +79,7 @@ argument:
   would be attesting to your own compliance with keys you control. SaaS is not a
   commercial preference in this mode; it is what makes the proof worth anything.
 - **Imposed** — an organization sets a policy for its own members, on a basis
-  that is not consent. Nobody is being asserted over as a stranger: what is owed
+  it declares itself. Nobody is being asserted over as a stranger: what is owed
   is transparency to the members themselves, to a works council and to a
   regulator, all of whom can be shown the policy and the ledger directly. That
   audience changes the calculation, and it is why self-hosting is defensible

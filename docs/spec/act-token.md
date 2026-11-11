@@ -161,7 +161,7 @@ examining it.
 
 | Value | What the proof asserts |
 | --- | --- |
-| `consent` | the person made a positive act: a widget answer, or their own ID Side account (GDPR Article 6(1)(a)). Never on an organization's policy |
+| `consent` | Article 6(1)(a). With a `widget` or `idside_account` source, the person made a positive act: a widget answer, or their own ID Side account. With `source: "default_policy"`, the basis the organization's policy declared — ID Side collected no answer from the employee |
 | `contractual_obligation` | the basis the organization's policy declared: Article 6(1)(b) |
 | `legal_obligation` | the basis the organization's policy declared: Article 6(1)(c) |
 | `vital_interests` | the basis the organization's policy declared: Article 6(1)(d) |
@@ -169,11 +169,13 @@ examining it.
 | `legitimate_interest` | the basis the organization's policy declared: Article 6(1)(f) |
 | `not_established` | no basis was established here — see below |
 
-The five bases a policy declares are only ever signed where an organization
-imposes its policy on its employees, with `source: "default_policy"`, and only
-for an employee who is identified; any other call under that policy reads
-`not_established`. A policy can never write `consent`: an employer cannot rest
-on employee consent.
+A basis a policy declares is only ever signed where an organization imposes
+its policy on its employees, with `source: "default_policy"`, and only for an
+employee who is identified; any other call under that policy reads
+`not_established`. Since 2026-11-08 an organization may declare `consent` too.
+The GDPR generally presumes consent not to be freely given at work, and ID Side
+collects no answer from the employee: the token's `source` shows that the
+decision was the organization's.
 
 `public_task`, `legal_obligation` and `vital_interests` were added on
 2026-10-13; no value was renamed. Neither SDK enumerates `legal_basis`: both
@@ -244,7 +246,7 @@ declaring `none` or an HMAC algorithm is a forgery attempt, not a negotiation.
 | `widget_override_gpc` | MAXIMUM | An explicit widget answer taken over a GPC signal for this site — which the GPC specification itself provides for |
 | `gpc` | MAXIMUM | Browser signal `Sec-GPC: 1` detected automatically |
 | `idside_account` | MAXIMUM | User's ID Side account — full opaque tunnel |
-| `default_policy` | STRONG | An organization's policy, applied to its employees without asking them. Never carries `legal_basis: "consent"`: an employer cannot rest on employee consent |
+| `default_policy` | STRONG | An organization's policy, applied to its employees without asking them. May carry `legal_basis: "consent"` since 2026-11-08, as a basis the organization declared: no answer was collected from the employee |
 | `app_default` | NONE | Nobody said anything, so nothing is allowed: every option in the catalogue resolves to `false` for a person the system has never met — always paired with `legal_basis: "not_established"` |
 
 The last two are the *imposed* and *unknown-subject* cases. A verifier weighing

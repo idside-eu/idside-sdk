@@ -1,9 +1,10 @@
 # Versioning, compatibility and deprecation
 
-> **Status.** Nothing is published yet — neither `idside` on PyPI nor
-> `@idside/sdk` on npm. This page exists *before* the first publish on purpose:
-> the moment a package is installable, the promise it makes has already been
-> made, and the first unannounced break costs trust that is not won back.
+> **Status.** The first pre-release is `0.1.0.dev0` (`idside` on PyPI) /
+> `0.1.0-dev.0` (`@idside/sdk` on npm). This page was written *before* that
+> first publish on purpose: the moment a package is installable, the promise it
+> makes has already been made, and the first unannounced break costs trust that
+> is not won back.
 > The release mechanics live in [`RELEASING.md`](../RELEASING.md).
 
 ---
@@ -257,8 +258,8 @@ API is the paragraph above; withdrawing a build is that one.
 
 ## 5. If you are pinning today
 
-The packages are not published, so today you install from a clone and the thing
-you pin is a commit. When they are published:
+While only pre-releases exist, pin the exact version: `== 0.1.0.dev0` /
+`0.1.0-dev.0`. From `0.1.0` onwards:
 
 - pin `~= 0.1.0` / `^0.1.0` and read the CHANGELOG on a minor bump;
 - pin the **cloud** nowhere — it is a service, and §1 is the promise that

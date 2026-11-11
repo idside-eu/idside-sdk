@@ -37,7 +37,7 @@ from idside.exceptions import (
     RateLimitedError,
 )
 
-DEFAULT_BASE_URL = "https://idside.eu"
+DEFAULT_BASE_URL = "https://sdk.idside.eu"
 _AUTHORIZE_PATH = "/v1/authorize"
 
 #: Appended to an outage-shaped failure when the address was the default: with

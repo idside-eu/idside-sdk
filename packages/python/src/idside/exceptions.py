@@ -24,8 +24,8 @@ class ConsentUnreachableError(IDSideError):
     on 200 responses whose body is malformed (the SDK never guesses a
     decision). In line with the *fail-closed* principle, the SDK then makes NO
     call to the AI provider. What to do: treat it as a transient outage —
-    retry later or degrade your product flow; if it persists, check
-    https://status.idside.eu and your network path to idside.eu.
+    retry later or degrade your product flow; if it persists, check your
+    network path to sdk.idside.eu.
     """
 
 

@@ -25,7 +25,7 @@ import {
   RateLimitedError,
 } from "./exceptions.ts";
 
-export const DEFAULT_BASE_URL = "https://idside.eu";
+export const DEFAULT_BASE_URL = "https://sdk.idside.eu";
 
 /**
  * Appended to an outage-shaped failure when the address was the default: with

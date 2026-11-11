@@ -12,27 +12,19 @@ opaque tunnel to the ID Side cloud.
 > shared vectors in
 > [`packages/descriptors`](https://github.com/idside-eu/idside-sdk/tree/main/packages/descriptors).
 
-> ⚠️ **Pre-release.** The SDK is implemented and tested, but end-to-end use
-> requires the ID Side cloud (`idside.eu`), which is not yet publicly
-> available.
+> ⚠️ **Pre-release (`0.1.0-dev.0`).** End-to-end use needs an ID Side account:
+> sign up at <https://sdk.idside.eu/dashboard/signup>. The free plan covers
+> 10,000 calls a month.
 
 ## Install
 
-**Not on npm yet**, so `npm install @idside/sdk` does not resolve. Until it is
-published, pack it from a clone — `prepack` compiles to `dist/`, so this is the
-same artifact a release would upload. During early access the repository is
-shared on request — write to contact@idside.eu — and the clone below works once
-access is granted:
-
 ```bash
-git clone https://github.com/idside-eu/idside-sdk.git
-cd idside-sdk/packages/node && npm install && npm pack
-npm install /path/to/idside-sdk/packages/node/idside-sdk-0.1.0-dev.0.tgz
+npm install @idside/sdk@next openai
 ```
 
-Two other paths — an `npm install file:…` symlink and a direct import of
-`src/index.ts` — run the TypeScript sources in place and need Node ≥ 23.6. See
-the [quickstart](https://github.com/idside-eu/idside-sdk/blob/main/docs/quickstart-node.md#2-install-from-the-repository).
+Pre-releases are published under the `next` dist-tag, so name it. To run the
+SDK from a checkout of the repository instead, see the
+[quickstart](https://github.com/idside-eu/idside-sdk/blob/main/docs/quickstart-node.md#2-install).
 
 Requires **Node ≥ 22.12** once installed. The package ships compiled JavaScript
 with type declarations and has **zero runtime dependencies**. It is ESM-only;
@@ -49,7 +41,7 @@ const client = consent.wrap(new OpenAI(), { apiKey: process.env.IDSIDE_API_KEY }
 
 await client.chat.completions.create({
   model: "gpt-5",
-  messages: [{ role: "user", content: "Bonjour !" }],
+  messages: [{ role: "user", content: "Hello!" }],
   user_id: "usr_marie_456", // or: ubt: "eyJ…" from the ID Side widget
 });
 ```
@@ -181,7 +173,7 @@ an auditor, a compliance team or a data protection authority needs:
 import { verifyAct } from "@idside/sdk";
 
 const proof = await verifyAct(token, {
-  jwks, // the public JWK Set, or: jwksUrl: "https://idside.eu/.well-known/jwks.json"
+  jwks, // the public JWK Set, or: jwksUrl: "https://sdk.idside.eu/.well-known/jwks.json"
   requestHash, // pin the request this proof must belong to
 });
 

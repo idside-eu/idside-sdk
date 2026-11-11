@@ -33,7 +33,7 @@ proof. What differs is **who decided**, and therefore what the proof records:
 | Who decides | the person, for themselves | the organization, for its employees |
 | Surface | the Preference Center — a popup that asks | the same widget, as a read-only panel that states |
 | `source` | `widget`, `gpc`, `idside_account` | `default_policy` |
-| `legal_basis` | `consent` | `legitimate_interest`, `contractual_obligation`, `public_task`, `legal_obligation`, `vital_interests`, or `not_established` |
+| `legal_basis` | `consent` | `legitimate_interest`, `contractual_obligation`, `public_task`, `legal_obligation`, `vital_interests`, `consent` as declared by the organization, or `not_established` |
 | Typical case | a product with end users | a workforce told to use AI at work |
 
 Nothing in the SDK switches between them: `source` and `legal_basis` are
@@ -73,7 +73,7 @@ Circuit A — preference collection (frontend → ID Side)
 Circuit B — AI call (developer backend → SDK → provider)
   [Dev backend] ──consent.wrap(provider)──▶ [SDK]
      1. compute request_hash from the caller payload (before enforcement)
-        POST idside.eu/v1/authorize
+        POST sdk.idside.eu/v1/authorize
           → { user_id (or ubt), provider, model, request_hash,
               call_site, credential_postures }
           ← { decision, consent_state, source, legal_basis, binding,
@@ -290,7 +290,7 @@ consumed by the SDK, never forwarded to the provider, and excluded from the
 request hash.
 
 Adding a provider (e.g. Cohere) = adding a JSON file. No Python, no core
-change, no cloud change; outside pull requests are not accepted yet
+change — the cloud loads the same descriptor; outside pull requests are not accepted yet
 ([`CONTRIBUTING.md`](../CONTRIBUTING.md#license-of-contributions)). Clients whose API does not fit the
 declarative model register a subclass instead (`register_adapter`). The bundled
 Gemini adapter is the canonical example: `google-genai` accepts no free-form

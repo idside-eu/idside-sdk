@@ -4,7 +4,7 @@
   "private": true,
   "description": "Runnable ID Side SDK examples (Node.js).",
   "type": "module",
-  "//": "The `file:` dependency is the one line that is not what you would write. The package is not on npm yet, so it is resolved from this clone; when it is published, `file:../../packages/node` becomes a version range and nothing else changes. npm symlinks a file: dependency and does NOT build it, so `npm --prefix ../../packages/node run build` has to have run first.",
+  "//": "The `file:` dependency is the one line that is not what you would write. It resolves the SDK from this clone, so that CI tests the code beside these examples; in your own project, `file:../../packages/node` becomes `@idside/sdk@next` and nothing else changes. npm symlinks a file: dependency and does NOT build it, so `npm --prefix ../../packages/node run build` has to have run first.",
   "engines": {
     "node": ">=23.6.0"
   },

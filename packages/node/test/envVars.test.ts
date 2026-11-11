@@ -8,8 +8,8 @@ import { HttpConsentClient } from "../src/transport.ts";
 // and process.env here does not leak into the other suites.
 for (const [label, configured, expectedUrl] of [
   ["configured origin", "https://cloud.env.test", "https://cloud.env.test/v1/authorize"],
-  ["missing origin", undefined, "https://idside.eu/v1/authorize"],
-  ["empty origin", "", "https://idside.eu/v1/authorize"],
+  ["missing origin", undefined, "https://sdk.idside.eu/v1/authorize"],
+  ["empty origin", "", "https://sdk.idside.eu/v1/authorize"],
 ] as const) {
   test(`wrap() uses the service URL for ${label} and the environment API key`, async () => {
     const realFetch = globalThis.fetch;
@@ -133,8 +133,8 @@ for (const [label, option, configured, named] of [
 // set went to the default and told the developer to set a variable that was set.
 for (const [label, argument, configured, expectedUrl, named] of [
   ["the environment and no argument", undefined, "https://cloud.env.test", "https://cloud.env.test/v1/authorize", false],
-  ["neither argument nor environment", undefined, undefined, "https://idside.eu/v1/authorize", true],
-  ["an empty environment variable", undefined, "", "https://idside.eu/v1/authorize", true],
+  ["neither argument nor environment", undefined, undefined, "https://sdk.idside.eu/v1/authorize", true],
+  ["an empty environment variable", undefined, "", "https://sdk.idside.eu/v1/authorize", true],
   ["an argument and the environment", "https://cloud.arg.test", "https://cloud.env.test", "https://cloud.arg.test/v1/authorize", false],
   ["an empty argument and the environment", "", "https://cloud.env.test", "https://cloud.env.test/v1/authorize", false],
 ] as const) {

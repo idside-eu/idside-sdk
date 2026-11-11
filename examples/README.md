@@ -25,9 +25,9 @@ enforcement. None of that is simulated.
 **Two things are stand-ins, and the examples say which, out loud, in their own
 output.**
 
-- **The ID Side cloud.** `idside.eu` is not open to the public yet, so no
-  account exists to authorize against and no ACT token can be signed — the
-  signing keys live only in the cloud, never in this repository. Each example
+- **The ID Side cloud.** These examples run without an account, and no ACT
+  token can be signed outside the cloud — the
+  signing keys live only there, never in this repository. Each example
   injects a `consentClient` / `consent_client=` that returns a decision of the
   right shape with an unsigned placeholder token. That injection point is the
   same one the test suites use.
@@ -41,10 +41,10 @@ output.**
 a private key, and this repository holds none by design — verification is
 checked instead against fixed cross-language vectors in both test suites.
 
-**The packages are not published yet** (neither on PyPI nor on npm), so each
-example project resolves the SDK from this clone. It is one line in
-`python/pyproject.toml` and one in `node/package.json`, both marked; deleting
-them is the entire migration once the packages ship.
+**Each example project resolves the SDK from this clone**, so that CI tests the
+code beside it. It is one line in `python/pyproject.toml` and one in
+`node/package.json`, both marked; in your own project write `idside[openai]` or
+`@idside/sdk@next` instead.
 
 ## Python
 
@@ -122,7 +122,8 @@ $ uv run async_wrapped_call.py
 ## Node.js
 
 Needs Node 23.6+ (the examples are TypeScript run in place) and npm. The SDK is
-not on npm yet and npm does not build a `file:` dependency, so build it first:
+resolved from this clone and npm does not build a `file:` dependency, so build
+it first:
 
 ```bash
 npm --prefix packages/node run build

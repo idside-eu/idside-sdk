@@ -3,11 +3,11 @@
 From nothing to a consent-enforced AI call with `@idside/sdk`. Same three steps
 as [Python](./quickstart-python.md): install, wrap, call.
 
-> **Status.** `@idside/sdk` is **not published on npm yet**.
-> [Step 2](#2-install-from-the-repository) shows the three local install paths
-> that work today — including a packed tarball, which CI builds and installs
-> outside the repository on every run. Cloud access must be provisioned; [step 6](#6-run-it-today-without-npm) runs
-> the whole mechanism offline.
+> **Status.** Pre-release: `@idside/sdk` is published on npm under the `next`
+> dist-tag. A real call needs an ID Side account — sign up at
+> <https://sdk.idside.eu/dashboard/signup>, the free plan covers 10,000 calls a
+> month. [Step 6](#6-run-it-offline-without-an-account) runs the whole mechanism
+> offline, with no account.
 
 ---
 
@@ -15,18 +15,23 @@ as [Python](./quickstart-python.md): install, wrap, call.
 
 - **Node.js ≥ 22.12** to *use* the SDK — what ships is compiled JavaScript with
   type declarations, and 22.12 is the floor `package.json` declares. Running the
-  TypeScript sources in place (install paths **b** and **c** below) needs
+  TypeScript sources in place (checkout paths **b** and **c** below) needs
   **Node ≥ 23.6** instead, for native type stripping. CI covers both floors: the
   test suite on 24.x, the packed tarball on 22.12.
 - One provider client — `openai`, `@anthropic-ai/sdk`, `@google/genai` or
   `@mistralai/mistralai`. See [providers](./providers.md).
 - No runtime dependencies: the SDK uses the built-in `fetch` and `node:crypto`.
 
-## 2. Install from the repository
+## 2. Install
 
-The package is not published on npm yet. During early access the repository is
-shared on request — write to contact@idside.eu — and the clone below works once
-access is granted:
+```bash
+npm install @idside/sdk@next openai
+```
+
+Pre-releases are published under the `next` dist-tag, so name it. That is all
+an application needs.
+
+**From a checkout instead** — to read the code, run its tests or try a change:
 
 ```bash
 git clone https://github.com/idside-eu/idside-sdk.git
@@ -35,13 +40,10 @@ npm install          # provider clients + TypeScript, for the test suite
 npm test             # optional: the full suite, no network needed
 ```
 
-If you received a release archive directly, install that archive in your own
-project; you do not need to clone or build the SDK.
-
-Choose one of the following install paths:
+Then choose one of the following install paths:
 
 ```bash
-# a) pack it and install the tarball — the closest thing to a real npm install
+# a) pack it and install the tarball — the same artifact a release uploads
 cd /path/to/idside-sdk/packages/node
 npm pack   # `prepack` compiles to dist/ → idside-sdk-0.1.0-dev.0.tgz
 cd /path/to/your-application
@@ -75,8 +77,8 @@ unaffected.
 ## 3. Configure and call
 
 ```bash
-# Use the HTTPS service origin supplied with your ID Side access.
-export IDSIDE_BASE_URL="https://your-idside-host.example"
+# IDSIDE_BASE_URL is optional: https://sdk.idside.eu is the default.
+export IDSIDE_BASE_URL="https://sdk.idside.eu"
 export IDSIDE_API_KEY="sk_test_your_idside_key"
 export OPENAI_API_KEY="sk-your_openai_key"
 ```
@@ -105,10 +107,10 @@ with the identity typed onto every enforced call site, so there is no cast — a
 omitting `user_id` is a compile error rather than a run-time one. See
 [TypeScript](#typescript) below for what that costs.
 
-The example origin is a placeholder: replace it with the actual ID Side service
-origin, without `/v1` or `/widget`. Use the same deployment for the dashboard,
-widget and backend. The default `https://idside.eu` is not a substitute for
-a working endpoint supplied with your access.
+The default, `https://sdk.idside.eu`, is the ID Side service. Set
+`IDSIDE_BASE_URL` only for a local or staging cloud: the origin alone, without
+`/v1` or `/widget`. Use the same deployment for the dashboard, widget and
+backend.
 
 The call above uses `user_id`, which requires an application that permits that
 identity path. Declare your providers in the dashboard before showing the
@@ -122,7 +124,7 @@ the visitor’s token; do not fall back to `user_id` when bound tokens are requi
 | Setting | Option | Environment variable | Default |
 | --- | --- | --- | --- |
 | ID Side API key | `consent.wrap(client, { apiKey })` | `IDSIDE_API_KEY` | none (no `Authorization` header) |
-| ID Side base URL | `consent.wrap(client, { baseUrl })` | `IDSIDE_BASE_URL` | `https://idside.eu` |
+| ID Side base URL | `consent.wrap(client, { baseUrl })` | `IDSIDE_BASE_URL` | `https://sdk.idside.eu` |
 | Credentials to route between | `consent.wrap(client, { credentials })` | — | none (one credential, one posture for everyone) |
 | Provider (skip auto-detection) | `{ provider: "openai" }` | — | auto-detected |
 | Transport override (tests, custom timeout) | `{ consentClient }` | — | `HttpConsentClient` |
@@ -380,7 +382,7 @@ writes nothing, ever, by design. If a call was refused there, you learn it from
 the `UnenforcedCallError` and not from a log line: a guard that recorded the
 paths it saw would be recording your requests.
 
-## 6. Run it today, without npm
+## 6. Run it offline, without an account
 
 No ID Side account, no OpenAI bill: inject a fake cloud through `consentClient`
 and a stub `fetch` into the OpenAI client, then read what actually left. This is
@@ -461,7 +463,7 @@ $ node dryrun.mjs
 
 The cloud saw a hash, not the prompt; `store: false` — the cloud's decision —
 reached OpenAI; `user_id` did not. And the `requestHash` is character-for-character
-the one the [Python script](./quickstart-python.md#6-run-it-today-without-cloud-access)
+the one the [Python script](./quickstart-python.md#6-run-it-offline-without-an-account)
 prints for the same payload. That cross-language agreement is what makes the hash
 inside an ACT token independently checkable; it is pinned by
 [shared test vectors](../packages/descriptors/testdata/request-hash-vectors.json)
@@ -479,7 +481,7 @@ needs no extra dependency.
 import { verifyAct } from "@idside/sdk";
 
 const proof = await verifyAct(token, {
-  jwks, //                        or: jwksUrl: "https://idside.eu/.well-known/jwks.json"
+  jwks, //                        or: jwksUrl: "https://sdk.idside.eu/.well-known/jwks.json"
   requestHash: expectedHash, //   pin the request this proof must belong to
 });
 
@@ -567,7 +569,6 @@ language.
 
 ## Known limitations
 
-- **Not on npm.** See [step 2](#2-install-from-the-repository).
 - **Return type.** Because authorization is async, an enforced call returns a
   native `Promise`, not the provider's `APIPromise`. `.withResponse()` and
   `.asResponse()` are forwarded onto it — `{ data, response }` and the raw

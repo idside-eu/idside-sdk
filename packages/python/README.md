@@ -3,9 +3,10 @@
 A signed proof of the AI consent each call was authorized against — for every AI
 call your backend makes.
 
-> ⚠️ **Pre-release.** The SDK is implemented and tested, but end-to-end use
-> requires the ID Side cloud (`idside.eu`), which is not yet publicly
-> available.
+> ⚠️ **Pre-release (`0.1.0.dev0`).** Install with `pip install 'idside[openai]'`.
+> End-to-end use needs an ID Side account: sign up at
+> <https://sdk.idside.eu/dashboard/signup>. The free plan covers 10,000 calls a
+> month.
 
 ## Quickstart
 
@@ -222,7 +223,7 @@ from idside import verify_act
 
 proof = verify_act(
     token,                                    # the X-AI-Consent-Token value
-    jwks_url="https://idside.eu/.well-known/jwks.json",
+    jwks_url="https://sdk.idside.eu/.well-known/jwks.json",
     request_hash=request_hash,                # one token = one request
 )
 

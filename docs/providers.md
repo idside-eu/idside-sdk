@@ -579,7 +579,7 @@ const options = decidableOptions(["mistral"], { mistral: Object.keys(CREDENTIALS
 ## 7. Adding a provider
 
 For a client that fits the declarative model, adding a provider is a JSON file
-— no Python, no TypeScript, no cloud change. Outside pull requests are not
+— no Python, no TypeScript; the cloud loads the same descriptor. Outside pull requests are not
 accepted yet — [`CONTRIBUTING.md`](../CONTRIBUTING.md#license-of-contributions)
 says why; to propose a provider, write to contact@idside.eu. The steps are the
 ones a maintainer follows:
