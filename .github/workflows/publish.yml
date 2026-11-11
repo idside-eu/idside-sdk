@@ -139,7 +139,7 @@ jobs:
       # The published Node package is compiled JavaScript, so it is built on the
       # engines floor rather than the newest Node — the same reason the
       # `publishable` CI job runs there.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "22.12"
           cache: npm
@@ -254,7 +254,7 @@ jobs:
       # Trusted publishing needs npm >= 11.5.1 on Node >= 22.14, and `npm stage`
       # needs npm >= 11.15.0; both need a GitHub-hosted runner, as self-hosted
       # runners are not supported.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "24.x"
 
