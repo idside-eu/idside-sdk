@@ -64,8 +64,8 @@ Pre-release, under active development.
 
 - The Python and Node.js SDKs are implemented and tested — enforcement
   (`consent.wrap()`) and offline proof verification (`verify_act()` /
-  `verifyAct()`). Both are published as pre-releases: `idside` `0.1.0.dev1` on
-  PyPI and `@idside/sdk` `0.1.0-dev.1` on npm, under the `next` dist-tag.
+  `verifyAct()`). Both are published as pre-releases: `idside` `0.1.0.dev2` on
+  PyPI and `@idside/sdk` `0.1.0-dev.2` on npm, under the `next` dist-tag.
   Install them with `pip install idside` and `npm install @idside/sdk`: the SDK
   wraps the provider client you already use and does not replace it. Starting
   from nothing, `pip install 'idside[openai]'` or

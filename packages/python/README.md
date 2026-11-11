@@ -3,13 +3,13 @@
 A signed proof of the AI consent each call was authorized against — for every AI
 call your backend makes.
 
-> ⚠️ **Pre-release (`0.1.0.dev1`).** Install with `pip install idside`. The SDK
+> ⚠️ **Pre-release (`0.1.0.dev2`).** Install with `pip install idside`. The SDK
 > wraps the provider client library you already use and does not replace it;
 > starting from nothing, an extra installs one in the same command —
 > `idside[openai]`, `[anthropic]`, `[gemini]`, `[mistral]` or `[all]`.
 > End-to-end use needs an ID Side API key: sign up at
-> <https://sdk.idside.eu/dashboard/signup> (the free plan covers 10,000 calls a
-> month), or take a 24-hour, 20-call test key from the no-account sandbox at
+> <https://sdk.idside.eu/dashboard/signup> (a free plan exists, see
+> <https://sdk.idside.eu/pricing>), or take a 24-hour, 20-call test key from the no-account sandbox at
 > <https://sdk.idside.eu/sdk>.
 
 ## Quickstart

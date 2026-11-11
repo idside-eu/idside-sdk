@@ -1,7 +1,7 @@
 # Versioning, compatibility and deprecation
 
-> **Status.** The current pre-release is `0.1.0.dev1` (`idside` on PyPI) /
-> `0.1.0-dev.1` (`@idside/sdk` on npm); the first was `0.1.0.dev0` /
+> **Status.** The current pre-release is `0.1.0.dev2` (`idside` on PyPI) /
+> `0.1.0-dev.2` (`@idside/sdk` on npm); the first was `0.1.0.dev0` /
 > `0.1.0-dev.0`. This page was written *before* that
 > first publish on purpose: the moment a package is installable, the promise it
 > makes has already been made, and the first unannounced break costs trust that
@@ -259,8 +259,8 @@ API is the paragraph above; withdrawing a build is that one.
 
 ## 5. If you are pinning today
 
-While only pre-releases exist, pin the exact version: `== 0.1.0.dev1` /
-`0.1.0-dev.1`. From `0.1.0` onwards:
+While only pre-releases exist, pin the exact version: `== 0.1.0.dev2` /
+`0.1.0-dev.2`. From `0.1.0` onwards:
 
 - pin `~= 0.1.0` / `^0.1.0` and read the CHANGELOG on a minor bump;
 - pin the **cloud** nowhere — it is a service, and §1 is the promise that

@@ -14,6 +14,15 @@ version number promises — and what it deliberately does not — is
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.1.0.dev2] — 2026-11-11
+
+**Upgrade from `0.1.0.dev0` or `0.1.0.dev1`**, whichever provider library you
+use: with the versions a fresh install gets today, both let through calls this
+release refuses or corrects — the first two entries under *Changed* say
+which.
+
 The per-call option lists are brought up to the provider libraries a fresh
 install gets today, and CI now runs against them: `openai` 3.49 (Python) and
 7.55 (Node), `anthropic` 2.8 and `@anthropic-ai/sdk` 1.8, `google-genai` 3.1
@@ -83,6 +92,9 @@ move.
   on `messages.create`.** An enforced call passing one is refused with
   `UnenforceableOptionError` before `/v1/authorize`, where the library alone
   would raise a `TypeError`.
+- **The docs no longer state the free plan's allowance**: it is the pricing
+  page's to say, <https://sdk.idside.eu/pricing>, and the figure the READMEs of
+  `0.1.0.dev1` gave is no longer the one in force.
 
 ## [0.1.0.dev1] — 2026-11-11
 
@@ -675,10 +687,13 @@ to discover them:
 
 ## Release history
 
+- `0.1.0.dev2` / `0.1.0-dev.2` — 2026-11-11, the option lists of the current
+  provider libraries, and three calls that escaped enforcement.
 - `0.1.0.dev1` / `0.1.0-dev.1` — 2026-11-11, documentation fixes and Python
   `request_hash()`.
 - `0.1.0.dev0` / `0.1.0-dev.0` — 2026-11-11, the first pre-release.
 
-[Unreleased]: https://github.com/idside-eu/idside-sdk/compare/v0.1.0.dev1...HEAD
+[Unreleased]: https://github.com/idside-eu/idside-sdk/compare/v0.1.0.dev2...HEAD
+[0.1.0.dev2]: https://github.com/idside-eu/idside-sdk/compare/v0.1.0.dev1...v0.1.0.dev2
 [0.1.0.dev1]: https://github.com/idside-eu/idside-sdk/compare/v0.1.0.dev0...v0.1.0.dev1
 [0.1.0.dev0]: https://github.com/idside-eu/idside-sdk/releases/tag/v0.1.0.dev0

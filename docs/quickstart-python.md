@@ -3,10 +3,10 @@
 From nothing to a consent-enforced AI call. Five minutes, three steps: install,
 wrap, call.
 
-> **Status.** Pre-release: `idside` is published on PyPI as `0.1.0.dev1`. A real
+> **Status.** Pre-release: `idside` is published on PyPI as `0.1.0.dev2`. A real
 > call needs an ID Side API key — sign up at
-> <https://sdk.idside.eu/dashboard/signup>, the free plan covers 10,000 calls a
-> month, or take a 24-hour test key from the no-account sandbox
+> <https://sdk.idside.eu/dashboard/signup> (a free plan exists, see
+> <https://sdk.idside.eu/pricing>), or take a 24-hour test key from the no-account sandbox
 > ([step 3](#3-configure-and-call)). Step 3 shows the real code;
 > [step 6](#6-run-it-offline-without-an-account) runs the whole mechanism end to
 > end offline, with no account.
@@ -65,8 +65,8 @@ You need one ID Side API key and your usual provider key. The ID Side key comes
 from one of two places:
 
 - **the dashboard**, after signing up at
-  <https://sdk.idside.eu/dashboard/signup> — the free plan covers 10,000 calls a
-  month;
+  <https://sdk.idside.eu/dashboard/signup> — a free plan exists, and
+  <https://sdk.idside.eu/pricing> says what it covers;
 - **the no-account sandbox**, *Test without an account* on
   <https://sdk.idside.eu/sdk> — an `sk_test_` key valid for 24 hours and
   limited to 20 calls, to see a real proof before you sign up.

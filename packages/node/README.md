@@ -12,9 +12,9 @@ opaque tunnel to the ID Side cloud.
 > shared vectors in
 > [`packages/descriptors`](https://github.com/idside-eu/idside-sdk/tree/main/packages/descriptors).
 
-> ⚠️ **Pre-release (`0.1.0-dev.1`).** End-to-end use needs an ID Side API key:
-> sign up at <https://sdk.idside.eu/dashboard/signup> (the free plan covers
-> 10,000 calls a month), or take a 24-hour, 20-call test key from the
+> ⚠️ **Pre-release (`0.1.0-dev.2`).** End-to-end use needs an ID Side API key:
+> sign up at <https://sdk.idside.eu/dashboard/signup> (a free plan exists, see
+> <https://sdk.idside.eu/pricing>), or take a 24-hour, 20-call test key from the
 > no-account sandbox at <https://sdk.idside.eu/sdk>.
 
 ## Install

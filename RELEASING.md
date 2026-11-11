@@ -188,12 +188,12 @@ One version number, both packages, one tag. In order:
    the CLI (or the equivalent REST API) to name the tag explicitly:
 
    ```bash
-   gh workflow run publish.yml --ref v0.1.0.dev1 \
-     -f version=0.1.0.dev1 -f packages=both -f npm_tag=next -f confirm=publish
+   gh workflow run publish.yml --ref v0.1.0.dev2 \
+     -f version=0.1.0.dev2 -f packages=both -f npm_tag=next -f confirm=publish
    ```
 
    The tag and `version` input use the PEP 440 spelling, for example
-   `v0.1.0.dev1` and `0.1.0.dev1`. The workflow verifies the tag and manifest
+   `v0.1.0.dev2` and `0.1.0.dev2`. The workflow verifies the tag and manifest
    versions, then invokes the complete CI matrix from that same commit before
    building release artifacts. Protect release tags against replacement/deletion
    and restrict the `npm`/`pypi` environments to release tags in repository
@@ -233,7 +233,7 @@ One version number, both packages, one tag. In order:
    move by itself):
 
    ```bash
-   npm dist-tag add @idside/sdk@<version> latest   # e.g. 0.1.0-dev.1; 2FA code
+   npm dist-tag add @idside/sdk@<version> latest   # e.g. 0.1.0-dev.2; 2FA code
    ```
 
    From the first stable release on, skip this: `latest` is the stable line, and
