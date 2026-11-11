@@ -12,7 +12,7 @@ jobs:
     # Requires the dependency graph (free on public repos, or GHAS when private).
     if: github.event.repository.visibility == 'public'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Dependency Review
         uses: actions/dependency-review-action@v4
         with:

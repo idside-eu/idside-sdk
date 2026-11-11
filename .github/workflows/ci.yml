@@ -29,7 +29,7 @@ jobs:
     env:
       UV_PYTHON: ${{ matrix.python-version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install uv
         uses: astral-sh/setup-uv@v4
@@ -75,7 +75,7 @@ jobs:
         # Tests run TypeScript natively (type stripping), which needs Node >= 23.6.
         node-version: ["24.x"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Node ${{ matrix.node-version }}
         uses: actions/setup-node@v4
@@ -107,7 +107,7 @@ jobs:
     name: Publishable (pack + out-of-tree smoke test)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # The published package is compiled JS, so the consumer floor is the
       # engines floor (22.12), not the type-stripping floor the tests need.
@@ -141,7 +141,7 @@ jobs:
     name: Both SDKs answer alike
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # The script runs the TypeScript sources in place, so it needs the
       # type-stripping floor rather than the published engines floor.
@@ -172,7 +172,7 @@ jobs:
     name: Quickstarts and examples still do what they claim
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # The Node quickstart and the Node example both run TypeScript in place,
       # so this needs the type-stripping floor rather than the published
@@ -216,7 +216,7 @@ jobs:
     name: The licence says what the repository means
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # No toolchain: bash, python3 and git, all present on the runner. It runs
       # in about a second, so it is worth running on every push rather than
