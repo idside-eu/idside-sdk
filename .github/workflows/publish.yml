@@ -282,7 +282,9 @@ jobs:
         env:
           TARBALL: ${{ needs.verify.outputs.npm-tarball }}
           NPM_TAG: ${{ github.event.inputs.npm_tag }}
-        run: npm stage publish "artefacts/$TARBALL" --access public --tag "$NPM_TAG"
+        # `./` is not decoration: npm reads a bare `artefacts/<name>.tgz` as the
+        # GitHub shorthand `owner/repo` and refuses to fetch it (EALLOWGIT).
+        run: npm stage publish "./artefacts/$TARBALL" --access public --tag "$NPM_TAG"
 
   # PyPI second. Once a final release exists, a pre-release there is invisible
   # to a plain `pip install`, which makes it the safer of the two to run
