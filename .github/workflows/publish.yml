@@ -87,7 +87,7 @@ jobs:
       # without protection. Check before CI or artifacts exist, while this job
       # itself references no environment and therefore cannot create one.
       - name: The selected publish environments require a reviewer
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           PACKAGES: ${{ inputs.packages }}
         with:
