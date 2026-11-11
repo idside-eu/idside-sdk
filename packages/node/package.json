@@ -58,7 +58,7 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@anthropic-ai/sdk": "^0.111.0",
+    "@anthropic-ai/sdk": "^1.6.0",
     "@google/genai": "^2.22.0",
     "@mistralai/mistralai": "^2.4.1",
     "@types/node": "^22.10.2",
