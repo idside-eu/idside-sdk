@@ -194,18 +194,16 @@ jobs:
             fi
           done
 
-      # Full CI has passed above. Check packaging again on the engines floor:
-      # both packages pack, install outside the repository and
-      # work there, both SDKs answer alike, and every documented example still
-      # does what it claims.
+      # Full CI has passed above, on this same commit — the documented examples
+      # included, which are TypeScript run in place and so need a newer Node
+      # than the engines floor this job builds on. Check packaging again on that
+      # floor: both packages pack, install outside the repository and work
+      # there, and both SDKs answer alike.
       - name: Both packages are publishable
         run: ./scripts/check_publishable.sh
 
       - name: Both SDKs still answer alike
         run: ./scripts/check_sdk_parity.sh
-
-      - name: Every documented example still does what it claims
-        run: ./scripts/check_docs_examples.sh
 
       # From here on, the artefacts themselves. `npm pack` runs `prepack`, so
       # the tarball is produced by the real release path.
