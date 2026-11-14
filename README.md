@@ -168,10 +168,10 @@ Pre-release and under active development. What is true today:
   descriptors: OpenAI, Anthropic, Google Gemini, Mistral and DeepSeek; typed errors, request-hash vectors, offline `verify_act()`). Blocking and
   async clients alike — `AsyncOpenAI` and `AsyncAnthropic` are enforced with the
   same guarantees, so FastAPI and other ASGI applications are supported.
-  Published on PyPI as `idside` `0.1.0.dev2`.
+  Published on PyPI as `idside` `0.1.0.dev3`.
 - **Node.js SDK** — at parity with Python (including `verifyAct()`), zero
   runtime dependencies, native TypeScript. Published on npm as `@idside/sdk`
-  `0.1.0-dev.2`, under the `next` dist-tag.
+  `0.1.0-dev.3`, under the `next` dist-tag.
 
   `scripts/check_publishable.sh` builds each package, installs it outside the
   repository and exercises it, and the

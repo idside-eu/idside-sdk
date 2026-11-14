@@ -14,6 +14,12 @@ version number promises — and what it deliberately does not — is
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.1.0.dev3] — 2026-11-14
+
+**Upgrade when you want calls that name nobody**; nothing else requires it.
+
 **Naming the end user is optional.** An organization's policy applies to every
 call made with its API keys, and most calls name nobody: such a call is now
 authorized with the API key as the proof's subject instead of being refused.
@@ -786,13 +792,16 @@ to discover them:
 
 ## Release history
 
+- `0.1.0.dev3` / `0.1.0-dev.3` — 2026-11-14, naming the end user is optional:
+  the API key is the subject of a call that names nobody.
 - `0.1.0.dev2` / `0.1.0-dev.2` — 2026-11-11, the option lists of the current
   provider libraries, and three calls that escaped enforcement.
 - `0.1.0.dev1` / `0.1.0-dev.1` — 2026-11-11, documentation fixes and Python
   `request_hash()`.
 - `0.1.0.dev0` / `0.1.0-dev.0` — 2026-11-11, the first pre-release.
 
-[Unreleased]: https://github.com/idside-eu/idside-sdk/compare/v0.1.0.dev2...HEAD
+[Unreleased]: https://github.com/idside-eu/idside-sdk/compare/v0.1.0.dev3...HEAD
+[0.1.0.dev3]: https://github.com/idside-eu/idside-sdk/compare/v0.1.0.dev2...v0.1.0.dev3
 [0.1.0.dev2]: https://github.com/idside-eu/idside-sdk/compare/v0.1.0.dev1...v0.1.0.dev2
 [0.1.0.dev1]: https://github.com/idside-eu/idside-sdk/compare/v0.1.0.dev0...v0.1.0.dev1
 [0.1.0.dev0]: https://github.com/idside-eu/idside-sdk/releases/tag/v0.1.0.dev0
