@@ -60,6 +60,8 @@ new provenance or legal basis must not stop older SDKs. From that, exactly:
 | **Add** a top-level response field | ✅ always | Older SDKs never look at it. |
 | **Add** a 403 problem `type` | ✅ | An SDK that does not know it still raises `ConsentDeniedError`, with `reason` unset: the call is refused all the same, and only the explanation is missing. `policy_hold` arrived this way. |
 | **Add** a `source` or `legal_basis` value | ✅ | Both SDKs carry these as opaque strings and never branch on them, so a new value reaches the proof and the developer's code untouched. `public_task`, `legal_obligation` and `vital_interests` arrived this way. Renaming one is not adding: a claim may be added, never redefined (§1.2). |
+| **Add** a `binding` value | only for a request older SDKs cannot send | `binding` is a closed domain the SDK checks against its request, so a new value reaches no older SDK safely unless that SDK can never receive it. `api_key` arrived this way: it answers a request that names nobody, which no SDK sent before `0.1.0.dev3`, and every request that names somebody keeps `ubt` or `user_id`. |
+| **Accept** a request without a field older SDKs always send | ✅ | Older SDKs keep sending it, so they never take the new path. A request naming nobody arrived this way. |
 | **Add** a key inside `constraints` | ❌ under `/v1` | A constraint is an instruction to apply locally, so an SDK that does not know it cannot ignore it: it fails closed and stops every call. A new constraint ships with the SDK release that understands it. |
 | Make an **optional** field mandatory | ✅ | The SDK already tolerates its presence. |
 | **Remove or rename** a mandatory field | ❌ **never** | Every older SDK raises `ConsentUnreachableError` and stops calling the provider. |
@@ -163,7 +165,7 @@ What the promise covers:
 | | Python | Node |
 | --- | --- | --- |
 | Entry point | `consent.wrap()` and its keyword arguments | `consent.wrap()` / `wrap()` and `WrapOptions` |
-| The call contract | `user_id=` / `ubt=` on an enforced call, and the closed list of per-call options it accepts — adding to that list is not a break, removing from it is | `user_id` / `ubt`, the `Enforced<T>` type, and the same closed list |
+| The call contract | `user_id=` / `ubt=` on an enforced call — optional, at most one — and the closed list of per-call options it accepts — adding to that list is not a break, removing from it is | `user_id` / `ubt`, the `Enforced<T>` type, and the same closed list |
 | Verification | `verify_act()` and every field of `VerifiedAct`; `request_hash()` | `verifyAct()`, `VerifiedAct`; `requestHash()` |
 | Errors | every exported exception **class name** and its place in the hierarchy | the same, plus `error.name` |
 | Options | `catalogue()`, `decidable_options()`, `disclosures()` and the shape they return | `catalogue()`, `decidableOptions()`, `disclosures()` |

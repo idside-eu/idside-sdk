@@ -119,7 +119,7 @@ def _deny_reason(type_value: Any) -> str | None:
 #: The two 401s that are about the visitor, not the key, with what to do. Both
 #: names are the cloud's (`ubt_invalid`: any UBT that does not verify — expired,
 #: issued for another app, altered, or not a UBT; `ubt_required`: a strict app
-#: called with `user_id`). Any other
+#: called with `user_id`, or naming nobody). Any other
 #: 401 — `invalid_api_key`, a `type` this SDK does not know, no body at all —
 #: stays a plain AuthenticationError: a value nobody classified never moves a
 #: refusal into a class that says the key is fine.
@@ -134,8 +134,8 @@ _BINDING_ERRORS: dict[str, tuple[type[BindingError], str]] = {
     ),
     "ubt_required": (
         BindingRequiredError,
-        "This application requires a UBT (HTTP 401), and the call named its "
-        "user with user_id. Your API key was accepted. Have the visitor go "
+        "This application requires a UBT (HTTP 401), and the call did not "
+        "carry one. Your API key was accepted. Have the visitor go "
         "through the widget and pass the UBT it issues as ubt before any AI "
         "call; the AI call was not made.",
     ),
@@ -154,7 +154,15 @@ _RFC3339 = re.compile(
     r"(?:\.\d+)?(?:[Zz]|(?P<offset_sign>[+-])(?P<offset_hour>\d{2}):"
     r"(?P<offset_minute>\d{2}))"
 )
-_BINDINGS = frozenset({"ubt", "user_id"})
+#: The binding a successful answer must carry is the identity the request was
+#: made with: ``ubt`` when it carried a UBT (the widget bound the person and the
+#: cloud verified it), ``user_id`` when it carried a ``user_id`` (the developer
+#: asserted the identifier), ``api_key`` when it carried neither (the API key it
+#: was made with is the proof's subject). Each is true of one request only, so
+#: each is accepted only there: any other answer would put in the proof a
+#: subject, or a link to one, the call did not have, and is refused like any
+#: other malformed answer. The cloud echoes the identity it was sent.
+_IDENTITY_FIELDS = ("ubt", "user_id")
 
 #: What the cloud counts as blank — ActiveSupport's ``blank?``, the Unicode
 #: White_Space characters — and nothing wider: the 25 code points below, the
@@ -179,6 +187,29 @@ def _named(identity: Any) -> bool:
     because its pseudonym is derived from those characters.
     """
     return bool(identity) and not (isinstance(identity, str) and _is_blank(identity))
+
+
+def _identity(user_id: Any, ubt: Any, *, conflict: str, empty: str) -> tuple[Any, Any]:
+    """The identity a call carries, as ``(user_id, ubt)``: one of the two, or neither.
+
+    Naming the end user is optional. An argument that is absent or ``None``
+    names nobody, and a call on which neither names anybody goes out with no
+    identity at all: the cloud then takes the API key as the proof's subject.
+
+    An argument that is *present* but names nobody — ``""``, blanks, ``0``,
+    ``False``, an empty container — is still refused, unless the other one
+    names somebody, exactly as when an identity was required. Such a value is
+    almost always a bug upstream (an empty form field, a header that was not
+    set), and reading it as "nobody" would silently drop the per-person proof
+    its caller meant to get. Two arguments that both name somebody are a
+    contradiction, not a choice.
+    """
+    named_user, named_ubt = _named(user_id), _named(ubt)
+    if named_user and named_ubt:
+        raise ConflictingIdentityError(conflict)
+    if not (named_user or named_ubt) and (user_id is not None or ubt is not None):
+        raise MissingIdentityError(empty)
+    return (user_id if named_user else None), (ubt if named_ubt else None)
 
 
 _TOOL_CONSTRAINTS = frozenset({"refuse", "strip"})
@@ -342,14 +373,17 @@ def _with_problem_details(message: str, problem: dict[str, Any]) -> str:
 class ConsentDecision:
     """The cloud's authorization decision for a single AI request.
 
-    ``binding`` records how strongly the end user was tied to this request —
-    it is the evidentiary weight of the proof, visible to an auditor:
+    ``binding`` records what the proof's subject is and how it was tied to this
+    request — the evidentiary weight of the proof, visible to an auditor:
 
+    - ``"api_key"`` — the call named nobody: the subject is the API key it was
+      made with. The policy applied is the organization's, for whoever holds
+      that key.
     - ``"ubt"`` — the identity came from a User Binding Token: the ID Side
       widget saw this user and the cloud verified the signed binding.
     - ``"user_id"`` — the developer asserted the identity; accepted, but the
-      weaker link (nothing ties the id passed to the SDK to the person who
-      actually consented).
+      weaker link (nothing ties the id passed to the SDK to the person it
+      names).
     """
 
     consent_state: dict[str, Any]
@@ -484,19 +518,23 @@ def _authorize_payload(
 
     Shared by the blocking and the async client, and deliberately: what the
     cloud is told about a request must not depend on which shape of provider
-    client the developer happens to hold.
+    client the developer happens to hold. A call that names nobody carries no
+    identity field at all — not an empty one, which the cloud would refuse.
     """
-    user_id = user_id if _named(user_id) else None
-    ubt = ubt if _named(ubt) else None
-    if user_id and ubt:
-        raise ConflictingIdentityError(
-            "Pass either user_id or ubt to authorize(), not both."
-        )
-    if not user_id and not ubt:
-        raise MissingIdentityError(
-            "authorize() needs an identity: pass user_id or ubt."
-        )
-    identity = {"ubt": ubt} if ubt else {"user_id": user_id}
+    user_id, ubt = _identity(
+        user_id,
+        ubt,
+        conflict="Pass either user_id or ubt to authorize(), not both.",
+        empty=(
+            "authorize() was given an identity that names nobody: pass a "
+            "user_id or ubt that names somebody, or neither."
+        ),
+    )
+    identity: dict[str, Any] = {}
+    if ubt is not None:
+        identity["ubt"] = ubt
+    elif user_id is not None:
+        identity["user_id"] = user_id
     payload: dict[str, Any] = {
         **identity,
         "provider": provider,
@@ -509,13 +547,25 @@ def _authorize_payload(
     return payload
 
 
-def _decision_from(response: httpx.Response, origin_hint: str) -> ConsentDecision:
+def _binding_for(payload: dict[str, Any]) -> str:
+    """The one binding an answer to this authorize body may carry.
+
+    The identity field the body carries, or ``api_key`` when it carries none.
+    It never carries both: :func:`_authorize_payload` refuses two identities.
+    """
+    return next((name for name in _IDENTITY_FIELDS if name in payload), "api_key")
+
+
+def _decision_from(
+    response: httpx.Response, origin_hint: str, *, binding: str
+) -> ConsentDecision:
     """Turn one authorize response into a decision, or fail closed.
 
     Also shared: a 403 that denies a blocking call must deny the async one, and
     a body the SDK cannot fully parse is "consent not verified" on both paths.
     ``origin_hint`` is the sentence an unexpected status carries when the
-    address was the default, ``""`` otherwise.
+    address was the default, ``""`` otherwise. ``binding`` is the one the answer
+    must carry, decided by the request (:func:`_binding_for`).
     """
     status = response.status_code
     if status >= httpx.codes.BAD_REQUEST:
@@ -541,9 +591,13 @@ def _decision_from(response: httpx.Response, origin_hint: str) -> ConsentDecisio
         consent_state = data["consent_state"]
         if not isinstance(consent_state, dict):
             raise _invalid_decision("consent_state", "a JSON object")
-        binding = _decision_string(data, "binding")
-        if binding not in _BINDINGS:
-            raise _invalid_decision("binding", "'ubt' or 'user_id'")
+        if _decision_string(data, "binding") != binding:
+            raise _invalid_decision(
+                "binding",
+                "'api_key' on a call that names nobody"
+                if binding == "api_key"
+                else f"'{binding}' on a call made with {binding}",
+            )
         mode = data["mode"]
         if not isinstance(mode, str) or mode not in {"test", "live"}:
             raise _invalid_decision("mode", "'test' or 'live'")
@@ -703,9 +757,11 @@ class HttpConsentClient:
     ) -> ConsentDecision:
         """Ask the cloud to authorize one AI request.
 
-        Exactly one of ``user_id`` or ``ubt`` names the end user. A UBT (User
-        Binding Token) is opaque to the SDK: it is forwarded as-is and the
-        cloud alone verifies its signature and binding.
+        At most one of ``user_id`` or ``ubt`` names the end user, and neither
+        has to: a call that names nobody is authorized with the API key as the
+        proof's subject, and the answer says so with ``binding="api_key"``. A
+        UBT (User Binding Token) is opaque to the SDK: it is forwarded as-is
+        and the cloud alone verifies its signature and binding.
 
         ``call_site`` names the endpoint about to be called (``responses.create``,
         ``chat.completions.create``…). It is *mechanics*, not policy: the cloud
@@ -743,7 +799,9 @@ class HttpConsentClient:
             raise ConsentUnreachableError(
                 _with_hint(_UNREACHABLE, self._origin_hint)
             ) from exc
-        return _decision_from(response, self._origin_hint)
+        return _decision_from(
+            response, self._origin_hint, binding=_binding_for(payload)
+        )
 
     def close(self) -> None:
         self._client.close()
@@ -799,7 +857,7 @@ class AsyncHttpConsentClient:
     ) -> ConsentDecision:
         """Ask the cloud to authorize one AI request, without blocking the loop.
 
-        Every word of :meth:`HttpConsentClient.authorize` applies here: exactly
+        Every word of :meth:`HttpConsentClient.authorize` applies here: at most
         one of ``user_id`` or ``ubt`` names the end user, the UBT stays opaque to
         the SDK, ``call_site`` names the endpoint so the cloud can decide per
         endpoint, and ``credential_postures`` is sent on every request — empty
@@ -825,7 +883,9 @@ class AsyncHttpConsentClient:
             raise ConsentUnreachableError(
                 _with_hint(_UNREACHABLE, self._origin_hint)
             ) from exc
-        return _decision_from(response, self._origin_hint)
+        return _decision_from(
+            response, self._origin_hint, binding=_binding_for(payload)
+        )
 
     async def aclose(self) -> None:
         await self._client.aclose()

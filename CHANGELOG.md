@@ -14,7 +14,106 @@ version number promises — and what it deliberately does not — is
 
 ## [Unreleased]
 
-Nothing yet.
+**Naming the end user is optional.** An organization's policy applies to every
+call made with its API keys, and most calls name nobody: such a call is now
+authorized with the API key as the proof's subject instead of being refused.
+Calls that name somebody, with `user_id` or `ubt`, behave exactly as before, and
+so do earlier releases of both SDKs: they always name somebody, so they never
+meet the new answer. No request hash moves: the identity was never hashed. A
+call naming nobody needs a cloud that accepts one; a cloud that does not
+answers HTTP 422, raised as `ContractError`, and the provider is not called.
+
+### Added
+
+- **A call may name nobody.** Leave `user_id` and `ubt` out — or pass `None`
+  in Python, `undefined` or `null` in JavaScript — and the authorize request
+  carries no identity field at all. The cloud answers `binding: "api_key"`: the
+  token's `sub` is then the pseudonymous subject of the API key, scoped per app
+  like a person's, and the policy and the basis the organization declared apply
+  as to any other call. `ConsentDecision.binding` / `decision.binding` reads
+  `"api_key"`.
+- **The ACT token's `api_key` claim and `binding: "api_key"`**, in the
+  [specification](./docs/spec/act-token.md#binding-and-api_key--who-the-proof-is-about).
+  `verify_act()` / `verifyAct()` verify such tokens and keep the claim in
+  `claims["api_key"]` / `claims.api_key`, like any claim they do not name;
+  `sub` is still required. Verifiers of earlier releases accept these tokens
+  too: they never closed the values of `binding`, and keep unknown claims.
+- **`examples/python/unnamed_call.py`**: a call that names nobody, through the
+  SDK's real transport to the cloud, printing the authorize body it sent.
+
+### Changed
+
+- **`MissingIdentityError` now means an identity that names nobody.** It is
+  raised, before any I/O, for a `user_id` or `ubt` that is present but names
+  nobody — `""`, a string of blanks, `0`, `false`, an empty list or dict — while
+  the other names nobody either, as before. It is no longer raised for a call
+  that passes neither: that call is authorized. Code that caught it to detect a
+  forgotten identity should pass the identity it meant to pass; code that
+  caught it to skip calls without one can drop the handler. The class is kept,
+  exported and in the same place in the hierarchy. One call naming nobody is
+  still refused with it, as before: one made from inside an enforced call still
+  in progress — a provider helper reaching an enforced method a second time —
+  whose proof would be about the API key rather than whoever the outer call
+  named.
+- **The authorize response's `binding` must be the identity the request was
+  made with**: `user_id` for a request carrying `user_id`, `ubt` for one
+  carrying `ubt`, `api_key` for one carrying neither. Any other answer is
+  treated as a malformed one (`ConsentUnreachableError`) and the provider is not
+  called, so a proof can never claim a subject, or a link to it, its call did
+  not have. Earlier releases checked only that `ubt` or `user_id` came back for
+  a call naming somebody; the cloud echoes the identity it was sent, so no
+  answer it gives is refused.
+- **Node: `Enforced<T>` accepts a call with no identity.** `user_id` and `ubt`
+  are optional on every enforced call site; naming both, or a misspelled field
+  such as `userId`, is still a compile error.
+- **An identity argument spelled another way is refused**, in both SDKs, before
+  any I/O: an argument or body key that matches `user_id` or `ubt` once case and
+  separators are taken out — `userId`, `USER_ID`, `user-id`, `Ubt` — raises
+  `UnenforceableOptionError`, whatever its value, `None` and `null` included,
+  with a message naming the field to write. With the identity optional, such a
+  call would otherwise be authorized as naming nobody, and in plain JavaScript
+  the misspelled field was sent to the provider in the request body. Python
+  already refused most of these spellings, with a message that did not say what
+  was wrong, but let a `None` through to the provider's own signature after the
+  cloud had been asked. Fields that only mention a user — OpenAI's `user`, a
+  `user_id` inside Anthropic's `metadata` — still go out.
+- **Node: a request body that is not an object is refused with a `TypeError`**
+  before anything happens. It used to raise `MissingIdentityError`, because no
+  identity could be read out of it; with no identity required, refusing it on
+  its own grounds is what keeps the SDK from authorizing and sending a body it
+  never read. Python's wrapper takes keyword arguments only, and already raised
+  a `TypeError` for the same mistake.
+- **The journal**: an `authorize` or `authorize_failed` line for a call that
+  named nobody carries no `subject=` and reads `binding=api_key`. Nothing is
+  derived from the API key.
+- **`BindingRequiredError`'s message** no longer says the call named its user
+  with `user_id`: on an application that requires bound tokens, a call naming
+  nobody is refused with it too.
+- **The documentation describes one product**: an organization — an employer
+  for its staff, or a publisher for the users of its application — imposes a
+  refusals-only policy on the calls made with its keys, and every proof records
+  the policy and the basis the organization declared. Asking users through the
+  Preference Center remains documented as available. See
+  [Concepts §4](./docs/concepts.md#4-the-policy-what-applies-to-a-call-and-who-decided)
+  and [§8](./docs/concepts.md#8-naming-the-end-user-user_id-vs-ubt).
+
+### Fixed
+
+- **Python: `httpx` is capped below 1.** An installer allowing pre-releases
+  (`uv pip install --prerelease=allow`, and likely `pip install --pre`)
+  resolved `httpx 1.0.dev6`, which has no `httpx.Timeout`, and `import idside`
+  failed. Earlier releases carry the same open bound: if you install one of
+  them with pre-releases allowed, add `httpx<1` yourself. The provider extras
+  keep their open bounds; installed with pre-releases allowed, every one of them
+  imports and enforces a call.
+- **The documentation lists the five provider descriptors that ship** —
+  OpenAI, Anthropic, Google Gemini, Mistral and DeepSeek — where some pages said
+  four and counted DeepSeek among the OpenAI-compatible APIs recorded as
+  `provider: "openai"`. The top-level README also said Anthropic's forced
+  parameters travel as request headers; they go in the request body.
+- **The widget guide** no longer says the SDK refuses a call made without a
+  `userId`: such a call names nobody, so no answer given in the browser can
+  apply to it.
 
 ## [0.1.0.dev2] — 2026-11-11
 

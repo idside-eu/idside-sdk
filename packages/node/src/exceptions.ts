@@ -153,9 +153,10 @@ export class InvalidBindingError extends BindingError {}
  * `ubt_required`).
  *
  * The application is set to accept only widget-bound identities, and the call
- * named its user with `user_id`. Have the visitor go through the widget before
- * any AI call, store the UBT it issues in the server session, and pass it as
- * `ubt`. `user_id` is not a fallback for a strict application.
+ * named its user with `user_id`, or named nobody. Have the visitor go through
+ * the widget before any AI call, store the UBT it issues in the server session,
+ * and pass it as `ubt`. Neither `user_id` nor a call naming nobody is a fallback
+ * for a strict application.
  */
 export class BindingRequiredError extends BindingError {}
 
@@ -190,11 +191,29 @@ export class ContractError extends IDSideError {}
  */
 export class ConsentTokenError extends IDSideError {}
 
-/** No `user_id` and no `ubt` was provided for a consent-enforced AI call. */
+/**
+ * An identity was passed and names nobody, or a nested call names nobody.
+ *
+ * Naming the end user is optional: a call that passes neither `user_id` nor
+ * `ubt` (or passes `undefined` or `null`) is authorized with the API key as the
+ * proof's subject. What is refused, before any I/O, is an identity that is
+ * present but names nobody — `""`, a string of blanks, `0`, `false`, an empty
+ * array or object — while the other one names nobody either. Such a value is
+ * almost always a bug upstream, and reading it as "nobody" would silently drop
+ * the per-person proof the call was meant to carry.
+ *
+ * Also refused: a call naming nobody made from inside an enforced call still in
+ * progress — a provider helper reaching an enforced method a second time. The
+ * outer call consumed the identity, so the nested one arrives without it, and
+ * authorizing it would be a second proof about the API key rather than whoever
+ * the outer call named.
+ *
+ * Pass the identifier of the person the call is for, or leave the field out.
+ */
 export class MissingIdentityError extends IDSideError {}
 
 /**
- * Both `user_id` and `ubt` were provided for the same AI call. The two identity
+ * Both `user_id` and `ubt` name somebody on the same AI call. The two identity
  * forms are exclusive: the UBT already names the user, so a separate `user_id`
  * alongside it is at best redundant and at worst a spoofing attempt.
  */
@@ -288,6 +307,15 @@ export class ToolUseRefusedError extends IDSideError {}
  * model again by itself, up to ten requests under one authorization, and one
  * ACT token covers exactly one request. Declare the function instead and run
  * the loop yourself, so that every turn is authorized and proved.
+ *
+ * And for a body key spelled like `user_id` or `ubt` but not exactly as either
+ * — `userId`, `USER_ID`, `user-id`, `Ubt`: case and separators aside, the same
+ * name. Naming the end user is optional, so the call would otherwise be
+ * authorized as naming nobody, and the misspelled key sent to the provider as a
+ * request parameter. Refused whatever its value, `null` and `undefined`
+ * included, and before the identity is read; the message names the field to
+ * use. TypeScript already refuses `userId` at compile time; this is the same
+ * rule for plain JavaScript, and for every other spelling.
  *
  * Not a retry candidate: the same call fails the same way. Move request
  * parameters into the body, configure credentials and base URLs on the client

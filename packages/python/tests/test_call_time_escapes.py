@@ -2152,6 +2152,167 @@ def test_gemini_automatic_continuation_asked_for_is_refused_before_authorize() -
     assert "config.automatic_continuation" in str(refused)
 
 
+# ── D9: an identity argument spelled some other way ─────────────────────────
+#
+# `userId` for `user_id` is an easy slip, and since a call may name nobody it is
+# no longer caught by the identity check: the call would be authorized about
+# the API key, and the misspelled argument would be read as a request parameter
+# — sent to the provider in Node, where the body is open, and here either
+# refused with a message that never says what is wrong or, with a value of
+# `None`, waved through as "not given" until the provider's own signature
+# rejects it after the proof was signed. Every spelling that differs from the
+# identity argument only by case and separators is refused before the cloud is
+# asked, with a message naming the argument to use.
+
+#: (what the caller wrote, the argument it looks like).
+_LOOKALIKES = [
+    ("userId", "user_id"),
+    ("userID", "user_id"),
+    ("UserId", "user_id"),
+    ("user-id", "user_id"),
+    ("userid", "user_id"),
+    ("USER_ID", "user_id"),
+    ("User_Id", "user_id"),
+    ("user id", "user_id"),
+    ("Ubt", "ubt"),
+    ("UBT", "ubt"),
+    ("u_b_t", "ubt"),
+]
+
+
+def _identity_call(provider: str, wire: _Wire, cloud: _Cloud, **extra: Any) -> Any:
+    """A real client of ``provider``, wrapped, and one call to make with it."""
+    if provider in ("openai", "deepseek"):
+        client = consent.wrap(
+            _openai(wire) if provider == "openai" else _deepseek(wire),
+            consent_client=cloud,
+        )
+        return lambda: client.chat.completions.create(
+            model="gpt-4o-mini", messages=_MESSAGES, **extra
+        )
+    if provider == "anthropic":
+        client = consent.wrap(_anthropic(wire), consent_client=cloud)
+        return lambda: client.messages.create(
+            model="claude-sonnet-4-5", max_tokens=16, messages=_MESSAGES, **extra
+        )
+    if provider == "gemini":
+        client = consent.wrap(_gemini(wire), consent_client=cloud)
+        return lambda: client.models.generate_content(
+            model="gemini-2.0-flash", contents="hello", **extra
+        )
+    client = consent.wrap(_mistral(wire), consent_client=cloud)
+    return lambda: client.chat.complete(
+        model="mistral-small-latest", messages=_MESSAGES, **extra
+    )
+
+
+def _assert_names_the_argument(
+    refused: BaseException, written: str, meant: str, value: Any
+) -> None:
+    message = str(refused)
+    assert f"`{written}`" in message, message
+    assert f"`{meant}`" in message, message
+    if value is not None:
+        assert str(value) not in message, "the message quoted the identity"
+
+
+@pytest.mark.parametrize(
+    "provider", ["openai", "deepseek", "anthropic", "gemini", "mistral"]
+)
+@pytest.mark.parametrize(("written", "meant"), [("userId", "user_id"), ("Ubt", "ubt")])
+@pytest.mark.parametrize("value", ["team-marketing", None], ids=["named", "none"])
+def test_an_identity_spelled_another_way_is_refused_before_authorize(
+    provider: str, written: str, meant: str, value: Any
+) -> None:
+    """On every shipped provider, whatever the value — ``None`` included."""
+    wire, cloud = _Wire(), _Cloud()
+    call = _identity_call(provider, wire, cloud, **{written: value})
+
+    refused = _refused_before_authorize(call, cloud, wire, UnenforceableOptionError)
+    _assert_names_the_argument(refused, written, meant, value)
+
+
+@pytest.mark.parametrize(("written", "meant"), _LOOKALIKES)
+def test_every_case_and_separator_variant_is_refused(written: str, meant: str) -> None:
+    wire, cloud = _Wire(), _Cloud()
+    call = _identity_call("openai", wire, cloud, **{written: "team-marketing"})
+
+    refused = _refused_before_authorize(call, cloud, wire, UnenforceableOptionError)
+    _assert_names_the_argument(refused, written, meant, "team-marketing")
+
+
+@pytest.mark.parametrize(
+    "identity",
+    [
+        pytest.param({"user_id": _USER, "userId": _USER}, id="beside-user-id"),
+        pytest.param({"user_id": "", "userId": _USER}, id="beside-an-empty-user-id"),
+        pytest.param({"ubt": "eyJ.ubt.sig", "UBT": "eyJ.ubt.sig"}, id="beside-ubt"),
+    ],
+)
+def test_a_lookalike_is_refused_beside_the_identity_itself(
+    identity: dict[str, Any],
+) -> None:
+    """The misspelling is a fault in the code, reported the same whatever the data.
+
+    So it is checked before the identity is read: an empty ``user_id`` beside
+    it does not turn the refusal into a :class:`MissingIdentityError`.
+    """
+    wire, cloud = _Wire(), _Cloud()
+    call = _identity_call("openai", wire, cloud, **identity)
+
+    _refused_before_authorize(call, cloud, wire, UnenforceableOptionError)
+
+
+def test_a_lookalike_is_refused_on_the_async_and_deferred_paths() -> None:
+    wire, cloud = _Wire(), _AsyncCloud()
+    client = consent.wrap(_async_openai(wire), consent_client=cloud)
+    kwargs = {"model": "gpt-4o-mini", "messages": _MESSAGES, "userId": _USER}
+
+    async def _stream() -> None:
+        async with client.chat.completions.stream(**kwargs) as stream:
+            async for _chunk in stream:
+                pass
+
+    _refused_before_authorize(
+        lambda: asyncio.run(client.chat.completions.create(**kwargs)),
+        cloud,
+        wire,
+        UnenforceableOptionError,
+    )
+    _refused_before_authorize(
+        lambda: asyncio.run(_stream()), cloud, wire, UnenforceableOptionError
+    )
+
+    blocking_wire, blocking_cloud = _Wire(), _Cloud()
+    blocking = consent.wrap(_anthropic(blocking_wire), consent_client=blocking_cloud)
+    _refused_before_authorize(
+        lambda: blocking.messages.stream(
+            model="claude-sonnet-4-5", max_tokens=16, messages=_MESSAGES, userId=_USER
+        ),
+        blocking_cloud,
+        blocking_wire,
+        UnenforceableOptionError,
+    )
+
+
+def test_fields_that_merely_mention_a_user_still_go_out() -> None:
+    """OpenAI's ``user`` and Anthropic's ``metadata.user_id`` are request fields.
+
+    Only a top-level argument spelled like the identity is refused: a nested
+    ``user_id`` is the provider's own, and the SDK reads none.
+    """
+    wire, cloud = _Wire(), _Cloud()
+    _identity_call("openai", wire, cloud, user="end-user-hash", user_id=_USER)()
+    assert wire.body()["user"] == "end-user-hash"
+
+    anthropic_wire, anthropic_cloud = _Wire(), _Cloud()
+    _identity_call(
+        "anthropic", anthropic_wire, anthropic_cloud, metadata={"user_id": "u-1"}
+    )()
+    assert anthropic_wire.body()["metadata"] == {"user_id": "u-1"}
+    assert len(cloud.calls) == len(anthropic_cloud.calls) == 1
+
+
 # ── what must keep working ───────────────────────────────────────────────────
 
 
@@ -2634,6 +2795,28 @@ def test_an_unknown_library_still_has_its_known_offenders_refused(
         wire,
         UnenforceableOptionError,
     )
+    assert client.chat.completions.calls == []
+
+
+def test_an_unknown_library_refuses_an_identity_spelled_another_way() -> None:
+    """Where nothing classifies the body, a misspelled identity would go out.
+
+    It would be authorized as a call naming nobody and handed to the provider
+    as a request parameter. The look-alike rule needs no schema.
+    """
+    wire, cloud = _Wire(), _Cloud()
+    client = _AcmeClient(wire)
+    wrapped = consent.wrap(client, adapter=_acme_adapter(), consent_client=cloud)
+
+    refused = _refused_before_authorize(
+        lambda: wrapped.chat.completions.create(
+            model="acme-1", messages=_MESSAGES, userId="team-marketing"
+        ),
+        cloud,
+        wire,
+        UnenforceableOptionError,
+    )
+    _assert_names_the_argument(refused, "userId", "user_id", "team-marketing")
     assert client.chat.completions.calls == []
 
 

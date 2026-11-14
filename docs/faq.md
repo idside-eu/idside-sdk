@@ -105,12 +105,12 @@ exact semantics. Until then, assume one hop per call in your capacity planning.
 
 ## What data does ID Side see — and not see?
 
-The authorize request is deliberately minimal. It contains exactly six fields,
-five of them always:
+The authorize request is deliberately minimal. It contains at most six fields,
+four of them always:
 
 | Sent | Not sent |
 | --- | --- |
-| `user_id` **or** `ubt` — exactly one | your prompts and messages |
+| `user_id` **or** `ubt` — at most one, and only when the call names someone | your prompts and messages |
 | `provider` (`"openai"`…) | system prompts, tools, documents |
 | `model` (`"gpt-4o-mini"`…) | the model's response |
 | `request_hash` (`sha256:…`) | attachments, embeddings, user content of any kind |
@@ -121,7 +121,7 @@ five of them always:
 per endpoint: two endpoints of the same provider do not accept the same
 parameters (`background` exists on `/v1/responses` and nowhere else), and the
 posture the answer names has to be one you actually hold. Neither carries
-content. The same six are listed in
+content. The same fields are listed in
 [`ARCHITECTURE.md` §2](./ARCHITECTURE.md#2-the-two-circuits).
 
 The SDK is *structurally* unable to send your prompt: the payload is built field
@@ -318,64 +318,50 @@ and the narrowness is the feature.
 If you need to *see* consent state for your own UI, that is a dashboard and
 account-side concern, not an SDK one.
 
-**"But my organization decides this for its staff."** That case exists and is
-supported — it is the *imposed* mode
-([Concepts §4](./concepts.md#4-two-modes-asked-and-imposed)): a policy set once,
-applying to the organization's employees, with no popup and nothing an employee
-can change. It is still not a setter you reach from your backend, and it has two
-limits that follow from the same reasoning as above. A policy can only tighten,
-never switch an option back on, so it cannot be used to overturn a refusal
-someone already made. And a declared `legal_basis: "consent"` is the
-organization's declaration, not an answer collected from the employee, which
-is generally presumed not to be freely given at work. What is owed to the person instead is
-transparency: a statement of what was decided, by whom, and on what basis.
-
-Which is also why the imposed mode does not solve "I would rather not show my
-visitors a popup". Pointed at people who are not your employees, it produces
-proofs that record that no basis was established — see the worked case in
-[Concepts §4](./concepts.md#the-mistake-worth-naming).
+**"But my organization decides this for the people who use our keys."** That
+is the product's main case ([Concepts §4](./concepts.md#4-the-policy-what-applies-to-a-call-and-who-decided)):
+a policy set once, on the ID Side dashboard, applying to every call made with
+the organization's keys — an employer's staff, or the users of a publisher's
+application — with no popup and nothing a person can change. It is still not a
+setter you reach from your backend, and it has two limits that follow from the
+same reasoning as above. A policy can only refuse, never switch an option back
+on, so it cannot be used to overturn a refusal. And the basis it signs is the
+one the organization declared, carried as the organization's
+(`source: "default_policy"`): a declared `consent` is the organization's
+declaration, not an answer collected from anyone. What is owed to the people
+concerned is transparency: a statement of what was decided, by whom, and on
+what basis.
 
 ## Does anyone have to see a popup?
 
-Somebody has to see the widget either way. What changes is whether it asks them
-anything — and that depends on something you do not get to choose.
+No — not when an organization decides. A policy applies to every call made with
+its keys, and nobody is asked: the proof records `source: "default_policy"` and
+the basis the organization declared
+([Concepts §4](./concepts.md#4-the-policy-what-applies-to-a-call-and-who-decided)).
+The SDK is identical whether anyone is asked or not.
 
-There are two modes ([Concepts §4](./concepts.md#4-two-modes-asked-and-imposed)),
-and the SDK is identical in both:
+An application can choose to ask its users instead. The
+[Preference Center](./widget.md) puts the question to the person; their answer
+is theirs, and the proof records `legal_basis: "consent"`. That is the one way
+the system collects consent from someone, and it costs a `<script>` tag.
 
-- **Asked.** The [Preference Center](./widget.md) puts the question to the
-  person. Their answer is theirs; the proof records `legal_basis: "consent"`.
-- **Imposed.** An organization sets a policy for its employees. Nobody is asked
-  and no employee can change anything — but the
-  [same widget still renders](./widget.md#11-the-imposed-mode), as a read-only
-  panel stating the legal basis and what was decided about them. Not being asked
-  is precisely why they have to be told.
-
-Which one applies is a fact about the relationship, not a setting. If the people
-using your product are your users, the first one is the only one that collects
-consent from them, and it costs a `<script>` tag. If they are your staff, the second is the
-only honest one, because an answer an employee gives their employer is not freely
-given.
-
-There is a third possibility, and it is worth pricing rather than passing over:
-run no widget at all for people you meant to ask. You can, and most calls still
-go out — but **what nobody accepted is refused**, so every option in the
-catalogue resolves to `false` for every visitor you name, on every provider. You
-notice it first on tool use, because that refusal is applied by declining the
-call ([`ToolUseRefusedError`](./errors.md#tooluserefusederror)) rather than by
+What is worth pricing rather than passing over is an application set up to ask
+that runs no widget at all. You can, and most calls still go out — but **what
+nobody accepted is refused**, so every option in the catalogue resolves to
+`false` for every person nobody asked, on every provider. You notice it first
+on tool use, because that refusal is applied by declining the call
+([`ToolUseRefusedError`](./errors.md#tooluserefusederror)) rather than by
 rewriting a parameter: an agentic integration with no widget fails on every
 request. A refusal that names a credential posture you have not provisioned —
 a training refusal on Mistral, for one — fails the same way, with
 [`MissingCredentialError`](./errors.md#missingcredentialerror). The rest is
-quieter and worse — a year of proofs reading
-`not_established`, over capabilities you are paying a provider for and nobody
-ever agreed to.
+quieter and worse — a year of proofs reading `not_established`, over
+capabilities you are paying a provider for and nobody ever agreed to.
 
-The failure mode worth naming: choosing "imposed" to avoid a popup for ordinary
-visitors. It does not even buy you that — the panel still renders, it just
-stops asking. Nothing stops you, and nothing breaks — you simply end up with a year
-of signed, unalterable proofs saying *no basis was established* — about people
-you chose not to ask — in the exact document they were built to be read from.
+The failure worth naming on the other side is a policy that declares a basis
+the organization would not defend. Nothing stops you, and nothing breaks — the
+proofs simply carry what was declared, signed and unalterable, in the exact
+document they were built to be read from.
 [Concepts §4](./concepts.md#the-mistake-worth-naming) works it through.
 
 ## Do the AI providers actually read the ACT token?
@@ -425,9 +411,12 @@ which shows you exactly what reaches the wire.
 
 ## What if my provider isn't supported?
 
-Four providers ship today: OpenAI, Anthropic, Gemini, Mistral — plus every
-OpenAI-compatible API (Groq, Together, xAI, DeepSeek, vLLM…) through the `openai`
-client at no extra cost.
+Five provider descriptors ship today: OpenAI, Anthropic, Google Gemini, Mistral
+and DeepSeek. DeepSeek is reached through the `openai` client pointed at
+`api.deepseek.com`, and its proofs record `provider: "deepseek"`. Every other
+OpenAI-compatible API (Groq, Together, xAI, vLLM…) works through the `openai`
+client and descriptor at no extra cost, recorded as `provider: "openai"`
+([providers §2](./providers.md#openai-compatible-providers)).
 
 Beyond those, adding a provider is usually a JSON file, not code: a
 [descriptor](./providers.md#5-the-descriptor-format) declares which methods to

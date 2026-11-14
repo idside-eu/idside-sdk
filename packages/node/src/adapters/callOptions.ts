@@ -506,6 +506,57 @@ const REQUEST_OPTIONS: ReadonlyMap<string, Readonly<Record<string, OptionEffect>
 ]);
 
 /**
+ * `name` without case or separators: `userId`, `USER-ID` → `userid`.
+ *
+ * Lower-cased, then everything but `a`-`z` and `0`-`9` removed. The Python SDK
+ * applies the same rule; a different one would let a spelling through one SDK
+ * that the other refuses.
+ */
+export function spelling(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+const IDENTITY_ROLE = {
+  identityParam: "names the person the call is for",
+  ubtParam: "carries the User Binding Token",
+} as const;
+
+/**
+ * Refuse a body key spelled like `user_id` or `ubt` but not as it.
+ *
+ * A call may name nobody, so a misspelled identity is not missing anything the
+ * identity check could notice: `userId: "team-marketing"` was authorized as a
+ * call about the API key, and, the body being open, sent to the provider as one
+ * more request parameter. So a key that differs from either identity argument
+ * only by case and separators is refused, whatever its value, before the
+ * identity is even read: it is a fault in the code, and is reported the same
+ * way whatever the data.
+ *
+ * No body field of the endpoints the shipped descriptors wrap spells like
+ * either argument, as the libraries declared them when this rule was written;
+ * a library adding one would see those calls refused, never a misspelled
+ * identity let through. Only top-level keys are read: a `user_id` nested in
+ * Anthropic's `metadata` is the provider's own.
+ */
+export function assertNoIdentityLookalike(descriptor: ProviderDescriptor, body: Record<string, unknown>): void {
+  const meant = new Map<string, readonly [string, string]>();
+  for (const field of ["identityParam", "ubtParam"] as const) {
+    meant.set(spelling(descriptor[field]), [descriptor[field], IDENTITY_ROLE[field]]);
+  }
+  for (const name of Object.keys(body)) {
+    const [exact, role] = meant.get(spelling(name)) ?? [name, ""];
+    if (name !== exact) {
+      throw new UnenforceableOptionError(
+        `\`${name}\` cannot be passed on a consent-enforced call: it is spelled like \`${exact}\`, which ${role}, ` +
+          "and the SDK reads only that exact spelling. Under any other it is not the identity: the call would name " +
+          "nobody, and the argument would be left in the request for the provider. The AI call was not made and ID " +
+          `Side was not asked. Rename it \`${exact}\`, or leave it out to make the call without naming anyone.`,
+      );
+    }
+  }
+}
+
+/**
  * Refuse a call whose options could undo its enforcement. Throws before anything happens.
  *
  * `params` is the request with the identity already consumed. `rest` holds the

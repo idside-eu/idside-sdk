@@ -5,7 +5,7 @@ as [Python](./quickstart-python.md): install, wrap, call.
 
 > **Status.** Pre-release: `@idside/sdk` is published on npm as `0.1.0-dev.2`.
 > A real call needs an ID Side API key — sign up at
-> <https://sdk.idside.eu/dashboard/signup> (a free plan exists, see
+> <https://sdk.idside.eu/signup> (a free plan exists, see
 > <https://sdk.idside.eu/pricing>), or take a 24-hour test key from the no-account sandbox
 > ([step 3](#3-configure-and-call)). [Step 6](#6-run-it-offline-without-an-account) runs the whole mechanism
 > offline, with no account.
@@ -95,7 +95,7 @@ You need one ID Side API key and your usual provider key. The ID Side key comes
 from one of two places:
 
 - **the dashboard**, after signing up at
-  <https://sdk.idside.eu/dashboard/signup> — a free plan exists, and
+  <https://sdk.idside.eu/signup> — a free plan exists, and
   <https://sdk.idside.eu/pricing> says what it covers;
 - **the no-account sandbox**, *Test without an account* on
   <https://sdk.idside.eu/sdk> — an `sk_test_` key valid for 24 hours and
@@ -115,9 +115,9 @@ import { consent } from "@idside/sdk";
 const client = consent.wrap(new OpenAI()); // 1. wrap the provider client, once
 
 const response = await client.chat.completions.create({
-  model: "gpt-4o-mini", //                    2. call it exactly as before…
+  model: "gpt-4o-mini", //                    2. call it exactly as before
   messages: [{ role: "user", content: "Summarize my last consultation." }],
-  user_id: "usr_marie_456", //                3. …plus the end user's identity
+  user_id: "usr_marie_456", //                3. optional: whom the call is for
 });
 
 console.log(response.choices[0].message.content);
@@ -129,20 +129,23 @@ harmless — enforcement never stacks.
 
 That snippet compiles as written under `strict`. `wrap()` gives back the client
 with the identity typed onto every enforced call site, so there is no cast — and
-omitting `user_id` is a compile error rather than a run-time one. See
-[TypeScript](#typescript) below for what that costs.
+naming the user twice, or misspelling the field, is a compile error rather than
+a run-time one. See [TypeScript](#typescript) below for what that costs.
 
 The default, `https://sdk.idside.eu`, is the ID Side service. Set
 `IDSIDE_BASE_URL` only for a local or staging cloud: the origin alone, without
 `/v1` or `/widget`. Use the same deployment for the dashboard, widget and
 backend.
 
-The call above uses `user_id`, which requires an application that permits that
-identity path. Declare your providers in the dashboard before showing the
-widget. If your visitor application requires bound tokens, first connect
-the [widget and your backend session](./widget.md#8-from-a-recorded-decision-to-a-stronger-proof),
-then pass `ubt` instead. Do not enable AI requests until the backend has stored
-the visitor’s token; do not fall back to `user_id` when bound tokens are required.
+The call above names the person it is for with `user_id`. Leave it out and the
+call is proven against your API key instead: your organization's policy applies
+either way ([naming the end user](#naming-the-end-user)). If your application
+asks its users instead and requires bound tokens, declare your providers in the
+dashboard, connect the
+[widget and your backend session](./widget.md#8-from-a-recorded-decision-to-a-stronger-proof)
+first, then pass `ubt`. Do not enable AI requests until the backend has stored
+the visitor’s token; do not fall back to `user_id`, or to naming nobody, when
+bound tokens are required.
 
 ### Configuration
 
@@ -174,8 +177,8 @@ const client = consent.wrap(new OpenAI(), {
 
 You label; ID Side chooses. A posture you have not provisioned stops the call
 rather than falling back to the wrong one — except on an application that
-serves employees and is set to Observe, where ID Side names no posture you did
-not label: the call leaves on your ordinary credential and its proof records the
+applies an organization's policy and is set to Observe, where ID Side names no
+posture you did not label: the call leaves on your ordinary credential and its proof records the
 refusal as not applied (set to Enforce, the call is held instead). See
 [credential routing](./providers.md#6-credential-routing).
 
@@ -222,8 +225,9 @@ const proof = await verifyAct(token, {
 
 ### TypeScript
 
-`consent.wrap()` returns `Enforced<T>`: your client, with `user_id` / `ubt`
-typed onto every enforced call site and nothing else changed.
+`consent.wrap()` returns `Enforced<T>`: your client, with an optional `user_id`
+/ `ubt` typed onto every enforced call site, the per-call options narrowed to
+those an enforced call accepts, and nothing else changed.
 
 ```ts
 import OpenAI from "openai";
@@ -234,29 +238,31 @@ const client: Enforced<OpenAI> = consent.wrap(new OpenAI());
 await client.chat.completions.create({
   model: "gpt-4o-mini",
   messages: [{ role: "user", content: "Hello!" }],
-  user_id: "usr_marie_456",   // required — omitting it does not compile
+  user_id: "usr_marie_456",   // optional — `userId` would not compile
 });
 ```
 
-Forgetting the identity is a compile error, not a `MissingIdentityError` on your
-first request; so is naming the user twice. The provider's own overloads
-survive — `stream: true` still narrows the return to a stream — and the surfaces
+Naming the user twice is a compile error, not a `ConflictingIdentityError` on
+your first request; so is a misspelled field such as `userId`. In plain
+JavaScript, where nothing is compiled, the same call is refused when it is made,
+with `UnenforceableOptionError`, before anything is sent. Leaving the identity out
+compiles: the call is proven against your API key. An option the enforced call
+refuses — `fetchOptions`, `{ body }` — does not compile. The provider's own
+overloads survive — `stream: true` still narrows the return to a stream — and the surfaces
 the SDK does not enforce, `models.list()` and the rest, keep the types the
 provider gave them.
 
-**A wrapped client is not an `OpenAI`.** `Enforced<OpenAI>` demands more than
-`OpenAI` does, so it is not assignable to it, and a function that receives one
-has to say so:
+**A wrapped client is not an `OpenAI`.** `Enforced<OpenAI>` accepts a field
+`OpenAI` does not know and refuses options `OpenAI` takes, so it is not
+assignable to it, and a function that receives one has to say so:
 
 ```ts
 async function summarise(client: Enforced<OpenAI>, userId: string) { … }
 ```
 
 That is the type telling the truth rather than an implementation detail leaking:
-a function annotated `OpenAI` is a function whose author may write a call with
-no identity, and that call throws. The alternative — a type that merely *allows*
-the identity — would let the omission through to run time, which is the whole
-problem.
+a function annotated `OpenAI` is a function whose author may name the user, or
+pass a per-call option, that the compiler cannot check — and that call throws.
 
 **Where the typing is thinner.** `parse()` and `stream()` are generic over the
 schema you hand them, and rewriting a signature erases its type parameters, so a
@@ -266,26 +272,41 @@ in TypeScript can map over a generic signature's own type parameters, so this
 one is structural, and written down rather than worked around.
 
 None of this reaches JavaScript callers, who have no compiler in the way: for
-them the identity is still checked on the first call, and still raises
+them the identity is checked on each call, and two identities raise
+`ConflictingIdentityError`, one that names nobody
 [`MissingIdentityError`](./errors.md#missingidentityerror).
 
 ### Naming the end user
 
-Exactly one of `user_id` or `ubt` per call; both are consumed by the SDK and
-never forwarded to the provider. See
-[Concepts §8](./concepts.md#8-naming-the-end-user-user_id-vs-ubt). Pass
-`user_id` as a string: it is sent as written, and a number the cloud accepts
-does not always name the same user from both SDKs — in JavaScript `42.0` is
-`42` ([what a `user_id` may be](./errors.md#missingidentityerror)).
+Naming the end user is optional. A call that passes neither `user_id` nor `ubt`
+is authorized with your API key as the proof's subject — the proof records
+`binding: "api_key"` — and your organization's policy applies to it as to any
+other. Pass one of the two, never both, when you want the proof to say whom the
+call was for; both are consumed by the SDK and never forwarded to the provider.
+`user_id` is your own identifier for a person or a team (`"team-marketing"`);
+`ubt` is the token the ID Side widget issues on an application that asks its
+users — the stronger proof. See
+[Concepts §8](./concepts.md#8-naming-the-end-user-user_id-vs-ubt).
 
-If nobody is signed in to your product, you have to invent the identifier
-yourself, and the choice matters: an unstable one makes every visit a new
+A `user_id` that is there but names nobody — `""`, blanks, `0`, `false` — rejects
+with [`MissingIdentityError`](./errors.md#missingidentityerror) instead of
+quietly becoming a call about the key; leave the field out, or pass `undefined`,
+to name nobody (`null` too, from plain JavaScript: `Enforced<T>` types the field
+as a string). Pass `user_id` as a string: it is sent as written, and a number
+the cloud accepts does not always name the same user from both SDKs — in
+JavaScript `42.0` is `42` ([what a `user_id` may be](./errors.md#missingidentityerror)).
+A request body that is not an object is refused with a `TypeError` before
+anything happens: the SDK cannot prove what it cannot read.
+
+If nobody is signed in to your product and your application asks its users, you
+have to invent the identifier yourself, and the choice matters: an unstable one makes every visit a new
 person, and a browser fingerprint makes ID Side complicit in the tracking it
 exists to counter. Read
 [what to send as `user_id`](./concepts.md#what-to-send-as-user_id) before you
 pick one.
 
-**Until the widget runs, a `user_id` names someone who has refused everything.**
+**On an application that asks, until the widget runs, everyone has refused
+everything.**
 The SDK cannot write a preference and never will — that is the
 [opaque tunnel](./concepts.md#3-the-opaque-tunnel) — so what nobody accepted is
 refused: every option resolves to `false`, on every provider, and each proof
@@ -395,7 +416,10 @@ not the end user's `user_id` or `ubt`, not the prompt, not the ACT token, not a
 credential. `subject` is a pseudonym salted with a random per-process value: two
 calls by one person share it, so you can follow one user through a log, and
 nobody can work backwards from it to the identifier — not even for a guessable
-one like `usr_marie_456`, which is why the salt is there. `request_hash` is the
+one like `usr_marie_456`, which is why the salt is there. A call that names
+nobody has no `subject=` at all — a pseudonym of "nobody" would read as one
+person making every such call — and reads `binding=api_key`; nothing is derived
+from your API key. `request_hash` is the
 value the ledger indexes, so it is how you find the proof for a given call.
 
 Two deliberate absences. The **ACT token** is never logged: it is bearer

@@ -42,8 +42,11 @@ const DECISION_BODY = {
   expires_at: "2026-09-12T12:00:00Z",
   source: "widget",
   legal_basis: "consent",
-  binding: "ubt",
+  binding: "user_id",
 };
+
+/** The answer to a request carrying a UBT: the binding echoes the identity sent. */
+const UBT_BODY = { ...DECISION_BODY, binding: "ubt" };
 
 const REQUEST = {
   provider: "openai",
@@ -66,7 +69,7 @@ test("returns a ConsentDecision on a well-formed 200", async () => {
   const decision = await client.authorize(REQUEST);
   assert.equal(decision.actToken, "act.jwt.token");
   assert.deepEqual(decision.paramsForced, { store: false });
-  assert.equal(decision.binding, "ubt");
+  assert.equal(decision.binding, "user_id");
 });
 
 // `legal_basis` is opaque: a value the cloud adds needs no SDK release.
@@ -98,7 +101,7 @@ test("sends user_id or ubt (not both) and the request hash on the wire", async (
   const client = new HttpConsentClient("https://cloud.test", {
     fetch: async (_url, init) => {
       sentBody = JSON.parse(String(init?.body));
-      return jsonResponse(DECISION_BODY);
+      return jsonResponse(UBT_BODY);
     },
   });
   await client.authorize({
@@ -604,20 +607,129 @@ test("authorize() refuses to name the user twice", async () => {
   assert.equal(sent, 0, "nothing may leave the process");
 });
 
-test("authorize() refuses to name no user at all", async () => {
+// ── A call that names nobody: the API key is the proof's subject ─────────────
+//
+// Naming the end user is optional. A call that names nobody sends no identity
+// field at all, and the cloud answers `binding: "api_key"`: the key the call was
+// made with is the subject of the proof. Each binding is true of one request
+// only — `user_id` of one carrying `user_id`, `ubt` of one carrying `ubt`,
+// `api_key` of one carrying neither — so each is accepted exactly there. A cloud
+// that answered `api_key` to a call naming somebody, `user_id` to one naming
+// nobody, or `ubt` to one whose identity the developer asserted, would sign a
+// proof about a subject, or a link to it, the call did not have.
+
+const KEY_BODY = { ...DECISION_BODY, source: "default_policy", binding: "api_key" };
+const UNNAMED = { provider: "openai", model: "gpt-4o", requestHash: "sha256:abc" };
+
+test("a call that names nobody sends no identity field, and the key is its subject", async () => {
+  for (const identity of [{}, { userId: undefined }, { ubt: undefined }, { userId: null }, { ubt: null }, { userId: null, ubt: undefined }]) {
+    const sent: Record<string, unknown>[] = [];
+    const client = new HttpConsentClient("https://cloud.test", {
+      fetch: async (_url, init) => (sent.push(JSON.parse(String(init?.body))), jsonResponse(KEY_BODY)),
+    });
+
+    const decision = await client.authorize({ ...UNNAMED, ...identity });
+
+    assert.equal(decision.binding, "api_key", JSON.stringify(identity));
+    assert.equal(sent.length, 1);
+    assert.ok(!("user_id" in sent[0]!), JSON.stringify(sent[0]));
+    assert.ok(!("ubt" in sent[0]!), JSON.stringify(sent[0]));
+    assert.equal(sent[0]!.provider, "openai");
+  }
+});
+
+test("an api_key binding on a call naming somebody fails closed", async () => {
+  for (const identity of [{ userId: "usr_marie_456" }, { ubt: "eyJ.fake.ubt" }]) {
+    const client = new HttpConsentClient("https://cloud.test", {
+      fetch: async () => jsonResponse(KEY_BODY),
+    });
+    await assert.rejects(
+      client.authorize({ ...UNNAMED, ...identity }),
+      (error: unknown) => error instanceof ConsentUnreachableError && /binding/.test(error.message),
+      JSON.stringify(identity),
+    );
+  }
+});
+
+test("each identity is answered with its own binding, and with no other", async () => {
+  // `ubt` says the widget bound the person and the cloud verified it; `user_id`
+  // says the developer asserted the identifier. One accepted in answer to the
+  // other would put in the proof a link the call never had.
+  const cases = [
+    [{ userId: "usr_marie_456" }, "user_id", "ubt"],
+    [{ ubt: "eyJ.fake.ubt" }, "ubt", "user_id"],
+  ] as const;
+  for (const [identity, own, other] of cases) {
+    const answering = (binding: string) =>
+      new HttpConsentClient("https://cloud.test", {
+        fetch: async () => jsonResponse({ ...DECISION_BODY, binding }),
+      });
+
+    const decision = await answering(own).authorize({ ...UNNAMED, ...identity });
+    assert.equal(decision.binding, own);
+    await assert.rejects(
+      answering(other).authorize({ ...UNNAMED, ...identity }),
+      (error: unknown) =>
+        error instanceof ConsentUnreachableError &&
+        /binding/.test(error.message) &&
+        !error.message.includes(`'${other}'`),
+      JSON.stringify(identity),
+    );
+  }
+});
+
+test("an identity binding on a call naming nobody fails closed", async () => {
+  for (const binding of ["user_id", "ubt", "cookie"]) {
+    const client = new HttpConsentClient("https://cloud.test", {
+      fetch: async () => jsonResponse({ ...DECISION_BODY, binding }),
+    });
+    await assert.rejects(
+      client.authorize(UNNAMED),
+      (error: unknown) => error instanceof ConsentUnreachableError && /binding/.test(error.message),
+      binding,
+    );
+  }
+});
+
+test("an identity given that names nobody is still refused, with no request", async () => {
+  // Present but naming nobody is not absent. Leaving the argument out is how a
+  // call names nobody; a value that is there and names nobody is almost always
+  // a bug upstream, and turning it into a call about the API key would lose the
+  // per-person proof its caller meant to get, without a sound.
   let sent = 0;
   const client = new HttpConsentClient("https://cloud.test", {
     fetch: async () => (sent++, jsonResponse(DECISION_BODY)),
   });
 
-  for (const identity of [{}, { userId: "" }, { ubt: "" }, { userId: "", ubt: "" }]) {
+  for (const identity of [
+    { userId: "" },
+    { ubt: "" },
+    { userId: "", ubt: "" },
+    { userId: 0 },
+    { userId: false },
+    { userId: " \t" },
+    { userId: [], ubt: null },
+    { userId: {}, ubt: undefined },
+  ]) {
     await assert.rejects(
-      client.authorize({ ...REQUEST, userId: undefined, ...identity }),
+      client.authorize({ ...UNNAMED, ...identity }),
       MissingIdentityError,
       JSON.stringify(identity),
     );
   }
   assert.equal(sent, 0);
+});
+
+test("a blank identity beside one that names somebody is ignored, as before", async () => {
+  const sent: Record<string, unknown>[] = [];
+  const client = new HttpConsentClient("https://cloud.test", {
+    fetch: async (_url, init) => (sent.push(JSON.parse(String(init?.body))), jsonResponse(UBT_BODY)),
+  });
+
+  await client.authorize({ ...UNNAMED, userId: "", ubt: "eyJ.fake.ubt" });
+
+  assert.equal(sent[0]!.ubt, "eyJ.fake.ubt");
+  assert.ok(!("user_id" in sent[0]!));
 });
 
 test("a UBT is forwarded as-is and no user_id is invented beside it", async () => {
@@ -628,7 +740,7 @@ test("a UBT is forwarded as-is and no user_id is invented beside it", async () =
   const client = new HttpConsentClient("https://cloud.test", {
     fetch: async (_url, init) => {
       sentBody = JSON.parse(String(init?.body));
-      return jsonResponse(DECISION_BODY);
+      return jsonResponse(UBT_BODY);
     },
   });
 

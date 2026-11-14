@@ -1,7 +1,7 @@
 {
   "name": "@idside/sdk",
   "version": "0.1.0-dev.2",
-  "description": "AI consent enforcement for provider SDKs (OpenAI, Anthropic, Gemini, Mistral). The developer never touches the end user's consent preferences. Patents: sdk.idside.eu/patents",
+  "description": "AI consent enforcement for provider SDKs (OpenAI, Anthropic, Gemini, Mistral, DeepSeek). Every AI call carries a signed proof of the policy that applied. Patents: sdk.idside.eu/patents",
   "license": "SEE LICENSE IN LICENSE",
   "author": "ID Side <dev@idside.eu>",
   "homepage": "https://sdk.idside.eu",
@@ -23,7 +23,8 @@
     "openai",
     "anthropic",
     "gemini",
-    "mistral"
+    "mistral",
+    "deepseek"
   ],
   "type": "module",
   "engines": {

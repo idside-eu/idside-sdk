@@ -68,7 +68,9 @@ import { installTransportGuard } from "../src/guard.ts";
 import {
   IDSideError,
   MissingCredentialError,
+  MissingIdentityError,
   ToolUseRefusedError,
+  UnenforceableOptionError,
   UnenforcedCallError,
 } from "../src/exceptions.ts";
 import { pseudonym, SALT } from "../src/log.ts";
@@ -331,6 +333,38 @@ test("a developer can see which call site and what was forced", async () => {
   assert.ok(written.includes("request_hash="), "which proof, via the ledger");
 });
 
+test("a call that names nobody has no subject, and says the key is its subject", async () => {
+  // No pseudonym at all, rather than one every unnamed call would share: a
+  // pseudonym of "nobody" would read as one person making every such call. The
+  // absence of `subject=` says that nobody was named; `binding=api_key` says
+  // what the proof's subject is instead. The key itself never appears.
+  const keyDecision: ConsentDecision = { ...DECISION, source: "default_policy", binding: "api_key" };
+  const { client } = fakeOpenAI();
+  const written = await journal(async () => {
+    const wrapped = wrap(client, {
+      adapter: new GenericAdapter(OPENAI),
+      consentClient: fakeConsentClient(keyDecision),
+      apiKey: API_KEY,
+    });
+    await (wrapped as any).chat.completions.create({ model: "gpt-5", messages: MESSAGES });
+    const failing = wrap(fakeOpenAI().client, {
+      adapter: new GenericAdapter(OPENAI),
+      consentClient: fakeConsentClient(keyDecision, new TypeError("fetch failed")),
+      apiKey: API_KEY,
+    });
+    await assert.rejects((failing as any).chat.completions.create({ model: "gpt-5", messages: MESSAGES }));
+  });
+
+  const authorized = written.split("\n").filter((line) => / authorize /.test(`${line} `) && !line.includes("authorize_failed"));
+  const failed = written.split("\n").filter((line) => line.includes("authorize_failed"));
+  assert.equal(authorized.length, 1, written);
+  assert.equal(failed.length, 1, written);
+  assert.ok(authorized[0]!.includes("binding=api_key"), authorized[0]);
+  assert.ok(!authorized[0]!.includes("subject="), authorized[0]);
+  assert.ok(!failed[0]!.includes("subject="), failed[0]);
+  assert.ok(!written.includes(API_KEY), "the API key is a secret");
+});
+
 test("an unreachable cloud says so with the time it waited", async () => {
   const { client, calls } = fakeOpenAI();
   const written = await journalOfFailure(async () => {
@@ -446,6 +480,56 @@ test("an alias that defers upstream says so instead of going quiet", async () =>
   assert.equal(cc.calls.length, 1);
   assert.equal(calls.length, 1);
   assert.ok(written.includes("passthrough"));
+});
+
+test("a nested hop naming nobody is refused without a line of its own", async () => {
+  // Refused before anything worth recording, like every refusal made before
+  // any I/O: the journal holds the outer call's lines and nothing else.
+  const calls: Record<string, unknown>[] = [];
+  const completions = {
+    async create(body: Record<string, unknown>, _options?: unknown) {
+      calls.push(body);
+      return { id: "chatcmpl_fake" };
+    },
+    async parse(body: Record<string, unknown>, _options?: unknown) {
+      // The options, and the permit's token on them, are dropped.
+      return this.create(body);
+    },
+  };
+  const cc = fakeConsentClient();
+  const wrapped = wrap({ chat: { completions } }, { adapter: new GenericAdapter(OPENAI), consentClient: cc });
+  const written = await journal(async () => {
+    await assert.rejects(
+      (wrapped as any).chat.completions.parse({ model: "gpt-5", messages: MESSAGES, user_id: USER_ID }),
+      MissingIdentityError,
+    );
+  });
+
+  assert.equal(cc.calls.length, 1);
+  assert.equal(calls.length, 0);
+  const events = written
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => line.replace(/^IDSIDE \d+: /, "").split(" ")[0]);
+  assert.deepEqual(events, ["authorize", "enforced"], written);
+});
+
+test("an identity spelled another way is refused without a line", async () => {
+  // Refused before any I/O, so nothing to journal — least of all the value.
+  for (const written of ["userId", "Ubt"]) {
+    const { client, calls } = fakeOpenAI();
+    const cc = fakeConsentClient();
+    const wrapped = wrap(client, { adapter: new GenericAdapter(OPENAI), consentClient: cc });
+    const logged = await journal(async () => {
+      await assert.rejects(
+        (wrapped as any).chat.completions.create({ model: "gpt-5", messages: MESSAGES, [written]: USER_ID }),
+        UnenforceableOptionError,
+      );
+    });
+    assert.equal(cc.calls.length, 0);
+    assert.equal(calls.length, 0);
+    assert.equal(logged, "", logged);
+  }
 });
 
 // ── the net stays blind ──────────────────────────────────────────────────────

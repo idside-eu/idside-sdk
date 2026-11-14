@@ -173,12 +173,12 @@ def test_parse_is_enforced_and_the_token_reaches_the_wire() -> None:
     assert wire.unenforced == []
 
 
-def test_parse_without_an_identity_never_reaches_the_wire() -> None:
+def test_parse_with_an_empty_identity_never_reaches_the_wire() -> None:
     wrapped, fake, wire = _probe()
 
     with pytest.raises(MissingIdentityError):
         wrapped.chat.completions.parse(
-            model="gpt-5", messages=_MESSAGES, response_format=_Answer
+            model="gpt-5", messages=_MESSAGES, response_format=_Answer, user_id=""
         )
 
     assert fake.calls == []
@@ -250,7 +250,8 @@ def test_one_permit_covers_one_nested_hop_and_not_the_next() -> None:
     calls behind one authorization and one ledger entry — the opposite of
     invariant #4, arrived at from inside. So the second hop re-enters
     enforcement on its own merits, and finds no identity: the wrapper consumed
-    it on the way in, because the provider has never heard of it.
+    it on the way in, because the provider has never heard of it. A call naming
+    nobody is allowed at the top level, never from inside a call in progress.
     """
     messages = _TwiceReentrantMessages()
     fake = _FakeConsent()
@@ -260,7 +261,7 @@ def test_one_permit_covers_one_nested_hop_and_not_the_next() -> None:
         consent_client=fake,
     )
 
-    with pytest.raises(MissingIdentityError):
+    with pytest.raises(MissingIdentityError, match="inside another"):
         client.messages.parse(
             model="claude-sonnet-5", messages=_MESSAGES, user_id="usr_marie_456"
         )
@@ -269,8 +270,165 @@ def test_one_permit_covers_one_nested_hop_and_not_the_next() -> None:
     assert len(messages.create_calls) == 1, "an unauthorized call reached the provider"
 
 
-@pytest.mark.parametrize("token", ["", "tok_caller_supplied"])
-def test_a_caller_supplied_token_header_cannot_skip_authorization(token: str) -> None:
+class _HeaderlessReentrantMessages(_ReentrantMessages):
+    """An alias that reaches the patched ``create`` without the headers it got.
+
+    So the nested hop carries no permit token, and no identity either: the
+    wrapper consumed it on the way in.
+    """
+
+    def parse(self, **kwargs: Any) -> dict[str, str]:
+        kwargs.pop(_ANTHROPIC.headers_kwarg, None)
+        return self.create(**kwargs)
+
+
+class _AsyncHeaderlessReentrantMessages:
+    """The async half of :class:`_HeaderlessReentrantMessages`."""
+
+    def __init__(self) -> None:
+        self.create_calls: list[dict[str, Any]] = []
+
+    async def create(self, **kwargs: Any) -> dict[str, str]:
+        self.create_calls.append(kwargs)
+        return {"id": "msg_fake"}
+
+    async def parse(self, **kwargs: Any) -> dict[str, str]:
+        kwargs.pop(_ANTHROPIC.headers_kwarg, None)
+        return await self.create(**kwargs)
+
+
+_OUTER_IDENTITIES = [
+    pytest.param({"user_id": "usr_marie_456"}, id="outer-named"),
+    pytest.param({}, id="outer-naming-nobody"),
+]
+
+
+@pytest.mark.parametrize("outer", _OUTER_IDENTITIES)
+def test_a_nested_hop_naming_nobody_is_refused_not_authorized_about_the_key(
+    outer: dict[str, Any],
+) -> None:
+    """A call in progress cannot be asked about again as a call naming nobody.
+
+    A provider helper that reaches the patched method a second time, without the
+    permit, is a second AI call — and it names nobody, because the identity
+    went to the first hop. Authorizing it would put a second proof in the ledger
+    whose subject is the API key, not whoever the outer call named. So it is
+    refused before any I/O, as it was when an identity was required.
+
+    The top-level call naming nobody stays allowed, on the same client, right
+    after: nothing of the refused call outlives it.
+    """
+    messages = _HeaderlessReentrantMessages()
+    fake = _FakeConsent()
+    client = consent.wrap(
+        SimpleNamespace(messages=messages),
+        adapter=ProviderAdapter(_ANTHROPIC),
+        consent_client=fake,
+    )
+
+    with pytest.raises(MissingIdentityError, match="inside another"):
+        client.messages.parse(model="claude-sonnet-5", messages=_MESSAGES, **outer)
+
+    assert len(fake.calls) == 1, "the nested hop was authorized about the key"
+    assert messages.create_calls == [], "an unauthorized call reached the provider"
+
+    client.messages.create(model="claude-sonnet-5", messages=_MESSAGES)
+
+    assert len(fake.calls) == 2
+    assert fake.calls[1]["user_id"] is None
+    assert fake.calls[1]["ubt"] is None
+    assert len(messages.create_calls) == 1
+
+
+@pytest.mark.parametrize("outer", _OUTER_IDENTITIES)
+def test_an_async_nested_hop_naming_nobody_is_refused_too(
+    outer: dict[str, Any],
+) -> None:
+    messages = _AsyncHeaderlessReentrantMessages()
+    fake = _FakeAsyncConsent()
+    client = consent.wrap(
+        SimpleNamespace(messages=messages),
+        adapter=ProviderAdapter(_ANTHROPIC),
+        consent_client=fake,
+    )
+
+    with pytest.raises(MissingIdentityError, match="inside another"):
+        asyncio.run(
+            client.messages.parse(model="claude-sonnet-5", messages=_MESSAGES, **outer)
+        )
+
+    assert len(fake.calls) == 1, "the nested hop was authorized about the key"
+    assert messages.create_calls == []
+
+    asyncio.run(client.messages.create(model="claude-sonnet-5", messages=_MESSAGES))
+
+    assert len(fake.calls) == 2
+    assert fake.calls[1]["user_id"] is None
+    assert len(messages.create_calls) == 1
+
+
+def test_a_nested_hop_that_names_somebody_is_enforced_on_its_own() -> None:
+    """The refusal is about naming nobody from inside, and nothing wider."""
+
+    class _NamingReentrantMessages(_ReentrantMessages):
+        def parse(self, **kwargs: Any) -> dict[str, str]:
+            return self.create(
+                model=kwargs["model"],
+                messages=kwargs["messages"],
+                user_id="usr_paul_789",
+            )
+
+    messages = _NamingReentrantMessages()
+    fake = _FakeConsent()
+    client = consent.wrap(
+        SimpleNamespace(messages=messages),
+        adapter=ProviderAdapter(_ANTHROPIC),
+        consent_client=fake,
+    )
+
+    client.messages.parse(model="claude-sonnet-5", messages=_MESSAGES)
+
+    assert [call["user_id"] for call in fake.calls] == [None, "usr_paul_789"]
+    assert len(messages.create_calls) == 1
+
+
+def test_another_wrapped_client_re_entered_from_inside_a_call_is_refused_too() -> None:
+    """The guard is about the call in progress, whichever client it re-enters.
+
+    Here the provider behind one wrapped client is another wrapped client's
+    enforced method. The hop into it carries no permit of its own and no
+    identity: a guard limited to the same client would authorize it as a call
+    about the key, a second proof for one request.
+    """
+    inner_messages = _ReentrantMessages()
+    fake = _FakeConsent()
+    inner = consent.wrap(
+        SimpleNamespace(messages=inner_messages),
+        adapter=ProviderAdapter(_ANTHROPIC),
+        consent_client=fake,
+    )
+
+    def hop(**kwargs: Any) -> Any:
+        kwargs.pop(_ANTHROPIC.headers_kwarg, None)
+        return inner.messages.create(**kwargs)
+
+    outer = consent.wrap(
+        SimpleNamespace(messages=SimpleNamespace(create=hop)),
+        adapter=ProviderAdapter(_ANTHROPIC),
+        consent_client=fake,
+    )
+
+    with pytest.raises(MissingIdentityError, match="inside another"):
+        outer.messages.create(
+            model="claude-sonnet-5", messages=_MESSAGES, user_id="usr_marie_456"
+        )
+
+    assert len(fake.calls) == 1
+    assert inner_messages.create_calls == []
+
+
+def test_an_alias_on_a_call_naming_nobody_still_passes_through_once() -> None:
+    """The permit, not an identity, is what lets the nested hop through."""
     messages = _ReentrantMessages()
     fake = _FakeConsent()
     client = consent.wrap(
@@ -279,11 +437,122 @@ def test_a_caller_supplied_token_header_cannot_skip_authorization(token: str) ->
         consent_client=fake,
     )
 
-    with pytest.raises(MissingIdentityError):
+    client.messages.parse(model="claude-sonnet-5", messages=_MESSAGES)
+
+    assert len(fake.calls) == 1
+    assert fake.calls[0]["user_id"] is None
+    assert len(messages.create_calls) == 1
+    headers = messages.create_calls[0][_ANTHROPIC.headers_kwarg]
+    assert headers[_ANTHROPIC.token_header] == "tok_1"
+
+
+class _HeldMessages:
+    """An async resource whose first call waits, inside the provider, to be released."""
+
+    def __init__(self) -> None:
+        self.create_calls: list[dict[str, Any]] = []
+        self.inside: asyncio.Event | None = None
+        self.release: asyncio.Event | None = None
+
+    async def create(self, **kwargs: Any) -> dict[str, str]:
+        self.create_calls.append(kwargs)
+        assert self.inside is not None and self.release is not None
+        if not self.inside.is_set():
+            self.inside.set()
+            await self.release.wait()
+        return {"id": "msg_fake"}
+
+
+@pytest.mark.parametrize(
+    "same_client", [True, False], ids=["same-client", "other-client"]
+)
+def test_a_call_naming_nobody_beside_a_named_one_in_gather_is_allowed(
+    same_client: bool,
+) -> None:
+    """A sibling task's permit is the sibling's, not this task's.
+
+    ``asyncio.gather`` runs each call in a task of its own, and a task copies the
+    context of the code that created it — the developer's, where no permit is.
+    The named call is held inside its provider, permit in force, while the call
+    naming nobody runs in the other task: it is a top-level call, and allowed.
+    """
+    messages = _HeldMessages()
+    fake = _FakeAsyncConsent()
+    client = consent.wrap(
+        SimpleNamespace(messages=messages),
+        adapter=ProviderAdapter(_ANTHROPIC),
+        consent_client=fake,
+    )
+    other_messages = _HeldMessages()
+    other = (
+        client
+        if same_client
+        else consent.wrap(
+            SimpleNamespace(messages=other_messages),
+            adapter=ProviderAdapter(_ANTHROPIC),
+            consent_client=fake,
+        )
+    )
+
+    async def agent() -> list[Any]:
+        inside, release = asyncio.Event(), asyncio.Event()
+        messages.inside, messages.release = inside, release
+        other_messages.inside, other_messages.release = asyncio.Event(), release
+        other_messages.inside.set()  # its only call is the one naming nobody
+
+        async def unnamed() -> Any:
+            await inside.wait()  # the named call holds its permit now
+            try:
+                return await other.messages.create(
+                    model="claude-sonnet-5", messages=_MESSAGES
+                )
+            finally:
+                release.set()
+
+        return await asyncio.gather(
+            client.messages.create(
+                model="claude-sonnet-5", messages=_MESSAGES, user_id="usr_marie_456"
+            ),
+            unnamed(),
+        )
+
+    results = asyncio.run(agent())
+
+    assert results == [{"id": "msg_fake"}, {"id": "msg_fake"}]
+    assert [call["user_id"] for call in fake.calls] == ["usr_marie_456", None]
+    assert len(messages.create_calls) + len(other_messages.create_calls) == 2
+
+
+@pytest.mark.parametrize("token", ["", "tok_caller_supplied"])
+@pytest.mark.parametrize(
+    "identity",
+    [
+        pytest.param({}, id="naming-nobody"),
+        pytest.param({"user_id": "usr_x"}, id="named"),
+    ],
+)
+def test_a_caller_supplied_token_header_cannot_skip_authorization(
+    token: str, identity: dict[str, Any]
+) -> None:
+    """A token header written by the caller is refused, whoever the call names.
+
+    It is not a permit, so it cannot pass a call through; and it would leave
+    beside the one the SDK attaches, on terms no proof describes.
+    """
+    messages = _ReentrantMessages()
+    fake = _FakeConsent()
+    client = consent.wrap(
+        SimpleNamespace(messages=messages),
+        adapter=ProviderAdapter(_ANTHROPIC),
+        consent_client=fake,
+    )
+
+    with pytest.raises(UnenforceableOptionError):
         client.messages.create(
             model="claude-sonnet-5",
             messages=_MESSAGES,
             extra_headers={_ANTHROPIC.token_header: token},
+            **identity,
         )
 
     assert fake.calls == []
@@ -522,12 +791,12 @@ def test_with_options_hands_back_an_enforced_client() -> None:
     assert wire.unenforced == []
 
 
-def test_a_derived_client_still_demands_an_identity() -> None:
+def test_a_derived_client_still_checks_the_identity() -> None:
     wrapped, fake, wire = _probe()
 
     with pytest.raises(MissingIdentityError):
         wrapped.copy(max_retries=0).chat.completions.create(
-            model="gpt-5", messages=_MESSAGES
+            model="gpt-5", messages=_MESSAGES, user_id=" "
         )
 
     assert fake.calls == []
@@ -595,12 +864,12 @@ def test_with_streaming_response_is_enforced_like_the_method_it_wraps() -> None:
     assert "x-stainless-raw-response" in wire.headers[0]
 
 
-def test_a_raw_response_call_without_an_identity_never_reaches_the_wire() -> None:
+def test_a_raw_response_call_with_an_empty_identity_never_reaches_the_wire() -> None:
     wrapped, fake, wire = _probe()
 
     with pytest.raises(MissingIdentityError):
         wrapped.chat.completions.with_raw_response.create(
-            model="gpt-5", messages=_MESSAGES
+            model="gpt-5", messages=_MESSAGES, user_id=""
         )
 
     assert fake.calls == []

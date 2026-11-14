@@ -160,12 +160,12 @@ test("responses.stream() is enforced and the token reaches the wire", async () =
   );
 });
 
-test("a stream without an identity never reaches the wire", async () => {
+test("a stream with an empty identity never reaches the wire", async () => {
   const { client, consent, wire } = probe();
 
   await assert.rejects(
     async () => {
-      const stream = client.chat.completions.stream({ model: "gpt-5", messages: MESSAGES } as never);
+      const stream = client.chat.completions.stream({ model: "gpt-5", messages: MESSAGES, user_id: "" } as never);
       for await (const _chunk of stream) void _chunk;
     },
     // The provider's stream runner re-throws through its own error type, so the
@@ -368,13 +368,13 @@ test("a refused call read through withResponse() rejects there, and nowhere else
     const client = wrap(new OpenAI({ apiKey: "sk-test", fetch: transport.fetch, maxRetries: 0 }), { // pragma: allowlist secret
       consentClient: fakeConsentClient(),
     });
-    // Without the identity TypeScript refuses the call, which is the point of
-    // `Enforced<T>`; the cast is how a plain JavaScript caller reaches it.
+    // An identity that names nobody is refused at run time, before any I/O; the
+    // cast is how a plain JavaScript caller reaches the call with one.
     const create = client.chat.completions.create as unknown as (
       body: unknown,
     ) => Record<"withResponse" | "asResponse", () => Promise<unknown>>;
     for (const helper of ["withResponse", "asResponse"] as const) {
-      await assert.rejects(create({ model: "gpt-5", messages: MESSAGES })[helper](), MissingIdentityError);
+      await assert.rejects(create({ model: "gpt-5", messages: MESSAGES, user_id: "" })[helper](), MissingIdentityError);
     }
     await new Promise((resolve) => setImmediate(resolve));
     assert.deepEqual(unhandled, []);
@@ -448,7 +448,10 @@ test("a rejection read only through Promise.prototype.catch is handled there", a
     });
     const create = client.chat.completions.create as unknown as (body: unknown) => Promise<unknown>;
 
-    const caught = await Promise.prototype.catch.call(create({ model: "gpt-5", messages: MESSAGES }), (e: unknown) => e);
+    const caught = await Promise.prototype.catch.call(
+      create({ model: "gpt-5", messages: MESSAGES, user_id: "" }),
+      (e: unknown) => e,
+    );
     assert.ok(caught instanceof MissingIdentityError);
 
     await new Promise((resolve) => setImmediate(resolve));
@@ -457,4 +460,95 @@ test("a rejection read only through Promise.prototype.catch is handled there", a
   } finally {
     process.off("unhandledRejection", onUnhandled);
   }
+});
+
+// ── the developer's own code, between two chunks ─────────────────────────────
+//
+// An agent reads a stream and, between two chunks, makes calls of its own —
+// often naming nobody, on the same client or another one. The permit that lets a
+// provider helper's nested hop through lives in the provider's own async
+// context; the developer's loop body, and the listeners a helper's runner calls,
+// run in the developer's. So those calls are top-level calls, and a call naming
+// nobody is allowed there.
+
+const CHUNK_SSE =
+  'data: {"id":"c","object":"chat.completion.chunk","created":0,"model":"gpt-5",' +
+  '"choices":[{"index":0,"delta":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n';
+
+/** A real OpenAI client that streams when asked to and completes otherwise, wrapped. */
+function streamingOpenAI(consent: ConsentClient): Enforced<OpenAI> {
+  const fetch = (async (_url: unknown, init?: RequestInit) =>
+    JSON.parse(String(init?.body)).stream
+      ? new Response(CHUNK_SSE, { status: 200, headers: { "content-type": "text/event-stream" } })
+      : new Response(JSON.stringify(COMPLETION), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        })) as typeof globalThis.fetch;
+  return wrap(new OpenAI({ apiKey: "sk-test", fetch, maxRetries: 0 }), { consentClient: consent }); // pragma: allowlist secret
+}
+
+test("calls naming nobody between two chunks of a stream are allowed", async () => {
+  const consent = fakeConsentClient();
+  const client = streamingOpenAI(consent);
+  const other = streamingOpenAI(consent);
+  const unnamed = { model: "gpt-5", messages: MESSAGES };
+  let chunks = 0;
+
+  const stream = await client.chat.completions.create({ ...unnamed, stream: true, user_id: "usr_marie_456" });
+  for await (const _chunk of stream) {
+    chunks++;
+    await other.chat.completions.create(unnamed);
+    await client.chat.completions.create(unnamed);
+  }
+  // The helper's runner reads the stream itself, and hands chunks to the loop.
+  const runner = client.chat.completions.stream({ ...unnamed, user_id: "usr_marie_456" } as never);
+  for await (const _chunk of runner) {
+    chunks++;
+    await other.chat.completions.create(unnamed);
+  }
+  // And calls the developer's listeners from inside its own loop.
+  const fromListener: Promise<unknown>[] = [];
+  const listened = client.chat.completions.stream({ ...unnamed, user_id: "usr_marie_456" } as never);
+  listened.on("content", () => {
+    chunks++;
+    fromListener.push(other.chat.completions.create(unnamed));
+  });
+  await listened.done();
+  await Promise.all(fromListener);
+
+  assert.equal(chunks, 3, "the loop bodies never ran");
+  assert.deepEqual(
+    consent.calls.map((request) => request.userId),
+    ["usr_marie_456", undefined, undefined, "usr_marie_456", undefined, "usr_marie_456", undefined],
+  );
+});
+
+test("a stream produced inside the provider call carries no permit into the loop", async () => {
+  // The worst case for an async context: the generator is created, and the
+  // promise it awaits on each step settled, inside the provider's own call.
+  const consent = fakeConsentClient();
+  const completions = {
+    create(_body: Record<string, unknown>, _options?: unknown) {
+      const tick = Promise.resolve();
+      async function* chunks() {
+        for (const chunk of ["a", "b"]) {
+          await tick;
+          yield chunk;
+        }
+      }
+      return Promise.resolve(chunks());
+    },
+  };
+  const client = wrap({ chat: { completions } }, { consentClient: consent, provider: "openai" });
+  const other = wrap(
+    { chat: { completions: { create: async (_body: Record<string, unknown>) => ({ id: "chatcmpl_fake" }) } } },
+    { consentClient: consent, provider: "openai" },
+  );
+  const create = client.chat.completions.create as unknown as (body: unknown) => Promise<AsyncIterable<string>>;
+
+  for await (const _chunk of await create({ model: "gpt-5", messages: MESSAGES, user_id: "usr_marie_456" })) {
+    await other.chat.completions.create({ model: "gpt-5", messages: MESSAGES } as never);
+  }
+
+  assert.deepEqual(consent.calls.map((request) => request.userId), ["usr_marie_456", undefined, undefined]);
 });

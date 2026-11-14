@@ -5,12 +5,13 @@ same retention and needs the same proof — but it is reached through a *helper*
 that returns a context manager and defers the real request to ``__enter__``.
 
 In Python those helpers take a fixed keyword signature, so the identity kwarg
-this SDK requires (``user_id`` / ``ubt``) is a ``TypeError`` unless the helper is
+this SDK reads (``user_id`` / ``ubt``) is a ``TypeError`` unless the helper is
 itself a call site. Without one, the only two outcomes were a ``TypeError`` at
 the call, or — for the developer who dropped the identity to make the
-``TypeError`` go away — a ``MissingIdentityError`` from the deferred ``create``,
-raised at ``__enter__`` rather than at the call that caused it. Fail-closed, and
-unusable. These tests pin the third outcome: the helper is enforced.
+``TypeError`` go away, when an identity was still required — a
+``MissingIdentityError`` from the deferred ``create``, raised at ``__enter__``
+rather than at the call that caused it. Fail-closed, and unusable. These tests
+pin the third outcome: the helper is enforced.
 
 The Node SDK reaches the same place by a different route (its helpers forward
 one body object, identity included, to the patched ``create``), which is why
@@ -20,17 +21,21 @@ schema's note on aliases whose interception would change a return type.
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import socket
 from dataclasses import replace
 from types import SimpleNamespace
 from typing import Any
 
+import httpx
 import pytest
 
 from idside import consent
 from idside._transport import ConsentDecision
 from idside.adapters import ProviderAdapter
+from idside.consent import _INTERNAL_CALL
 from idside.exceptions import (
     ConsentUnreachableError,
     MissingIdentityError,
@@ -158,11 +163,11 @@ def test_responses_stream_is_enforced_and_the_token_reaches_the_wire() -> None:
     assert wire.requests == [("POST", "/v1/responses", True)]
 
 
-def test_a_stream_without_an_identity_never_reaches_the_wire() -> None:
+def test_a_stream_with_an_empty_identity_never_reaches_the_wire() -> None:
     wrapped, fake, wire = _probe()
 
     with pytest.raises(MissingIdentityError):
-        wrapped.chat.completions.stream(model="gpt-5", messages=_MESSAGES)
+        wrapped.chat.completions.stream(model="gpt-5", messages=_MESSAGES, user_id="")
 
     assert fake.calls == []
     assert wire.requests == []
@@ -357,8 +362,9 @@ def test_a_stream_helper_reached_from_inside_an_authorized_call_is_not_re_asked(
     The inner `stream()` is the same call site as the outer `parse()` and is
     carrying the token the cloud just issued for it. Asking again would mint a
     second ACT token and a second ledger entry for one request — and, because
-    the wrapper consumes the identity on the way in, the second ask would have
-    no identity to make with.
+    the wrapper consumes the identity on the way in, the second ask would name
+    nobody, which a call in progress may not do: it would be refused, rather
+    than proven about the API key instead of the person the call named.
     """
     completions = _ParseOnTopOfStream()
     fake = _FakeConsent()
@@ -376,6 +382,312 @@ def test_a_stream_helper_reached_from_inside_an_authorized_call_is_not_re_asked(
     assert len(fake.calls) == 1, "the nested helper was authorized a second time"
     assert [name for name, _kwargs in completions.calls] == ["parse", "stream"]
     assert completions.entered == [True], "the provider's own manager was not entered"
+
+
+class _ParseOnTopOfAHeaderlessStream(_RecordingCompletions):
+    """The same, with a ``parse`` that drops the headers it was given."""
+
+    def parse(self, **kwargs: Any) -> dict[str, Any]:
+        self.calls.append(("parse", kwargs))
+        kwargs.pop(_OPENAI.headers_kwarg, None)
+        with self.stream(**kwargs) as opened:
+            return {"id": "chatcmpl_fake", "opened": opened is not None}
+
+
+def test_a_stream_helper_reached_without_the_permit_names_nobody_and_is_refused() -> (
+    None
+):
+    """The deferred wrapper refuses the nested hop at the call, like the others.
+
+    Without the token on it, the inner `stream()` is a call of its own, made
+    from inside one in progress and naming nobody: refused before its manager
+    is built, and long before the cloud would have been asked at entry.
+    """
+    completions = _ParseOnTopOfAHeaderlessStream()
+    fake = _FakeConsent()
+    client = consent.wrap(
+        SimpleNamespace(chat=SimpleNamespace(completions=completions)),
+        adapter=ProviderAdapter(_OPENAI),
+        consent_client=fake,
+    )
+
+    with pytest.raises(MissingIdentityError, match="inside another"):
+        client.chat.completions.parse(
+            model="gpt-5", messages=_MESSAGES, user_id="usr_marie_456"
+        )
+
+    assert len(fake.calls) == 1, "the nested helper was authorized about the key"
+    assert [name for name, _kwargs in completions.calls] == ["parse"]
+    assert completions.entered == []
+
+
+# ── the developer's own code, between two chunks ─────────────────────────────
+#
+# An agent reads a stream and, between two chunks, makes calls of its own — often
+# naming nobody, on the same client or another one. The permit that lets a
+# provider helper's nested hop through is in force only while the provider does
+# its own work: around each step of a lazily produced stream, never across the
+# loop body that consumes it. So those calls are top-level calls, and a call
+# naming nobody is allowed there.
+
+_CHAT_OK = {
+    "id": "chatcmpl_1",
+    "object": "chat.completion",
+    "created": 0,
+    "model": "gpt-5",
+    "choices": [
+        {
+            "index": 0,
+            "finish_reason": "stop",
+            "message": {"role": "assistant", "content": "ok"},
+        }
+    ],
+}
+_CHAT_SSE = (
+    b'data: {"id":"c","object":"chat.completion.chunk","created":0,'
+    b'"model":"gpt-5","choices":[{"index":0,"delta":{"content":"ok"},'
+    b'"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n'
+)
+
+
+def _answer(request: Any) -> Any:
+    """A stream when one was asked for, a completion otherwise."""
+    if json.loads(request.content).get("stream"):
+        return httpx.Response(
+            200, content=_CHAT_SSE, headers={"content-type": "text/event-stream"}
+        )
+    return httpx.Response(200, json=_CHAT_OK)
+
+
+def _real(fake: _FakeConsent, *, asynchronous: bool = False) -> Any:
+    """A REAL openai client that answers every call, wrapped."""
+    if asynchronous:
+        client: Any = openai.AsyncOpenAI(
+            api_key="sk-test",  # pragma: allowlist secret
+            max_retries=0,
+            http_client=httpx.AsyncClient(transport=httpx.MockTransport(_answer)),
+        )
+    else:
+        client = openai.OpenAI(
+            api_key="sk-test",  # pragma: allowlist secret
+            max_retries=0,
+            http_client=httpx.Client(transport=httpx.MockTransport(_answer)),
+        )
+    return consent.wrap(client, adapter=ProviderAdapter(_OPENAI), consent_client=fake)
+
+
+def test_calls_naming_nobody_between_two_chunks_of_a_real_stream_are_allowed() -> None:
+    fake = _FakeConsent()
+    client, other = _real(fake), _real(fake)
+
+    for _chunk in client.chat.completions.create(
+        model="gpt-5", messages=_MESSAGES, stream=True, user_id="usr_marie_456"
+    ):
+        other.chat.completions.create(model="gpt-5", messages=_MESSAGES)
+        client.chat.completions.create(model="gpt-5", messages=_MESSAGES)
+    with client.chat.completions.stream(
+        model="gpt-5", messages=_MESSAGES, user_id="usr_marie_456"
+    ) as stream:
+        for _event in stream:
+            other.chat.completions.create(model="gpt-5", messages=_MESSAGES)
+
+    named = [call["user_id"] for call in fake.calls if call["user_id"] is not None]
+    assert named == ["usr_marie_456", "usr_marie_456"]
+    assert len(fake.calls) > 4, "the loop bodies made no call at all"
+
+
+def test_calls_naming_nobody_between_chunks_of_a_real_async_stream_are_allowed() -> (
+    None
+):
+    fake = _FakeConsent()
+    client, other = _real(fake, asynchronous=True), _real(fake, asynchronous=True)
+
+    async def agent() -> None:
+        async for _chunk in await client.chat.completions.create(
+            model="gpt-5", messages=_MESSAGES, stream=True, user_id="usr_marie_456"
+        ):
+            await other.chat.completions.create(model="gpt-5", messages=_MESSAGES)
+            await client.chat.completions.create(model="gpt-5", messages=_MESSAGES)
+        async with client.chat.completions.stream(
+            model="gpt-5", messages=_MESSAGES, user_id="usr_marie_456"
+        ) as stream:
+            async for _event in stream:
+                await other.chat.completions.create(model="gpt-5", messages=_MESSAGES)
+
+    asyncio.run(agent())
+
+    named = [call["user_id"] for call in fake.calls if call["user_id"] is not None]
+    assert named == ["usr_marie_456", "usr_marie_456"]
+    assert len(fake.calls) > 4, "the loop bodies made no call at all"
+
+
+class _LazyCompletions(_RecordingCompletions):
+    """A call site whose stream is produced lazily, as ``google-genai``'s is.
+
+    Its request happens on the first ``next()``, so the permit is re-established
+    around each step. ``held`` records whether it was, step by step: a test that
+    never ran under the permit would prove nothing about where it ends.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.held: list[bool] = []
+
+    def _chunks(self) -> Any:
+        for chunk in ("a", "b"):
+            self.held.append(_INTERNAL_CALL.get() is not None)
+            yield chunk
+
+    def create(self, **kwargs: Any) -> Any:
+        self.calls.append(("create", kwargs))
+        return self._chunks()
+
+    def stream(self, **kwargs: Any) -> Any:
+        self.calls.append(("stream", kwargs))
+        return _LazyManager(self._chunks())
+
+
+class _LazyManager:
+    """A stream manager whose entry hands back a generator still to be driven."""
+
+    def __init__(self, chunks: Any) -> None:
+        self._chunks = chunks
+
+    def __enter__(self) -> Any:
+        return self._chunks
+
+    def __exit__(self, *_exc: Any) -> None:
+        return None
+
+
+def test_a_lazily_produced_stream_holds_the_permit_only_inside_the_provider() -> None:
+    completions = _LazyCompletions()
+    fake = _FakeConsent()
+    client = consent.wrap(
+        SimpleNamespace(chat=SimpleNamespace(completions=completions)),
+        adapter=ProviderAdapter(_OPENAI),
+        consent_client=fake,
+    )
+    other = _RecordingCompletions()
+    wrapped_other = consent.wrap(
+        SimpleNamespace(chat=SimpleNamespace(completions=other)),
+        adapter=ProviderAdapter(_OPENAI),
+        consent_client=fake,
+    )
+    seen_in_the_loop: list[bool] = []
+
+    for _chunk in client.chat.completions.create(
+        model="gpt-5", messages=_MESSAGES, user_id="usr_marie_456"
+    ):
+        seen_in_the_loop.append(_INTERNAL_CALL.get() is not None)
+        wrapped_other.chat.completions.create(model="gpt-5", messages=_MESSAGES)
+    with client.chat.completions.stream(
+        model="gpt-5", messages=_MESSAGES, user_id="usr_marie_456"
+    ) as chunks:
+        for _chunk in chunks:
+            seen_in_the_loop.append(_INTERNAL_CALL.get() is not None)
+            wrapped_other.chat.completions.create(model="gpt-5", messages=_MESSAGES)
+
+    assert completions.held == [True] * 4, "the provider's steps ran without a permit"
+    assert seen_in_the_loop == [False] * 4
+    assert [call["user_id"] for call in fake.calls] == [
+        "usr_marie_456",
+        None,
+        None,
+        "usr_marie_456",
+        None,
+        None,
+    ]
+    assert len(other.calls) == 4
+
+
+class _AsyncLazyCompletions:
+    """The async half: an awaited call site and a helper, both lazily produced."""
+
+    def __init__(self) -> None:
+        self.held: list[bool] = []
+
+    async def _chunks(self) -> Any:
+        for chunk in ("a", "b"):
+            await asyncio.sleep(0)
+            self.held.append(_INTERNAL_CALL.get() is not None)
+            yield chunk
+
+    async def create(self, **_kwargs: Any) -> Any:
+        return self._chunks()
+
+    def stream(self, **_kwargs: Any) -> Any:
+        return _AsyncLazyManager(self._chunks())
+
+
+class _AsyncLazyManager:
+    def __init__(self, chunks: Any) -> None:
+        self._chunks = chunks
+
+    async def __aenter__(self) -> Any:
+        return self._chunks
+
+    async def __aexit__(self, *_exc: Any) -> None:
+        return None
+
+
+class _AsyncRecordingCompletions:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    async def create(self, **kwargs: Any) -> dict[str, str]:
+        self.calls.append(kwargs)
+        return {"id": "chatcmpl_fake"}
+
+
+def test_a_lazily_produced_async_stream_holds_the_permit_only_inside_the_provider() -> (
+    None
+):
+    completions = _AsyncLazyCompletions()
+    fake = _FakeConsent()
+    client = consent.wrap(
+        SimpleNamespace(chat=SimpleNamespace(completions=completions)),
+        adapter=ProviderAdapter(_OPENAI),
+        consent_client=fake,
+    )
+    other = _AsyncRecordingCompletions()
+    wrapped_other = consent.wrap(
+        SimpleNamespace(chat=SimpleNamespace(completions=other)),
+        adapter=ProviderAdapter(_OPENAI),
+        consent_client=fake,
+    )
+    seen_in_the_loop: list[bool] = []
+
+    async def agent() -> None:
+        async for _chunk in await client.chat.completions.create(
+            model="gpt-5", messages=_MESSAGES, user_id="usr_marie_456"
+        ):
+            seen_in_the_loop.append(_INTERNAL_CALL.get() is not None)
+            await wrapped_other.chat.completions.create(
+                model="gpt-5", messages=_MESSAGES
+            )
+        async with client.chat.completions.stream(
+            model="gpt-5", messages=_MESSAGES, user_id="usr_marie_456"
+        ) as chunks:
+            async for _chunk in chunks:
+                seen_in_the_loop.append(_INTERNAL_CALL.get() is not None)
+                await wrapped_other.chat.completions.create(
+                    model="gpt-5", messages=_MESSAGES
+                )
+
+    asyncio.run(agent())
+
+    assert completions.held == [True] * 4, "the provider's steps ran without a permit"
+    assert seen_in_the_loop == [False] * 4
+    assert [call["user_id"] for call in fake.calls] == [
+        "usr_marie_456",
+        None,
+        None,
+        "usr_marie_456",
+        None,
+        None,
+    ]
+    assert len(other.calls) == 4
 
 
 # ── the cloud is unreachable when the stream is opened ───────────────────────
@@ -466,11 +778,16 @@ def test_the_creating_form_of_the_same_helper_is_still_enforced() -> None:
     """
     wrapped, fake, wire = _probe()
 
-    with pytest.raises(MissingIdentityError):
-        wrapped.responses.stream(model="gpt-5", input="hello")
+    # Naming nobody: the call is authorized with the API key as its subject,
+    # and leaves with its proof like any other.
+    with pytest.raises(openai.APIConnectionError):  # noqa: SIM117 — two distinct blocks
+        with wrapped.responses.stream(model="gpt-5", input="hello"):
+            pass
 
-    assert fake.calls == []
-    assert wire.requests == []
+    assert len(fake.calls) == 1
+    assert fake.calls[0]["call_site"] == "responses.create"
+    assert fake.calls[0]["user_id"] is None
+    assert wire.requests == [("POST", "/v1/responses", True)]
 
 
 def test_an_identity_passed_to_the_resuming_form_never_reaches_the_provider() -> None:

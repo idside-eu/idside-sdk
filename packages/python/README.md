@@ -1,6 +1,6 @@
 # idside — AI Consent Infrastructure (Python SDK)
 
-A signed proof of the AI consent each call was authorized against — for every AI
+A signed proof of the AI policy each call was authorized against — for every AI
 call your backend makes.
 
 > ⚠️ **Pre-release (`0.1.0.dev2`).** Install with `pip install idside`. The SDK
@@ -8,7 +8,7 @@ call your backend makes.
 > starting from nothing, an extra installs one in the same command —
 > `idside[openai]`, `[anthropic]`, `[gemini]`, `[mistral]` or `[all]`.
 > End-to-end use needs an ID Side API key: sign up at
-> <https://sdk.idside.eu/dashboard/signup> (a free plan exists, see
+> <https://sdk.idside.eu/signup> (a free plan exists, see
 > <https://sdk.idside.eu/pricing>), or take a 24-hour, 20-call test key from the no-account sandbox at
 > <https://sdk.idside.eu/sdk>.
 
@@ -20,10 +20,10 @@ from idside import consent
 
 client = consent.wrap(OpenAI())          # 1. wrap your provider client
 
-client.chat.completions.create(          # 2. call it as usual…
+client.chat.completions.create(          # 2. call it as usual
     model="gpt-4o",
     messages=[{"role": "user", "content": "..."}],
-    user_id="usr_marie_456",             # 3. …naming the end user
+    user_id="usr_marie_456",             # 3. optional: whom the call is for
 )
 ```
 
@@ -45,9 +45,10 @@ answer — the AI call **does not happen**. The SDK never guesses a decision.
 | Anthropic | `anthropic` | `messages.create` (+ `parse`, `stream`) | `extra_headers` |
 | Google Gemini | `google-genai` | `models.generate_content(_stream)` | `config.http_options.headers` |
 | Mistral | `mistralai` | `chat/fim/agents` `complete` & `stream` | `http_headers` |
+| DeepSeek | `openai` (base URL `api.deepseek.com`) | `chat.completions.create` (+ `parse`, `stream`) | `extra_headers` |
 
 OpenAI-compatible providers (Groq, Together, xAI…) work through the `openai`
-client and its descriptor. DeepSeek is the exception: an `OpenAI` client pointed
+client and its descriptor. DeepSeek has its own: an `OpenAI` client pointed
 at `api.deepseek.com` gets the `deepseek` descriptor, so its proofs say
 `provider: "deepseek"` and it takes no `credentials=` (see `docs/providers.md`). Provider libraries are optional extras:
 `pip install 'idside[openai]'`, `[anthropic]`, `[gemini]`, `[mistral]` or `[all]`.
@@ -130,22 +131,27 @@ was authorized.
 
 ## `user_id` vs `ubt`
 
-Every wrapped call names the end user with exactly **one** of two kwargs. Both
-are consumed by the SDK and never forwarded to the AI provider:
+Naming the end user is **optional**. A call that names nobody is authorized with
+your API key as the proof's subject — the proof records `binding="api_key"` —
+and your organization's policy applies to it as to any other. To make the proof
+say whom a call was for, pass **at most one** of two kwargs. Both are consumed
+by the SDK and never forwarded to the AI provider:
 
+- **`user_id="usr_..."`** — your own identifier for the person, or for a team
+  (`"team-marketing"`). You assert it yourself; the proof records
+  `binding="user_id"`.
 - **`ubt="eyJ..."`** — use this when your frontend runs the ID Side Preference
-  Center widget. The widget hands your frontend a **User Binding Token**: a JWT
+  Center widget, on an application that asks its users. The widget hands your frontend a **User Binding Token**: a JWT
   signed by ID Side that binds the user, your app, the session and the consent
   state. Forward it to your backend and pass it as-is — the SDK treats it as
   opaque; the cloud verifies it. This defeats identity spoofing (collecting an
   opt-out for one user, then calling the SDK with another), and the proof
   records `binding="ubt"` — the strong link.
-- **`user_id="usr_..."`** — use this for backend-only integrations without the
-  widget. You assert the identity yourself; accepted, but the proof records the
-  weaker `binding="user_id"`.
 
-Passing both raises `ConflictingIdentityError`; passing neither raises
-`MissingIdentityError`. In both cases nothing is sent anywhere.
+Passing both raises `ConflictingIdentityError`; passing one that names nobody
+(`""`, blanks, `0`, `False`, an empty container) raises `MissingIdentityError`
+rather than quietly becoming a call about the key — leave it out, or pass
+`None`, to name nobody. In both error cases nothing is sent anywhere.
 
 ## One credential per posture — `credentials=`
 
@@ -202,14 +208,14 @@ anyway" — when authorization did not succeed, the AI call simply did not happe
 | `ConsentDeniedError` | Usage denied for the account or key, or held by the organization's policy (`.reason`: `fraud_suspended`, `organization_suspended`, `policy_hold`, or `None` = a denial the SDK cannot qualify, such as a key without the `authorize` scope). Never a user's own refusal | Do not retry; read the message and surface the denial in your product |
 | `AuthenticationError` | Bad ID Side API key (HTTP 401) | Fix the key; retrying is pointless |
 | `InvalidBindingError` | The visitor's UBT did not verify — expired, issued for another app, altered, or not a UBT at all (HTTP 401 `ubt_invalid`); a `BindingError`, so also an `AuthenticationError` | Not the key: discard the stored UBT and let the widget issue a new one |
-| `BindingRequiredError` | The app requires a UBT and the call passed `user_id` (HTTP 401 `ubt_required`); a `BindingError` too | Show the widget before any AI call and pass its UBT as `ubt` |
+| `BindingRequiredError` | The app requires a UBT and the call passed `user_id`, or named nobody (HTTP 401 `ubt_required`); a `BindingError` too | Show the widget before any AI call and pass its UBT as `ubt` |
 | `ConsentRefreshRequiredError` | The visitor's choices no longer cover what the app requires (HTTP 409 `consent_refresh_required`). Not an outage, so not a `ConsentUnreachableError` | Stop the request and show the widget again; never retry with backoff |
 | `QuotaExceededError` | Plan quota exhausted (HTTP 402) | Upgrade or wait for the window to reset |
 | `RateLimitedError` | Too many authorize calls (HTTP 429) | Back off and retry |
 | `ContractError` | The cloud refused the authorize payload (HTTP 422): a value your code passed, or an SDK/cloud mismatch | Fix the value the cloud's detail names; otherwise upgrade `idside` or report it |
 | `ConsentTokenError` | Request hash cannot be computed (non-JSON value) or token binding invalid | Pass JSON-compatible values or Pydantic models |
 | `UnenforceableOptionError` | The call carries an option that would undo enforcement: a body or query rewrite, a per-call destination, a reserved header, a Gemini tool run by the library (raised before authorize) | Pass request parameters as named arguments; set destination and credentials on the client, route with `credentials=` |
-| `MissingIdentityError` / `ConflictingIdentityError` | No identity / both identities passed | Pass exactly one of `user_id`, `ubt` |
+| `MissingIdentityError` / `ConflictingIdentityError` | An identity that names nobody (`""`, blanks, `0`, `False`…) / both identities passed | Pass a real identifier, or leave it out to name nobody; never both |
 | `UnsupportedProviderError` | No descriptor matches the client; the guard cannot cover it; or a derivation changes the origin, the provider, the transport, the query or the middleware | Check support, or `register_adapter()`; follow the message; build and wrap a separate client |
 | `ToolUseRefusedError` | The call can hand the model tools — `tools`, `functions`, `web_search_options`, a stored conversation or prompt, a Mistral agent, a Gemini cache — and agentic tools are not accepted for this user: refused, never asked, or refused by a policy | Retry without them, or route the user to a non-agentic path; never retry the same call |
 | `CredentialRoutingError` | The `credentials=` mapping cannot route; the client already sets the routing header in its default headers; or a derivation changes the credential or a reserved header | Fix the mapping — the message says which entry and why; route with `credentials=` |
@@ -325,8 +331,10 @@ pip install 'idside[verify]'
 Two things worth knowing:
 
 - `subject=` pins the `sub` claim, which is the app-scoped **pseudonym** the
-  cloud derived from your end user. The raw `user_id` you passed to
-  `consent.wrap()` deliberately never enters the token, so it cannot be pinned.
+  cloud derived from your end user — or, on a call that named nobody
+  (`binding == "api_key"`), from the API key, whose public identifier is in
+  `claims["api_key"]`. The raw `user_id` you passed deliberately never enters
+  the token, so it cannot be pinned.
 - Replay of the *same* token on the *same* request is not detectable offline (a
   verifier holds no history); that is the ledger's job. What a local check
   proves is that this signed proof belongs to this exact request.

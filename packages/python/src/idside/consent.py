@@ -27,17 +27,17 @@ from idside._transport import (
     ConsentClient,
     ConsentDecision,
     HttpConsentClient,
-    _named,
+    _identity,
 )
 from idside.adapters import get_adapter_for
 from idside.adapters._call_options import (
     refuse_declared_rewrites,
+    refuse_identity_lookalikes,
     refuse_underivable,
     refuse_unenforceable,
 )
 from idside.adapters.base import ProviderAdapter
 from idside.exceptions import (
-    ConflictingIdentityError,
     CredentialRoutingError,
     MissingCredentialError,
     MissingIdentityError,
@@ -124,9 +124,21 @@ class _InternalCall:
 
 # Context-local so concurrent async calls cannot consume one another's permit.
 # It exists only while the already-authorized provider method is running; unlike
-# the public ACT header, callers cannot manufacture this provenance.
+# the public ACT header, callers cannot manufacture this provenance. Its presence,
+# consumed or not, is also what says an enforced call is in progress: a call
+# naming nobody is refused there (see `_Enforcer.begin`).
 _INTERNAL_CALL: ContextVar[_InternalCall | None] = ContextVar(
     "idside_internal_call", default=None
+)
+
+#: Written once for both SDKs: the Node wrapper raises the same words.
+_NESTED_UNNAMED = (
+    "A consent-enforced AI call was made from inside another one still in "
+    "progress (a provider helper reaching an enforced method again), and it "
+    "names nobody. A nested call is not authorized on its own: the identity of "
+    "the outer call was consumed by it, and a proof made now would be about the "
+    "API key, not about whoever the outer call named. The AI call was not made "
+    "and ID Side was not asked."
 )
 
 
@@ -342,22 +354,26 @@ def wrap(
     out: the call carries no ACT token, so the transport guard refuses it if it
     turns out to carry a body.
 
-    The caller names the end user on every AI call with exactly ONE of two
-    kwargs; both are consumed by the SDK and never forwarded to the provider:
+    Naming the end user is optional. A call that names nobody is authorized
+    with the API key as the proof's subject (``binding="api_key"``): the
+    organization's policy applies to whoever holds that key. To name the person
+    a call is for, pass at most ONE of two kwargs; both are consumed by the SDK
+    and never forwarded to the provider:
 
+    - ``user_id="usr_..."`` — your own identifier for the person (or for a
+      team, such as ``"team-marketing"``). You assert it yourself; the proof
+      records ``binding="user_id"``.
     - ``ubt="eyJ..."`` — use this when your frontend runs the ID Side
       Preference Center widget. The widget hands your frontend a **User
       Binding Token** (a JWT signed by ID Side binding user, app, session and
       consent state); forward it to your backend and pass it here. The SDK
       treats it as opaque; the cloud verifies it, defeating identity spoofing
       (the proof records ``binding="ubt"`` — the strong link).
-    - ``user_id="usr_..."`` — use this for backend-only integrations without
-      the widget. You assert the identity yourself; the proof records the
-      weaker ``binding="user_id"``.
 
-    Passing both raises ``ConflictingIdentityError``; passing neither raises
+    Passing both raises ``ConflictingIdentityError``; passing one that names
+    nobody (``""``, blanks, ``0``, ``False``, an empty container) raises
     ``MissingIdentityError`` — in both cases no cloud query and no AI call is
-    made.
+    made. Leave the kwarg out, or pass ``None``, to name nobody.
 
     A call is also refused, before the cloud is asked, when it carries an option
     that would make the request sent differ from the request proven: a body or
@@ -1026,6 +1042,25 @@ def _assert_routed(
     )
 
 
+def _journal_subject(authorize_kwargs: dict[str, Any]) -> str | None:
+    """The salted pseudonym of whoever the call named, or ``None`` for nobody.
+
+    ``None`` drops the field from the line. A pseudonym of "nobody" would give
+    every call that named nobody one shared, person-shaped subject — read in a
+    log, one user making all of them. And nothing is derived from the API key:
+    it is a secret, salted or not.
+    """
+    identity = authorize_kwargs["ubt"] or authorize_kwargs["user_id"]
+    return None if identity is None else _log.pseudonym(identity)
+
+
+def _journal_binding(authorize_kwargs: dict[str, Any]) -> str:
+    """What the proof's subject is, as the request decided it."""
+    if authorize_kwargs["ubt"] is not None:
+        return "ubt"
+    return "user_id" if authorize_kwargs["user_id"] is not None else "api_key"
+
+
 class _Enforcer:
     """Everything a patched method does around the one question put to the cloud.
 
@@ -1135,7 +1170,8 @@ class _Enforcer:
         prove that happened. The outer wrapper creates a one-shot context-local
         permit after authorization and keeps it active across awaited and
         deferred provider operations. Matching the call site and token binds the
-        nested hop to that exact call.
+        nested hop to that exact call. A hop that does not match is enforced on
+        its own merits, and if it names nobody :meth:`begin` refuses it.
         """
         carried = kwargs.get(self.adapter.descriptor.headers_kwarg)
         token = (
@@ -1182,33 +1218,55 @@ class _Enforcer:
         """Consume the identity and hash the request; ask nothing of anybody.
 
         Pure on purpose. It runs before the cloud is reached on every path, so a
-        call that names no user — or two — fails where the mistake was made,
-        including on a streaming helper whose real request only happens later.
-        So does a call carrying an option that would undo enforcement once the
+        call that names two users — or passes one that names nobody — fails
+        where the mistake was made, including on a streaming helper whose real
+        request only happens later. A call that names nobody at all is not a
+        mistake: it is authorized with the API key as the proof's subject —
+        unless it is made from inside an enforced call still in progress. That
+        is a provider helper reaching a patched method a second time without
+        the permit, and the identity it lacks is the one the outer call
+        consumed: authorized, it would be a second proof about the key for a
+        request somebody may have been named on. Refused, as it was when an
+        identity was required, before the options check and with no journal
+        line. So does a call carrying an option that would undo enforcement once the
         cloud has answered (``extra_body``, a per-call destination, a header
         choosing the credential): asking first would put a proof in the ledger
         for a request that was never going to be the one sent. Checked before
         the hash, too, since some of those options cannot be hashed at all.
+        First of all, an argument spelled like the identity but not as it
+        (``userId``): it would otherwise make a call naming nobody, carrying a
+        parameter the provider was never meant to see.
 
         Returns the arguments for ``authorize()`` and the call kwargs that
         survive, the identity removed.
         """
         descriptor = self.adapter.descriptor
+        # `userId` for `user_id`: refused before the identity is read, so the
+        # same code fails the same way whatever the identity holds.
+        refuse_identity_lookalikes(descriptor, kwargs)
         remaining = dict(kwargs)
-        user_id = remaining.pop(descriptor.identity_param, None)
-        ubt = remaining.pop(descriptor.ubt_param, None)
-        # Blank names nobody, as empty already did; nothing else is trimmed.
-        user_id = user_id if _named(user_id) else None
-        ubt = ubt if _named(ubt) else None
-        if user_id and ubt:
-            raise ConflictingIdentityError(
+        # Absent and None name nobody, and that is allowed. Blank names nobody
+        # too, as empty already did, but a value that is THERE and names nobody
+        # is refused; nothing is trimmed.
+        user_id, ubt = _identity(
+            remaining.pop(descriptor.identity_param, None),
+            remaining.pop(descriptor.ubt_param, None),
+            conflict=(
                 "Pass either user_id or ubt on a consent-enforced AI call, "
                 "not both: the UBT already names the user."
-            )
-        if not user_id and not ubt:
-            raise MissingIdentityError(
-                "user_id or ubt is required for consent-enforced AI calls."
-            )
+            ),
+            empty=(
+                "user_id or ubt was passed but names nobody (it is empty, "
+                "blank, zero, false or an empty container). Pass the identifier "
+                "of the person this call is for, or leave both out to make "
+                "the call without naming anyone."
+            ),
+        )
+        # Any permit, consumed or not, for any client: its presence is what says
+        # an enforced call is in progress in this context. It is in force only
+        # while the provider does its own work (see `_lazily_permitted`).
+        if user_id is None and ubt is None and _INTERNAL_CALL.get() is not None:
+            raise MissingIdentityError(_NESTED_UNNAMED)
         refuse_unenforceable(descriptor, self.call_site, remaining)
         meta = self.adapter.extract_request_metadata(**remaining)
         authorize_kwargs = {
@@ -1234,16 +1292,15 @@ class _Enforcer:
         truncated, and three things the decision carries are deliberately
         absent: the ACT token (bearer material), the raw identity, and
         ``consent_state`` — the person's stated preference, which answers no
-        debugging question that ``forced`` does not answer better.
+        debugging question that ``forced`` does not answer better. A call that
+        named nobody has no ``subject=`` at all and reads ``binding=api_key``.
         """
         _log.event(
             "authorize",
             call_site=self.call_site,
             model=authorize_kwargs["model"],
-            subject=_log.pseudonym(
-                authorize_kwargs["ubt"] or authorize_kwargs["user_id"]
-            ),
-            binding="ubt" if authorize_kwargs["ubt"] else "user_id",
+            subject=_journal_subject(authorize_kwargs),
+            binding=_journal_binding(authorize_kwargs),
             request_hash=_log.short_hash(authorize_kwargs["request_hash"]),
             duration_ms=ms,
             forced=sorted(decision.params_forced),
@@ -1266,9 +1323,7 @@ class _Enforcer:
             "authorize_failed",
             call_site=self.call_site,
             model=authorize_kwargs["model"],
-            subject=_log.pseudonym(
-                authorize_kwargs["ubt"] or authorize_kwargs["user_id"]
-            ),
+            subject=_journal_subject(authorize_kwargs),
             duration_ms=ms,
             error=type(exc).__name__,
         )

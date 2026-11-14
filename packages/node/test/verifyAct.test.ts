@@ -193,6 +193,45 @@ test("a proof flagged by its organization verifies with its deviations", async (
   assert.equal(proof.legalBasis, "not_established");
 });
 
+// A call that named nobody: `binding: "api_key"` and an `api_key` claim, both
+// arrived under `/v1`. `sub` is still there and still a pseudonymous subject
+// scoped per app — of the key this time, not of a person — so the check that
+// every proof has one holds, and `binding` is what tells the two kinds of
+// subject apart. The new claim is kept in `claims` unexamined, as every claim
+// the verifier does not name.
+test("a proof whose subject is the API key verifies", async () => {
+  const token = makeToken(
+    claims({
+      sub: "psk_9f2c1a7e0b3d4c5a",
+      source: "default_policy",
+      legal_basis: "legitimate_interest",
+      binding: "api_key",
+      api_key: "key_medhelp_backend", // pragma: allowlist secret
+    }),
+  );
+
+  const proof = await verifyAct(token, { ...OPTIONS, subject: "psk_9f2c1a7e0b3d4c5a" });
+
+  assert.equal(proof.binding, "api_key");
+  assert.equal(proof.subject, "psk_9f2c1a7e0b3d4c5a");
+  assert.equal(proof.claims.api_key, "key_medhelp_backend");
+});
+
+test("a proof from before the api_key claim still verifies", async () => {
+  // Every archived token lacks it, and must verify as it always did.
+  const proof = await verifyAct(makeToken(claims({ binding: "user_id" })), OPTIONS);
+
+  assert.ok(!("api_key" in proof.claims));
+  assert.equal(proof.binding, "user_id");
+});
+
+test("a proof whose subject is the API key still needs a subject", async () => {
+  const withoutSub = claims({ binding: "api_key", api_key: "key_x" });
+  delete withoutSub.sub;
+
+  await assert.rejects(verifyAct(makeToken(withoutSub), OPTIONS), ActMalformedError);
+});
+
 // The verifier reads `legal_basis` as an opaque string, as the spec says. A
 // proof signed on a basis added after this release must still verify: an
 // enumeration here would make every such proof unverifiable, with no SDK release

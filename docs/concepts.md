@@ -40,9 +40,9 @@ ID Side applies the same move to AI consent:
 
 | | Payments (Stripe) | AI consent (ID Side) |
 | --- | --- | --- |
-| Sensitive material | the card number | the user's consent preferences |
-| Who must never hold it | the merchant | the developer |
-| What the app handles instead | a token | a `user_id` or a UBT |
+| Sensitive material | the card number | the decision that governs each AI call: an organization's policy, or a person's answer |
+| Who must never hold it | the merchant | the code that makes the call |
+| What the app handles instead | a token | an API key — and, when it wants to, a `user_id` or a UBT |
 | What comes back | a charge receipt | a signed **ACT token** + a ledger entry |
 
 The consequence is the same in both cases: a whole class of mistakes becomes
@@ -52,19 +52,21 @@ structurally impossible rather than merely forbidden.
 
 This is the central invariant, and the one that surprises people.
 
-**The SDK has no function that sets, overrides or even reads a user's
-preferences.** There is no `set_preferences()`, no `override_consent()`, no
-`get_preferences()` returning something you could edit and send back. You pass
-an identity; the SDK returns an enforced call. Preferences travel from the user
-straight to ID Side, on a path your backend is never on.
+**The SDK has no function that sets, overrides or even reads a policy or a
+user's preferences.** There is no `set_preferences()`, no `override_consent()`,
+no `get_preferences()` returning something you could edit and send back. You
+make the call, with your API key — naming the person it is for if you want to;
+the SDK returns an enforced call. The decision is made on ID Side, on a path the
+code that makes the call is never on: an organization sets its policy on the
+ID Side dashboard, and a person who is asked answers ID Side directly.
 
 ```
-Circuit A — collection                 Circuit B — enforcement
-──────────────────────                 ───────────────────────
-user's browser                         your backend
+Circuit A — the decision               Circuit B — enforcement
+────────────────────────               ───────────────────────
+dashboard · user's browser             your backend
       │                                      │
-      │ preferences                          │ 1. identity + provider
-      │ (widget · GPC · account)             │    + model + request hash
+      │ policy (dashboard), or               │ 1. API key + provider + model
+      │ preferences (widget · GPC · account) │    + request hash (+ identity)
       ▼                                      ▼
   ┌─────────────────────────────────────────────────────┐
   │                 sdk.idside.eu                   │
@@ -91,6 +93,11 @@ because no auditor could distinguish an honest one from that.
 Removing the setter is what makes the signature meaningful. The API is
 deliberately narrower than you might want, and that narrowness is the product.
 
+An organization's policy is not an exception. It is set on the ID Side
+dashboard, not by the code that makes the call, it can only refuse, and the
+proof says it came from the organization (§4). The code path that sends the
+prompt has no say in what applies to it.
+
 ### What the tunnel does *not* claim
 
 It does not make cheating impossible. Nothing stops a developer from calling
@@ -103,96 +110,92 @@ therefore nothing to show for that call. The model does not make violations
 impossible; it makes them *visible as gaps in the proof chain*. This is the
 same reason double-entry bookkeeping works without preventing anyone from lying.
 
-## 4. Two modes: asked and imposed
+## 4. The policy: what applies to a call, and who decided
 
-One mechanism, two ways to use it. The SDK is byte-for-byte the same in both —
-same `wrap()`, same authorize call, same signed proof. What changes is **who
-decided**, and the proof says which:
+One product, one mechanism. The organization that holds the API keys sets a
+policy on the ID Side dashboard — an employer equipping its staff with AI, or a
+publisher whose application serves its own users — and that policy applies to
+every call made with its keys. Holding one of its keys is acting under its
+policy. The SDK is byte-for-byte the same for everyone — same `wrap()`, same
+authorize call, same signed proof — and the proof says what applied and who
+decided:
 
-| | **Asked** | **Imposed** |
-| --- | --- | --- |
-| Who decides | the person, for themselves | the organization, for its employees |
-| How they are reached | the Preference Center — a popup in your page | the same widget, as a read-only transparency panel: told, not asked |
-| `source` in the proof | `widget`, `gpc`, `idside_account` | `default_policy` |
-| `legal_basis` in the proof | `consent` | `legitimate_interest`, `contractual_obligation`, `public_task`, `legal_obligation`, `vital_interests`, `consent` as declared by the organization, or `not_established` |
-| Typical case | a product with end users | a workforce told to use AI at work |
+| Claim | On a call under an organization's policy |
+| --- | --- |
+| `source` | `default_policy` — the decision is the organization's |
+| `legal_basis` | the basis the organization declared: `legitimate_interest`, `contractual_obligation`, `public_task`, `legal_obligation`, `vital_interests` or `consent` — or `not_established` while it has declared none |
+| `binding` | `api_key` when the call named nobody, `user_id` or `ubt` when it named someone ([§8](#8-naming-the-end-user-user_id-vs-ubt)) |
+| `refused_by` | which layer refused each option: the organization, a team, the application |
 
-There is a third state, and it is neither mode: a person nobody has asked and no
-policy covers. **Everything is refused for them** — every option in the
-catalogue, on every provider, tool use included — and the proof says why:
-`source: "app_default"`, `legal_basis: "not_established"`. That is where every
-call lands before a preference has ever been written, so it is the state you
-start in, and it is the strictest one the system has.
+Naming the person a call is for is optional, and most calls name nobody: the
+proof's subject is then the API key the call was made with. Name a person, or a
+team, when you want the proof to say whom the call was for (§8). The policy and
+the declared basis apply either way.
 
-The rule behind it is worth stating on its own, because it also governs people
-who *have* answered: **what nobody accepted is refused.** On an application that
-asks its visitors, a consent state is completed from the catalogue before
-anything is enforced or signed, so an option your users were never asked about
-is refused rather than unenforced. Add a provider next year that brings a new
-option with it, and everyone who answered before it existed refuses it from day
-one, with nothing for you to migrate. The imposed mode is outside this rule: an
-organization's policy decides for its employees, and an option the policy does not
-mention is not refused on its behalf.
+Three properties keep a policy from being a preference setter in disguise:
 
-Nothing in your integration selects a mode. `source` and `legal_basis` are
-mandatory fields of the authorize response, copied into the ACT token, and both
-SDKs treat them as opaque strings — they never branch on the value. The mode is
-a property of the ID Side account the key belongs to. Your code is identical
-either way; read the two fields back off the proof if you want to know which
-applied. Their lists of values only grow, and a new value reaches your code
-with no SDK release — `public_task`, `legal_obligation` and `vital_interests`
-arrived this way — so do not close your own handling on the values above.
+- **It is set on the dashboard, never from code.** The SDK has no parameter for
+  it ([§3](#3-the-opaque-tunnel)), so the code that sends a prompt cannot loosen
+  what applies to that prompt.
+- **It can only refuse.** A policy turns an option off, never on. A refusal is
+  applied to the call wherever it can be — a forced provider parameter, a
+  declined call, a dedicated credential — and the token names the layer that
+  made it; where it cannot, Enforce and Observe (below) decide what happens.
+- **It signs what the organization declared, as the organization's.** The basis
+  in the proof is the one the organization declared on the dashboard, carried
+  with `source: "default_policy"`, so that nobody reading it mistakes a
+  declaration for an answer someone gave. ID Side does not assess the
+  declaration. An organization may declare `consent` too; where it does, the
+  token still shows that the decision came from the organization and that ID
+  Side collected no answer — and consent is rarely a valid basis between an
+  employer and an employee, who can seldom refuse freely.
 
-### Asked — you run the widget
+What the organization owes the people its calls concern is **transparency**:
+what was decided, by whom, on what basis. A policy is a statement, not a
+question.
 
-Someone visits your site or opens your app. The
-[Preference Center](./widget.md) asks them, in a surface ID Side serves and you
-cannot read. They answer; the answer lands on ID Side's side of the tunnel; from
-then on every AI call you make for that person is resolved against it. The proof
-carries `legal_basis: "consent"`, because a person made a positive act.
+Nothing in your integration selects how a call is decided. `source` and
+`legal_basis` are mandatory fields of the authorize response, copied into the
+ACT token, and both SDKs treat them as opaque strings — they never branch on the
+value. How an application decides is a property of the application in the ID
+Side account the key belongs to. Your code is identical either way; read the
+fields back off the proof if you want to know what applied. Their lists of
+values only grow, and a new value reaches your code with no SDK release —
+`public_task`, `legal_obligation` and `vital_interests` arrived this way — so do
+not close your own handling on the values above.
 
-This is the mode that needs the widget. **Without it, nobody ever writes a
-preference** — the SDK cannot, by design (§3) — so every call resolves to a total
-refusal and every proof reads `not_established`. That state is honest, and it is
-safe, but it is not a product: you are paying a provider for capabilities your
-users are all refusing, and your evidence says nobody was ever asked.
+### Asking instead: the Preference Center
 
-It also has teeth. A refusal of `agentic_tools` is the one the SDK enforces by
-declining the call rather than by rewriting a parameter, so an agentic
-integration without the widget raises `ToolUseRefusedError` on every request.
-That is not an outage and not a misconfiguration — it is the mechanism asking you
-to put the question to your users.
+An application can also ask the people it serves rather than decide for them.
+The [Preference Center](./widget.md) asks each person, in a surface ID Side
+serves and you cannot read. They answer; the answer lands on ID Side's side of
+the tunnel; from then on every AI call you make for that person — named with the
+UBT the widget issues, or with your own `user_id` — is resolved against it. The
+proof carries `source: "widget"` (or `gpc`, `idside_account`) and
+`legal_basis: "consent"`, because a person made a positive act.
 
-### Imposed — the organization decides for its employees
+That way of deciding needs the widget. **Without it, nobody ever writes a
+preference** — the SDK cannot, by design (§3) — and one rule takes over: **what
+nobody accepted is refused.** Every option in the catalogue, on every provider,
+tool use included, resolves to a refusal for a person who has not answered, and
+the proof says why: `source: "app_default"`, `legal_basis: "not_established"`.
+An option your users were never asked about is refused rather than unenforced;
+add a provider next year that brings a new option with it, and everyone who
+answered before it existed refuses it from day one, with nothing for you to
+migrate. A refusal of `agentic_tools` is enforced by declining the call rather
+than by rewriting a parameter, so an agentic integration on an application that
+asks, with no widget running, raises `ToolUseRefusedError` on every request:
+the mechanism asking you to put the question to your users.
 
-An employer deploying AI to its staff does not ask each employee whether the
-organization may use a model. It decides, and it owes the people concerned
-**transparency**: what was decided, by whom, on what basis, and what the
-employer can see. A statement rather than a question — and the
-[widget](./widget.md#11-the-imposed-mode) is how the statement is delivered,
-read-only, with no switch anywhere in it. Consent is rarely a valid basis here:
-an employee can seldom refuse their employer freely. An organization may declare
-it only where genuine freedom of choice can be demonstrated; ID Side collects no
-answer from the employee and does not assess the declaration.
+An organization's policy is outside that rule: it decides, and an option the
+policy does not mention is not refused on its behalf. On an application that
+asks, a policy can still refuse options for everyone; it changes what applies
+and stamps nothing — `source` and `legal_basis` stay what the person's own
+answer, or their silence, made them.
 
-Two properties keep this from becoming a preference setter in disguise:
-
-- **A policy can only tighten.** It turns an option off, never on. A person's
-  own refusal survives a policy that permits. On an application that asks, a
-  policy changes what applies and stamps nothing: `source` and `legal_basis`
-  stay what the person's own answer — or their silence — made them. On an
-  application that imposes, every call is signed `default_policy`, whether the
-  policy refuses ten options or none — the decision came from the
-  organization, and nobody was asked.
-- **A policy signs only what the organization declared**:
-  `legitimate_interest`, `contractual_obligation`, `public_task`,
-  `legal_obligation`, `vital_interests` or `consent`, for an employee who is
-  identified — and `not_established` where it declared none or the employee is
-  not identified. A declared `consent` keeps its `source`: the token still shows
-  that the decision came from the organization, and that nobody was asked.
-
-Whichever mode applies, every token says **who refused** each option — the
-person, their silence, the organization, a team, or the application — in its
+Whichever way an application decides, every token says **who refused** each
+option — the person, their silence, the organization, a team, or the
+application — in its
 [`refused_by`](./spec/act-token.md#refused_by--who-refused) claim. A refusal
 your organization or your application adds is written under its own name,
 never under the person's.
@@ -210,10 +213,10 @@ proof still says what they answered — or that they never did.
 ### Enforce and Observe — when the policy cannot apply
 
 A policy is not always something a call can carry out: a provider may have no
-setting for an option the organization refuses, the organization may not have allowed the
-provider at all, and an employee who is not identified leaves no basis to sign.
-**When your policy cannot apply to a call (a provider with no such setting, a
-provider your organization has not allowed, an employee who is not identified),
+setting for an option the organization refuses, the organization may not have
+allowed the provider at all, and while it has declared no basis there is none
+to sign. **When your policy cannot apply to a call (a provider with no such
+setting, a provider your organization has not allowed, no basis declared),
 Observe lets the call through and flags it, Enforce holds it.**
 
 - **Observe**, the default: the call goes out, and its token carries a
@@ -227,62 +230,58 @@ The organization chooses, application by application, on the ID Side
 dashboard — nothing in your code selects either, and your code is the same
 under both. A developer can never bypass a wrapped client: a deviation never
 comes from a setting your code turned off. It comes from what the call names —
-the provider, the endpoint, the model or the identity — set against what the
-organization has set up. What the call names is your code's choice: a provider
-the organization allows and that applies what the policy refuses, an endpoint
-and a model its descriptor covers, and the identifier the organization
-registered for the employee. The rest is the organization's: the same call is
-still held or flagged while it has declared no basis, while a refusal rests on
-an account setting that no current declaration covers, or while its policy
-refuses an option nothing at that provider can apply. A refusal the provider
-answers only in its own terms is applied when those terms rule the processing
-out, and is a deviation when they leave it possible. A refusal that only a
-dedicated credential can carry (see
+the provider, the endpoint, the model — set against what the organization has
+set up. What the call names is your code's choice: a provider the organization
+allows and that applies what the policy refuses, and an endpoint and a model its
+descriptor covers. The rest is the organization's: the same call is still held
+or flagged while it has declared no basis, while a refusal rests on an account
+setting that no current declaration covers, or while its policy refuses an
+option nothing at that provider can apply. A refusal the provider answers only
+in its own terms is applied when those terms rule the processing out, and is a
+deviation when they leave it possible. A refusal that only a dedicated
+credential can carry (see
 [credential routing](./providers.md#6-credential-routing)) is a deviation while
 you have labelled no credential for it: Observe sends the call on your ordinary
 credential and flags it, Enforce holds it. Whatever the policy can apply to a
 call that goes out is applied, tool refusals included, which the SDK enforces
 itself under either setting since only it sees whether a call carries tools. An
-application that asks its visitors has neither setting: its calls are never
-held or flagged.
+application that asks its users has neither setting: its calls are never held
+or flagged.
 
 ### The mistake worth naming
 
-**You cannot impose preferences on your visitors.** Not because a rule forbids
-it — because the mechanism will not produce what you were hoping for.
+**Declaring a basis you do not hold.** Not because a rule forbids it — because
+the mechanism records exactly what you declared, and that is all it records.
 
-Say you sell a consumer app, you would rather not show a popup, and you set a
-policy instead. Here is what you actually get. The basis you declared is signed
-only for a person whose tie to your organization was **proven** — a mail
-domain you verified, or a link we sent to their work address that they
-opened — and your visitors are nobody's employees: every one of their calls
-reads `not_established`. Keep them as visitors and skip the widget instead, and
-the proofs say the same word: nobody was asked.
+The basis in every proof is the one your organization declared on the
+dashboard, signed with `source: "default_policy"`. ID Side does not check it
+against anything: it is your statement, and the proof carries it as yours, on
+every call, in a form nobody can edit afterwards. Declare `consent` for people
+nobody asked, and the file shows a year of calls signed `consent` beside a
+source that says nobody was asked. Declare nothing, and every proof reads
+`not_established`, each one flagged — or held, under Enforce.
 
-Now picture that file in front of the authority it was built for. A year of
-calls, each one signed, each one saying *no basis was established* — about
-people you chose not to ask. The proof did not protect you; it wrote the
-finding. And it wrote it in a form nobody can edit afterwards, which was the
-whole point of signing it.
-
-That is the shape of the product: it is **deterrent and evidentiary, never
-policing**. Nothing stops you from configuring it this way. The system simply
-records what happened, and a lie recorded faithfully stops being readable as
-anything but a lie. If you have end users, ask them — it costs one
-[`<script>` tag](./widget.md).
+Now picture that file in front of the authority it was built for. The proof did
+not decide anything for you; it wrote down what you decided, and when. That is
+the shape of the product: it is **deterrent and evidentiary, never policing**.
+Nothing stops you from configuring it carelessly. The system simply records what
+happened, and a statement recorded faithfully can only be read as what it was.
+Declare the basis you would defend, and refuse what you would not.
 
 ## 5. The three layers
 
 ID Side's architecture has three layers. Only the last one has a public
 specification today.
 
-1. **Preference collection.** The user expresses choices directly to ID Side —
-   through the [Preference Center widget](./widget.md) embedded in your frontend,
-   through their own ID Side account, or implicitly through a browser signal such
-   as GPC. Your DOM and your backend are not in this path: the widget is a
-   cross-origin iframe ID Side serves, not a library running in your page.
-2. **Authorization.** For each AI call, the ID Side cloud resolves the
-   applicable consent state, decides which provider parameters must be forced,
+1. **Preference collection.** The organization sets its policy on the ID Side
+   dashboard. On an application that asks, the user expresses choices directly
+   to ID Side — through the [Preference Center widget](./widget.md) embedded in
+   your frontend, through their own ID Side account, or implicitly through a
+   browser signal such as GPC. Your DOM and your backend are not in this path:
+   the widget is a cross-origin iframe ID Side serves, not a library running in
+   your page.
+2. **Authorization.** For each AI call, the ID Side cloud resolves the policy or
+   consent state that applies, decides which provider parameters must be forced,
    mints a token and appends a ledger entry. This is the proprietary part; the
    SDK sees it as one HTTP endpoint, `POST /v1/authorize`.
 3. **Proof.** The **ACT token** (AI Consent Token) — a signed JWT bound to one
@@ -305,9 +304,10 @@ An ACT token is an `ES256`-signed JWT of at most 3,072 characters (the
 `deviations` claim of a flagged call is what can take it past 2 KB), with a
 one-hour lifetime, attached to the provider call as the `X-AI-Consent-Token`
 header. It records —
-in a form nobody can retroactively alter — the pseudonymized user, the app, the
-provider and model, the resolved `consent_state`, the `legal_basis`, the
-`source` of the preference, and the `request_hash`.
+in a form nobody can retroactively alter — the pseudonymized subject (the person
+the call named, or the API key it was made with), the app, the provider and
+model, the resolved `consent_state`, the `legal_basis`, the `source` of the
+decision, and the `request_hash`.
 
 Two properties matter more than the rest:
 
@@ -337,7 +337,8 @@ verdict depended on which SDK you installed would not be one either, which is wh
 [shared vectors](../packages/descriptors/testdata/act-verification-vectors.json)
 pin the outcome — down to the error raised — for both implementations.
 
-The `binding` claim records *how* the user was identified — see §8.
+The `binding` claim records *what* the subject is and how it was tied to the
+call — see §8.
 
 ## 7. The ledger
 
@@ -353,32 +354,43 @@ way to make an AI call through the SDK and *not* leave a trace.
 
 ## 8. Naming the end user: `user_id` vs UBT
 
-Every wrapped AI call must name exactly one end user, with exactly one of two
-mutually exclusive fields:
+Naming the end user is **optional**. A call that names nobody is authorized with
+the API key as the proof's subject: the token's `sub` is then a pseudonymous
+subject of that key, scoped per app exactly as a person's is, and its `binding`
+reads `api_key`. Most calls name nobody, and the organization's policy applies
+to them all the same.
 
-| | `user_id="usr_marie_456"` | `ubt="eyJ…"` |
-| --- | --- | --- |
-| Origin | you assert it | the ID Side widget issued it |
-| What it is | your identifier for the user | a JWT signed by ID Side, binding user, app, session and consent state |
-| SDK behavior | sent as-is | forwarded opaquely, never decoded |
-| Recorded as | `binding: "user_id"` | `binding: "ubt"` |
-| Evidentiary weight | weaker | stronger |
+Name the person a call is for — or a team, such as `team-marketing` — when you
+want the proof to say whom the call was for. Pass at most one of two mutually
+exclusive fields:
+
+| | nothing | `user_id="usr_marie_456"` | `ubt="eyJ…"` |
+| --- | --- | --- | --- |
+| The proof is about | whoever holds the API key | the person or team you name | the person the widget saw |
+| Origin | — | you assert it | the ID Side widget issued it |
+| SDK behavior | no identity field is sent | sent as-is | forwarded opaquely, never decoded |
+| Recorded as | `binding: "api_key"` | `binding: "user_id"` | `binding: "ubt"` |
+
+Tell the three apart by `binding`, never by the shape of `sub`: each is a
+pseudonym, and none of them is the raw value.
 
 The `user_id` form has an honest gap: nothing ties the identifier you pass to
-the person who actually consented. A developer could collect Marie's opt-out and
-call the SDK with Paul's id. The UBT closes that gap — the widget saw the user,
-ID Side signed the binding, and the cloud verifies the signature. The proof
-records which of the two you used, so an auditor can weigh it accordingly.
+the person it names. On an application that asks its users, a developer could
+collect Marie's opt-out and call the SDK with Paul's id. The UBT closes that gap
+— the widget saw the user, ID Side signed the binding, and the cloud verifies the
+signature. The proof records which form you used, so an auditor can weigh it
+accordingly.
 
-Passing both raises `ConflictingIdentityError`; passing neither raises
-`MissingIdentityError`. In both cases nothing is sent anywhere — no cloud query,
-no AI call. See [`errors.md`](./errors.md).
+Passing both raises `ConflictingIdentityError`. Passing one that names nobody —
+an empty string, a string of blanks, `0`, `false`, an empty list or object —
+raises `MissingIdentityError`: such a value is almost always a bug upstream (a
+form field left empty, a header that was not set), and reading it as "nobody"
+would quietly turn a call you meant to name into one about the key. To name
+nobody, leave the field out, or pass `None` (Python), `undefined` or `null`
+(JavaScript). In both error cases nothing is sent anywhere — no cloud query, no
+AI call. See [`errors.md`](./errors.md).
 
 ### What to send as `user_id`
-
-The identifier is the join between the two circuits. The answer given in the
-browser and the AI call made by your backend belong to the same person only if
-you send the same string in both places; nothing else links them.
 
 ID Side never stores it. It is hashed into a per-app pseudonym on arrival, with
 a one-way function, and the pseudonym is what reaches the database, the ledger
@@ -387,11 +399,16 @@ at all. That is a good property, and it has one consequence you have to plan
 for: **ID Side cannot recognise a person you name differently, and cannot help
 you name them consistently.** That part is yours, and only yours.
 
+- **Under an organization's policy** ([§4](#4-the-policy-what-applies-to-a-call-and-who-decided))
+  — any stable identifier you choose for the person or the team: your own
+  primary key, an employee number, `team-marketing`. The policy and the declared
+  basis apply whatever it is; the identifier only says, in the proof, whom the
+  call was for.
 - **Signed in to your product** — send your own stable identifier: the primary
   key, the account id, whatever survives a password reset. Nothing else needed.
-- **Not signed in** — a marketing site, a public demo, a checkout before
-  account creation — mint a random value once and keep it in *your* storage,
-  under *your* domain
+- **Not signed in**, on an application that asks — a marketing site, a public
+  demo, a checkout before account creation — mint a random value once and keep
+  it in *your* storage, under *your* domain
   ([the snippet](./widget.md#4-what-to-send-as-userid)). ID Side sets no cookie
   and never sees anything it could correlate across sites.
 - **Never a browser fingerprint.** It is the tempting way to get a stable
@@ -399,14 +416,11 @@ you name them consistently.** That part is yours, and only yours.
   never linked — the tracking this product exists to give people a lever
   against. A consent tool built on covert identification argues against itself,
   and the ledger would be the record of it.
-- **In the imposed mode** ([§4](#4-two-modes-asked-and-imposed)) — the person's
-  work email address, or an identifier registered with ID Side. Anything else is
-  a subject the system has never met: the policy still applies, because it always
-  does, but no legal basis is signed for that call. The pseudonymisation runs one
-  way, so nobody at ID Side can reconstruct the mapping on your behalf — which is
-  the same property that protects your users.
 
-An identifier that changes — cleared storage, another browser, a new device —
+On an application that asks, the identifier is also the join between the two
+circuits: the answer given in the browser and the AI call made by your backend
+belong to the same person only if you send the same string in both places. An
+identifier that changes there — cleared storage, another browser, a new device —
 makes the person a stranger again. That is a defined state, not a failure:
 everything is refused for them, the proof records `source: "app_default"` and
 `legal_basis: "not_established"`, and the widget asks again. Nobody is ever

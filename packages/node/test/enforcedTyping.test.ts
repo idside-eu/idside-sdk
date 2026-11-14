@@ -6,12 +6,15 @@ import { CALL_SITE_TREE } from "../src/enforced.ts";
 /**
  * The runtime half of the typed identity.
  *
- * `Enforced<T>` demands `user_id` or `ubt` on exactly the endpoints named in
- * `CALL_SITE_TREE`, which is a hand-written copy of the descriptors — types
- * cannot read JSON, so nothing but this file stands between the two. A
- * descriptor that gains a call site while the tree does not would leave that
- * endpoint enforced at run time and unenforced at compile time: the developer
- * would get a `MissingIdentityError` from a call TypeScript told them was fine.
+ * `Enforced<T>` accepts `user_id` or `ubt` — at most one — and narrows the
+ * per-request options on exactly the endpoints named in `CALL_SITE_TREE`, which
+ * is a hand-written copy of the descriptors — types cannot read JSON, so
+ * nothing but this file stands between the two. A descriptor that gains a call
+ * site while the tree does not would leave that endpoint enforced at run time
+ * and unenforced at compile time: the developer would get a type error for
+ * naming the user on a call the SDK reads the identity from, or a
+ * `ConflictingIdentityError` or `UnenforceableOptionError` from a call
+ * TypeScript told them was fine.
  *
  * The type assertions themselves live in `test/types.assert.ts`, where `tsc`
  * runs them.
@@ -52,13 +55,13 @@ test("the typed call sites are exactly the ones the descriptors declare", () => 
     typed,
     declared,
     "CALL_SITE_TREE has drifted from the descriptors: an endpoint enforced at " +
-      "run time but not at compile time (or the reverse) is a MissingIdentityError " +
-      "no compiler warned about",
+      "run time but not at compile time (or the reverse) is a refusal no compiler " +
+      "warned about",
   );
 });
 
 test("every descriptor names the identity the way the Identity type spells it", () => {
-  // `Identity` is `{ user_id } | { ubt }`, written out in TypeScript because a
+  // `Identity` is `{ user_id? } | { ubt? }`, written out in TypeScript because a
   // type cannot read `identity_param` out of a JSON file. A descriptor that
   // renamed either one would type-check a field the SDK no longer reads.
   for (const [name, descriptor] of loadDescriptors()) {

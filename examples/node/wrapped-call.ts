@@ -10,9 +10,11 @@
  * did not go through enforcement.
  *
  * It is a `.ts` file on purpose: the identity is part of the type, so the call
- * below compiles under `strict` with no cast, and forgetting `user_id` would
- * not compile at all. `npm run typecheck` is what checks that; running the file
- * only strips the types.
+ * below compiles under `strict` with no cast, and naming the user twice —
+ * `user_id` and `ubt` — would not compile at all. Naming the user is optional:
+ * leave `user_id` out and the call is proven against the API key instead.
+ * `npm run typecheck` is what checks the types; running the file only strips
+ * them.
  *
  * Run it:  node wrapped-call.ts
  * Live:    see ../README.md#going-live — it is a two-line diff.
@@ -102,9 +104,10 @@ const openaiStub: typeof fetch = async (_input, init) => {
   );
 };
 
-// `Enforced<OpenAI>`, not `OpenAI`: a wrapped client demands the identity that
-// an unwrapped one does not, and the type says so. Annotating it `OpenAI` would
-// be the compiler agreeing to a call that throws.
+// `Enforced<OpenAI>`, not `OpenAI`: a wrapped client accepts the identity that
+// an unwrapped one does not know, and refuses per-call options an unwrapped one
+// takes. Annotating it `OpenAI` would be the compiler agreeing to calls that
+// throw, or that do not compile.
 const client: Enforced<OpenAI> = consent.wrap(
   new OpenAI({
     apiKey: "sk-test-not-a-real-key",
@@ -125,7 +128,7 @@ console.log();
 const response = await client.chat.completions.create({
   model: MODEL,
   messages: [{ role: "user", content: PROMPT }],
-  user_id: USER, // required by the type: omitting it does not compile
+  user_id: USER, // optional: whom the call is for — typed, so `userId` would not compile
 });
 
 console.log("5. What the provider replied");

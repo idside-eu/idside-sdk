@@ -160,6 +160,7 @@ echo
 echo "examples/ — Python:"
 example examples/python "uv run wrapped_call.py"
 example examples/python "uv run async_wrapped_call.py"
+example examples/python "uv run unnamed_call.py"
 
 echo
 echo "examples/ — Node.js:"

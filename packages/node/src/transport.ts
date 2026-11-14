@@ -63,6 +63,41 @@ export function namesSomebody(identity: unknown): boolean {
   return Boolean(identity) && !(typeof identity === "string" && isBlank(identity)) && !isEmpty(identity);
 }
 
+/**
+ * The identity a call carries, as `[userId, ubt]`: one of the two, or neither.
+ *
+ * Naming the end user is optional. An argument that is `undefined` or `null`
+ * names nobody — Python's `None` — and a call on which neither names anybody
+ * goes out with no identity at all: the cloud then takes the API key as the
+ * proof's subject.
+ *
+ * An argument that is *present* but names nobody — `""`, blanks, `0`, `false`,
+ * an empty array or object — is still refused, unless the other one names
+ * somebody, exactly as when an identity was required. Such a value is almost
+ * always a bug upstream (an empty form field, a header that was not set), and
+ * reading it as "nobody" would silently drop the per-person proof its caller
+ * meant to get. Two arguments that both name somebody are a contradiction, not
+ * a choice.
+ */
+export function resolveIdentity(
+  userId: unknown,
+  ubt: unknown,
+  messages: { readonly conflict: string; readonly empty: string },
+): readonly [unknown, unknown] {
+  const namedUser = namesSomebody(userId);
+  const namedUbt = namesSomebody(ubt);
+  if (namedUser && namedUbt) throw new ConflictingIdentityError(messages.conflict);
+  if (!namedUser && !namedUbt && (isGiven(userId) || isGiven(ubt))) {
+    throw new MissingIdentityError(messages.empty);
+  }
+  return [namedUser ? userId : undefined, namedUbt ? ubt : undefined];
+}
+
+/** Whether an identity argument is there at all: `undefined` and `null` are not. */
+function isGiven(value: unknown): boolean {
+  return value !== undefined && value !== null;
+}
+
 /** An array, or a plain object, with nothing in it. */
 function isEmpty(value: unknown): boolean {
   if (Array.isArray(value)) return value.length === 0;
@@ -139,7 +174,17 @@ export const DEFAULT_TIMEOUT_MS = 5_000;
  */
 const MAX_POSTURE_LENGTH = 200;
 const MAX_ACT_TOKEN_LENGTH = 8_192;
-const BINDINGS: ReadonlySet<string> = new Set(["ubt", "user_id"]);
+/**
+ * The binding a successful answer must carry is the identity the request was
+ * made with: `ubt` when it carried a UBT (the widget bound the person and the
+ * cloud verified it), `user_id` when it carried a `user_id` (the developer
+ * asserted the identifier), `api_key` when it carried neither (the API key it
+ * was made with is the proof's subject). Each is true of one request only, so
+ * each is accepted only there: any other answer would put in the proof a
+ * subject, or a link to one, the call did not have, and is refused like any
+ * other malformed answer. The cloud echoes the identity it was sent.
+ */
+type Binding = "ubt" | "user_id" | "api_key";
 const TOOL_CONSTRAINTS: ReadonlySet<string> = new Set(["refuse", "strip"]);
 const NON_PRINTABLE_UNICODE = /[\p{C}\p{Z}]/u;
 
@@ -240,8 +285,8 @@ const BINDING_ERRORS: ReadonlyMap<
     "ubt_required",
     [
       BindingRequiredError,
-      "This application requires a UBT (HTTP 401), and the call named its " +
-        "user with user_id. Your API key was accepted. Have the visitor go " +
+      "This application requires a UBT (HTTP 401), and the call did not " +
+        "carry one. Your API key was accepted. Have the visitor go " +
         "through the widget and pass the UBT it issues as ubt before any AI " +
         "call; the AI call was not made.",
     ],
@@ -256,9 +301,11 @@ export interface ConsentDecision {
   readonly source: string;
   readonly legalBasis: string;
   /**
-   * How strongly the end user was tied to this request — the evidentiary weight
-   * of the proof. `"ubt"`: the ID Side widget saw the user and the cloud
-   * verified the signed binding. `"user_id"`: the developer asserted it (weaker).
+   * What the proof's subject is and how it was tied to this request — the
+   * evidentiary weight of the proof. `"api_key"`: the call named nobody, and the
+   * subject is the API key it was made with. `"ubt"`: the ID Side widget saw the
+   * user and the cloud verified the signed binding. `"user_id"`: the developer
+   * asserted it (weaker).
    */
   readonly binding: string;
   /**
@@ -290,8 +337,9 @@ export interface AuthorizeRequest {
   readonly model: string;
   readonly requestHash: string;
   /**
-   * The identity — `userId` or `ubt`, never both — exactly as the caller wrote
-   * it. `unknown` because that is what it is: `Enforced<T>` asks a TypeScript
+   * The identity — `userId` or `ubt`, never both, and neither when the call
+   * names nobody — exactly as the caller wrote it. `unknown` because that is
+   * what it is: `Enforced<T>` asks a TypeScript
    * caller for a string, but a JavaScript caller can pass anything, and it is
    * forwarded untouched. The cloud alone judges it (a non-blank string or a
    * finite number names somebody, anything else is a 422), as it does for the
@@ -388,19 +436,16 @@ export class HttpConsentClient implements ConsentClient {
 
   async authorize(request: AuthorizeRequest): Promise<ConsentDecision> {
     // A UBT is opaque to the SDK: it is forwarded as-is and the cloud alone
-    // verifies its signature and binding. Blank names nobody, as empty did.
-    const userId = namesSomebody(request.userId) ? request.userId : undefined;
-    const ubt = namesSomebody(request.ubt) ? request.ubt : undefined;
-    if (userId && ubt) {
-      throw new ConflictingIdentityError(
-        "Pass either user_id or ubt to authorize(), not both.",
-      );
-    }
-    if (!userId && !ubt) {
-      throw new MissingIdentityError(
-        "authorize() needs an identity: pass user_id or ubt.",
-      );
-    }
+    // verifies its signature and binding. Absent names nobody, which is allowed;
+    // a value that is there and names nobody is refused.
+    const [userId, ubt] = resolveIdentity(request.userId, request.ubt, {
+      conflict: "Pass either user_id or ubt to authorize(), not both.",
+      empty:
+        "authorize() was given an identity that names nobody: pass a " +
+        "user_id or ubt that names somebody, or neither.",
+    });
+    // The one binding the answer may carry: the identity field sent, or none.
+    const binding: Binding = ubt !== undefined ? "ubt" : userId !== undefined ? "user_id" : "api_key";
 
     const body = {
       provider: request.provider,
@@ -408,7 +453,9 @@ export class HttpConsentClient implements ConsentClient {
       request_hash: request.requestHash,
       ...(request.callSite ? { call_site: request.callSite } : {}),
       credential_postures: [...(request.credentialPostures ?? [])],
-      ...(ubt ? { ubt } : { user_id: userId }),
+      // A call that names nobody carries no identity field at all — not an
+      // empty one, which the cloud would refuse.
+      ...(ubt !== undefined ? { ubt } : userId !== undefined ? { user_id: userId } : {}),
     };
 
     const response = await this.#post(body);
@@ -441,7 +488,7 @@ export class HttpConsentClient implements ConsentClient {
       }
     }
 
-    return decisionFrom(record);
+    return decisionFrom(record, binding);
   }
 
   /** Single POST with a hard timeout. No retry — see below. */
@@ -618,7 +665,8 @@ function constraintsFrom(
   return constraints;
 }
 
-function decisionFrom(record: Record<string, unknown>): ConsentDecision {
+/** `binding` is the one the answer must carry, decided by the request: the identity field it sent, or `api_key`. */
+function decisionFrom(record: Record<string, unknown>, binding: Binding): ConsentDecision {
   if (record.decision !== "allow") throw invalidDecision("decision", "'allow'");
   const consentState = record.consent_state;
   if (
@@ -628,9 +676,12 @@ function decisionFrom(record: Record<string, unknown>): ConsentDecision {
   ) {
     throw invalidDecision("consent_state", "a JSON object");
   }
-  const binding = decisionString(record, "binding");
-  if (!BINDINGS.has(binding))
-    throw invalidDecision("binding", "'ubt' or 'user_id'");
+  if (decisionString(record, "binding") !== binding) {
+    throw invalidDecision(
+      "binding",
+      binding === "api_key" ? "'api_key' on a call that names nobody" : `'${binding}' on a call made with ${binding}`,
+    );
+  }
   if (record.mode !== "test" && record.mode !== "live")
     throw invalidDecision("mode", "'test' or 'live'");
   const source = decisionString(record, "source");

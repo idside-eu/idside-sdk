@@ -1,8 +1,9 @@
 # `@idside/sdk` — ID Side SDK for Node.js
 
 AI **consent enforcement** for provider clients, at the wrap of a single call.
-The developer never touches the end user's consent preferences — the SDK is an
-opaque tunnel to the ID Side cloud.
+Your organization's AI policy applies to every call made with your keys, and
+the code that makes the call never touches it — the SDK is an opaque tunnel to
+the ID Side cloud.
 
 > Strict parity with the
 > [Python SDK](https://github.com/idside-eu/idside-sdk/tree/main/packages/python):
@@ -13,7 +14,7 @@ opaque tunnel to the ID Side cloud.
 > [`packages/descriptors`](https://github.com/idside-eu/idside-sdk/tree/main/packages/descriptors).
 
 > ⚠️ **Pre-release (`0.1.0-dev.2`).** End-to-end use needs an ID Side API key:
-> sign up at <https://sdk.idside.eu/dashboard/signup> (a free plan exists, see
+> sign up at <https://sdk.idside.eu/signup> (a free plan exists, see
 > <https://sdk.idside.eu/pricing>), or take a 24-hour, 20-call test key from the
 > no-account sandbox at <https://sdk.idside.eu/sdk>.
 
@@ -50,32 +51,42 @@ const client = consent.wrap(new OpenAI(), { apiKey: process.env.IDSIDE_API_KEY }
 await client.chat.completions.create({
   model: "gpt-5",
   messages: [{ role: "user", content: "Hello!" }],
-  user_id: "usr_marie_456", // or: ubt: "eyJ…" from the ID Side widget
+  user_id: "usr_marie_456", // optional: whom the call is for
 });
 ```
 
 On every intercepted AI call the wrapped client:
 
-1. resolves the user's preferences from the ID Side cloud and obtains a signed
+1. has the ID Side cloud resolve what applies — the organization's policy, or the
+   person's answer where the application asks — and obtains a signed
    **ACT token** bound to this exact request;
 2. forces the provider's non-retention parameters (e.g. `store: false`);
 3. attaches the ACT token as the `X-AI-Consent-Token` header;
 4. calls the provider.
 
-If consent cannot be verified, **the call does not happen** (fail-closed).
+If the decision cannot be verified, **the call does not happen** (fail-closed).
 
 ### Naming the end user
 
-Pass exactly one of two fields on every AI call; both are consumed by the SDK and
-never forwarded to the provider:
+Naming the end user is **optional**. A call that names nobody is authorized with
+your API key as the proof's subject (the proof records `binding: "api_key"`),
+and your organization's policy applies to it as to any other. To make the proof
+say whom a call was for, pass at most one of two fields; both are consumed by
+the SDK and never forwarded to the provider:
 
-- `ubt` — a **User Binding Token** issued by the ID Side widget (strongest
-  binding; the proof records `binding: "ubt"`).
-- `user_id` — a developer-asserted identity for backend-only integrations
-  (weaker; the proof records `binding: "user_id"`).
+- `user_id` — your own identifier for the person, or for a team
+  (`"team-marketing"`); the proof records `binding: "user_id"`.
+- `ubt` — a **User Binding Token** issued by the ID Side widget, on an
+  application that asks its users (strongest binding; the proof records
+  `binding: "ubt"`).
 
-Passing both throws `ConflictingIdentityError`; passing neither throws
-`MissingIdentityError` — in both cases no cloud query and no AI call is made.
+Passing both throws `ConflictingIdentityError`; passing one that names nobody
+(`""`, blanks, `0`, `false`, an empty array or object) throws
+`MissingIdentityError` rather than quietly becoming a call about the key — leave
+it out, or pass `undefined`, to name nobody (`null` too, from plain JavaScript:
+`Enforced<T>` types the field as a string). In both cases no cloud query and no
+AI call is made. A request body that is not an object is refused with a
+`TypeError`, before anything happens.
 
 ### What an enforced call may carry
 
@@ -157,9 +168,10 @@ onto it would prove something that did not happen.
 
 ### TypeScript
 
-`wrap()` returns `Enforced<T>` — the same client, with `user_id` / `ubt` typed
-onto every enforced call site. No cast, and omitting the identity is a compile
-error rather than a `MissingIdentityError` on the first request:
+`wrap()` returns `Enforced<T>` — the same client, with an optional `user_id` /
+`ubt` typed onto every enforced call site. No cast; naming the user twice, or
+misspelling the field (`userId`), is a compile error rather than an error on the
+first request, and so is a per-call option the enforced call refuses:
 
 ```ts
 import { consent, type Enforced } from "@idside/sdk";
@@ -167,7 +179,7 @@ import { consent, type Enforced } from "@idside/sdk";
 const client: Enforced<OpenAI> = consent.wrap(new OpenAI());
 ```
 
-`Enforced<OpenAI>` is not assignable to `OpenAI` — it demands more — so annotate
+`Enforced<OpenAI>` is not assignable to `OpenAI` — it accepts less — so annotate
 a wrapped client with it. See
 [quickstart §TypeScript](https://github.com/idside-eu/idside-sdk/blob/main/docs/quickstart-node.md#typescript).
 
@@ -187,7 +199,7 @@ const proof = await verifyAct(token, {
 
 proof.provider; // "openai"
 proof.consentState; // { training: false }
-proof.binding; // "ubt" — the widget bound the identity (vs "user_id", asserted)
+proof.binding; // "ubt" — the widget bound the identity ("user_id": asserted; "api_key": nobody named)
 proof.mode; // "live" or "test"
 proof.keyId; // the kid that verified the signature
 ```
@@ -237,8 +249,9 @@ token belongs to this exact request. Behaviour matches the Python SDK's
 
 ## Supported providers
 
-OpenAI, Anthropic, Gemini (`@google/genai`) and Mistral, driven by the shared
-JSON descriptors. Auto-detection uses the client's constructor name with a
+OpenAI, Anthropic, Gemini (`@google/genai`), Mistral and DeepSeek (an `openai`
+client pointed at `api.deepseek.com`, recorded as `provider: "deepseek"`),
+driven by the shared JSON descriptors. Auto-detection uses the client's constructor name with a
 structural fallback; pass `{ provider: "openai" }` to be explicit, or register a
 custom adapter with `registerAdapter()`.
 

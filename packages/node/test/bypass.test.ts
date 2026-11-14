@@ -85,7 +85,8 @@ test("a numeric or boolean identity is rejected like the Python SDK's truthiness
   const cc = fakeConsentClient();
   const wrapped = wrap(client, { consentClient: cc, provider: "anthropic" });
 
-  // 0 / false are falsy → treated as absent (no identity) → MissingIdentityError.
+  // 0 / false are falsy → they name nobody, and being present they are refused
+  // (MissingIdentityError) rather than read as a call naming nobody.
   // TypeScript refuses them outright now, which is why each call needs the
   // directive; what this test still pins is the runtime half, for the callers
   // who reach the SDK from plain JavaScript and get no compiler at all.

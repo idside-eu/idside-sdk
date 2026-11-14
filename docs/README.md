@@ -1,18 +1,18 @@
 # ID Side SDK — documentation
 
 AI consent infrastructure: a signed proof, attached to every AI API call, of the
-choices it was authorized against and the settings forced on it. This is the documentation set for the
+policy it was authorized against and the settings forced on it. This is the documentation set for the
 source-available SDKs.
 
 ## Start here
 
 | Page | What it covers |
 | --- | --- |
-| [Examples](../examples/) | Three programs to clone and run today — a wrapped call in Python, the same on an async client, and the typed TypeScript one |
+| [Examples](../examples/) | Four programs to clone and run today — a wrapped call in Python, the same on an async client, one that names nobody, and the typed TypeScript one |
 | [Quickstart — Python](./quickstart-python.md) | Install, `consent.wrap()`, your first enforced call, and a runnable offline dry run |
 | [Quickstart — Node.js](./quickstart-node.md) | The same for `@idside/sdk`, including how to run it from a checkout |
-| [Concepts](./concepts.md) | The mental model: consent as infrastructure, the opaque tunnel, **the two modes** (asked and imposed), the ACT token, the ledger, GPC, fail-closed |
-| [Preference Center widget](./widget.md) | The other half of the integration: the `<script>` tag that collects the answers the SDK enforces |
+| [Concepts](./concepts.md) | The mental model: consent as infrastructure, the opaque tunnel, **the policy and who decides**, naming the end user (optional), the ACT token, the ledger, GPC, fail-closed |
+| [Preference Center widget](./widget.md) | For an application that asks its users rather than deciding for them: the `<script>` tag that collects the answers the SDK enforces |
 
 ## Reference
 
@@ -46,17 +46,19 @@ source-available SDKs.
 
 If you are evaluating ID Side, read [Concepts](./concepts.md) first — especially
 [the opaque tunnel](./concepts.md#3-the-opaque-tunnel), which explains why the
-SDK refuses to let you set a user's preferences, and
+SDK refuses to let the code that makes a call set what applies to it,
+[the policy](./concepts.md#4-the-policy-what-applies-to-a-call-and-who-decided),
+which says what every proof records, and
 [the trust model](./concepts.md#what-the-tunnel-does-not-claim), which is honest
 about what the design does and does not guarantee.
 
 If you are integrating, go straight to a quickstart, then read
 [errors](./errors.md) before you ship — the fail-closed behavior is a design
-decision your calling code has to be ready for. If your users are people you
-intend to *ask*, the [widget guide](./widget.md) is the other half of the
-integration: without it nobody ever writes a preference, so every option
-resolves to a refusal and every proof you collect records that none was
-established.
+decision your calling code has to be ready for. If your application asks its
+users rather than applying your organization's policy, read the
+[widget guide](./widget.md) too: without the widget nobody ever writes a
+preference, so every option resolves to a refusal and every proof you collect
+records that none was established.
 
 ## Status
 

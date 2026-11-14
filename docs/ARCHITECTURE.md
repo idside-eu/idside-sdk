@@ -7,11 +7,12 @@ and which no version number may trade away — are listed in
 
 ## 1. Core principle: the opaque tunnel
 
-Like Stripe for card numbers, ID Side guarantees that **the developer is never in
-the loop of consent preferences**. Preferences flow directly from the user (via
-the widget or their ID Side account) to ID Side's servers. The developer supplies
-an identifier and receives a proof; they can neither read nor alter the
-preferences.
+Like Stripe for card numbers, ID Side keeps **the code that makes an AI call out
+of the loop of what applies to it**. An organization's policy is set on the
+ID Side dashboard; a person who is asked answers ID Side directly (via the widget
+or their ID Side account). The code that makes the call supplies an API key —
+and, if it wants, an identifier for the person — and receives a proof; it can
+neither read nor alter the policy or the preferences.
 
 **Why this is vital:** if the developer could modify preferences, the ACT token's
 cryptographic proof would be worthless (they could collect an opt-out via the
@@ -22,42 +23,53 @@ technically impossible, but a developer who bypasses the SDK (calling the
 provider directly) has **no proof** of what was authorized: no ACT token, no ledger
 entry, nothing to show an authority (DPA) for that call.
 
-### 1.1 Two modes, one mechanism
+### 1.1 One mechanism: the policy, and who decided
 
-The tunnel is used two ways, and the SDK cannot tell them apart — deliberately.
-Both produce the same call, the same forced parameters and the same signed
-proof. What differs is **who decided**, and therefore what the proof records:
+The tunnel serves one product: an organization imposes its AI policy on the
+calls made with its API keys — an employer for its staff, a publisher for the
+users of its application — and every proof records what applied and on what
+basis. The SDK cannot tell how a call was decided — deliberately. Every call
+produces the same forced parameters and the same signed proof; what differs is
+**who decided**, and the proof records it:
 
-| | **Asked** | **Imposed** |
+| | **An organization's policy** | **The person, asked** (available) |
 | --- | --- | --- |
-| Who decides | the person, for themselves | the organization, for its employees |
-| Surface | the Preference Center — a popup that asks | the same widget, as a read-only panel that states |
-| `source` | `widget`, `gpc`, `idside_account` | `default_policy` |
-| `legal_basis` | `consent` | `legitimate_interest`, `contractual_obligation`, `public_task`, `legal_obligation`, `vital_interests`, `consent` as declared by the organization, or `not_established` |
-| Typical case | a product with end users | a workforce told to use AI at work |
+| Who decides | the organization, for whoever uses its keys | the person, for themselves |
+| Surface | the ID Side dashboard; nobody is asked | the Preference Center widget, which asks |
+| `source` | `default_policy` | `widget`, `gpc`, `idside_account` |
+| `legal_basis` | the basis the organization declared — `legitimate_interest`, `contractual_obligation`, `public_task`, `legal_obligation`, `vital_interests`, `consent` — or `not_established` while it declared none | `consent` |
+| `binding` | `api_key` when the call names nobody; `user_id` or `ubt` when it names someone | `ubt` or `user_id` |
 
 Nothing in the SDK switches between them: `source` and `legal_basis` are
 mandatory fields of the authorize response, copied into the ACT token, and both
-SDKs carry them as opaque strings. The mode is a property of the account, not of
-the integration. A value the cloud adds needs no SDK release: `public_task`,
-`legal_obligation` and `vital_interests` were added that way.
+SDKs carry them as opaque strings. How an application decides is a property of
+the account, not of the integration. A value the cloud adds needs no SDK
+release: `public_task`, `legal_obligation` and `vital_interests` were added that
+way.
 
-**An imposed policy can only tighten.** It turns an option off, never on. A
-policy able to switch an option back on would let a customer overturn their own
-users' refusals from a dashboard — invariant #1 through the front door. So a
-person's own refusal survives a policy that permits, and `source` becomes
-`default_policy` only where the policy actually changed something: a policy that
-agrees with the user decided nothing, and saying otherwise would misattribute
-their decision in the ledger.
+**Naming the person is optional.** A call that names nobody carries no identity
+field; the cloud takes the API key as the proof's subject (`sub` is then a
+pseudonymous subject of the key, scoped per app like a person's) and answers
+`binding: "api_key"`. The SDKs accept that answer on such a call and on no
+other, and refuse any other binding on it, so a proof can never claim a subject
+the call did not have.
 
-**And an imposed policy signs only what the organization declared.** The bases
-available are the six Article 6 bases and `not_established`. An organization may
+**A policy can only refuse.** It turns an option off, never on. A policy able to
+switch an option back on would let a customer overturn a refusal from a
+dashboard — invariant #1 through the front door. On an application that asks, a
+person's own refusal survives a policy that permits, and the policy changes what
+applies without restamping `source` or `legal_basis`: a policy that agrees with
+the user decided nothing, and saying otherwise would misattribute their decision
+in the ledger.
+
+**And a policy signs what the organization declared, as the organization's.**
+The bases available are the six Article 6 bases and `not_established`. The basis
+is the organization's declaration, carried with `source: "default_policy"`; ID
+Side does not assess it, and collects no answer from anyone. An organization may
 declare `consent`, which the GDPR generally presumes not to be freely given at
-work; ID Side collects no answer from the employee, and the token's `source`
-shows that the decision was the organization's. This
-is the technical reason the imposed mode is not a shortcut past the popup —
-[`concepts.md` §4](./concepts.md#4-two-modes-asked-and-imposed) works through
-what a developer actually gets if they try it on visitors.
+work; the token's `source` shows that the decision was the organization's.
+[`concepts.md` §4](./concepts.md#the-mistake-worth-naming) works through what a
+declaration that cannot be defended turns into once it is signed.
 
 ## 2. The two circuits
 
@@ -74,7 +86,7 @@ Circuit B — AI call (developer backend → SDK → provider)
   [Dev backend] ──consent.wrap(provider)──▶ [SDK]
      1. compute request_hash from the caller payload (before enforcement)
         POST sdk.idside.eu/v1/authorize
-          → { user_id (or ubt), provider, model, request_hash,
+          → { [user_id or ubt], provider, model, request_hash,
               call_site, credential_postures }
           ← { decision, consent_state, source, legal_basis, binding,
               params_forced, mode, act_token, token_id, expires_at,
@@ -85,8 +97,8 @@ Circuit B — AI call (developer backend → SDK → provider)
   ⇒ the developer relays no preference.
 ```
 
-The request payload is deliberately minimal: an identifier, a provider, a model,
-a **hash** of the request, the `call_site` about to be called (two endpoints of
+The request payload is deliberately minimal: an identifier when the call names
+someone (none otherwise), a provider, a model, a **hash** of the request, the `call_site` about to be called (two endpoints of
 the same provider do not accept the same parameters), and the *labels* of the
 credentials the developer provisioned — never their values. Prompts, messages and
 completions never leave the developer's backend for ID Side — the SDK is
@@ -96,7 +108,9 @@ The response fields above are the ones both SDKs actually read. Ten are
 mandatory: `decision`, `consent_state`, `source`, `legal_basis`, `binding`,
 `params_forced`, `mode`, `act_token`, `token_id` and `expires_at`. The SDKs
 require `decision: "allow"`, a `test` or `live` mode, object-shaped consent and
-forced parameters, the supported binding and constraint values, a bounded
+forced parameters, the binding of the identity the request was made with
+(`user_id` or `ubt`, whichever it carried, `api_key` when it carried neither),
+the supported constraint values, a bounded
 compact-JWS-shaped token, an ACT token identifier and a calendar-valid RFC 3339
 expiry. Required strings must be non-empty and printable. `constraints` may be
 absent and then means no local restriction; `credential_posture` may be absent
@@ -106,7 +120,7 @@ before a provider call can start. `source` and `legal_basis` remain opaque
 metadata: the SDK validates their string shape but never branches on their
 value, so a future provenance or legal basis does not change local enforcement.
 
-On an application that asks its visitors, one property of `consent_state` is
+On an application that asks its users, one property of `consent_state` is
 settled before the SDK ever sees it: it arrives **complete**. The cloud fills it
 from the option catalogue as the last step of resolution — after the person's
 answer and any organization policy, before enforcement and signing — because
@@ -116,11 +130,11 @@ assume about the answers it did not get, and why an option a provider gains next
 year is refused from the moment it exists for everyone who answered before it
 did: there is nothing to migrate and no list to keep.
 
-The imposed mode is the deliberate exception. There an organization's policy is
-the only thing that speaks, expressed as refusals over the application's base
-state, and an option the policy does not mention is left unanswered rather than
+An organization's policy is the deliberate exception. There the policy is the
+only thing that speaks, expressed as refusals over the application's base state,
+and an option the policy does not mention is left unanswered rather than
 refused: a base that already refused everything would make every policy
-identical. A state signed for an employee can therefore be partial.
+identical. A state signed under a policy can therefore be partial.
 
 The record the cloud *stores* is the other half of the pair and keeps the gap —
 what somebody said and what applies to them are two different facts, which is

@@ -137,8 +137,8 @@ npm install --silent --no-audit --no-fund "$TARBALL"
 
 cat > smoke.mjs <<'SMOKE'
 import { wrap, loadDescriptors, catalogue, decidableOptions, disclosures,
-         verifyAct, requestHash, MissingIdentityError, ConflictingIdentityError,
-         ActVerificationError } from "@idside/sdk";
+         verifyAct, requestHash, HttpConsentClient, MissingIdentityError,
+         ConflictingIdentityError, ActVerificationError } from "@idside/sdk";
 
 const assert = (cond, msg) => { if (!cond) { console.error("FAIL:", msg); process.exit(1); } };
 
@@ -155,18 +155,40 @@ await verifyAct("not.a.token", { jwks: { keys: [] } }).then(
   () => { console.error("FAIL: verifyAct accepted garbage"); process.exit(1); },
   (e) => assert(e instanceof ActVerificationError, "wrong error for garbage token"));
 
-// Identity handling refuses before any network call or provider call.
-const client = wrap({ chat: { completions: { create: async () => ({}) } } },
-                    { provider: "openai", apiKey: "sk-test-not-a-real-key" });
-await client.chat.completions.create({ model: "gpt-5", messages: [] }).then(
-  () => { console.error("FAIL: call without identity was allowed"); process.exit(1); },
-  (e) => assert(e instanceof MissingIdentityError, "wrong error without identity"));
+// Naming nobody is allowed: the call is authorized with no identity field at
+// all, and the answer names the API key as its subject. The cloud is a stub
+// behind the package's own transport, so nothing leaves the machine.
+const bodies = [];
+const answer = { decision: "allow", consent_state: {}, params_forced: {}, mode: "test",
+  act_token: "act.jwt.token", token_id: "act_01k4f9h2m3", expires_at: "2026-09-12T12:00:00Z",
+  source: "default_policy", legal_basis: "legitimate_interest", binding: "api_key" };
+const cloud = new HttpConsentClient("https://cloud.smoke.test", {
+  apiKey: "sk-test-not-a-real-key",
+  fetch: async (_url, init) => {
+    bodies.push(JSON.parse(init.body));
+    return new Response(JSON.stringify(answer), { headers: { "content-type": "application/json" } });
+  },
+});
+const provider = [];
+const client = wrap({ chat: { completions: { create: async (body) => (provider.push(body), {}) } } },
+                    { provider: "openai", consentClient: cloud });
+await client.chat.completions.create({ model: "gpt-5", messages: [] });
+assert(bodies.length === 1 && !("user_id" in bodies[0]) && !("ubt" in bodies[0]),
+       "a call naming nobody must send no identity field");
+assert(provider.length === 1, "a call naming nobody must reach the provider");
+
+// An identity that names nobody, or two, is refused before any network call or
+// provider call.
+await client.chat.completions.create({ model: "gpt-5", messages: [], user_id: "" }).then(
+  () => { console.error("FAIL: call with an empty identity was allowed"); process.exit(1); },
+  (e) => assert(e instanceof MissingIdentityError, "wrong error with an empty identity"));
 await client.chat.completions.create({ model: "gpt-5", messages: [], user_id: "usr_marie_456", ubt: "ubt_demo" }).then(
   () => { console.error("FAIL: call with two identities was allowed"); process.exit(1); },
   (e) => assert(e instanceof ConflictingIdentityError, "wrong error with two identities"));
+assert(bodies.length === 1 && provider.length === 1, "a refused identity reached the cloud or the provider");
 SMOKE
 
-node smoke.mjs && pass "ESM consumer: descriptors, catalogue, verifyAct, fail-closed identity"
+node smoke.mjs && pass "ESM consumer: descriptors, catalogue, verifyAct, optional and fail-closed identity"
 
 # The package is ESM-only (options.ts uses import.meta.url), so CJS consumers
 # depend on Node's require(esm). Prove it rather than assume it.
@@ -276,8 +298,53 @@ except ActVerificationError:
     pass
 else:  # pragma: no cover
     raise SystemExit("verify_act accepted a garbage token")
+
+# Naming nobody is allowed: the call is authorized with no identity field at
+# all. An identity that names nobody, or two, is refused before any I/O. The
+# cloud is a stub behind the package's own transport: nothing leaves the machine.
+import json
+from types import SimpleNamespace
+
+import httpx
+from idside.adapters import ProviderAdapter
+from idside.exceptions import ConflictingIdentityError, MissingIdentityError
+
+bodies, provider = [], []
+answer = {"decision": "allow", "consent_state": {}, "params_forced": {}, "mode": "test",
+          "act_token": "act.jwt.token", "token_id": "act_01k4f9h2m3",
+          "expires_at": "2026-09-12T12:00:00Z", "source": "default_policy",
+          "legal_basis": "legitimate_interest", "binding": "api_key"}
+
+def cloud(request):
+    bodies.append(json.loads(request.content))
+    return httpx.Response(200, json=answer)
+
+class Completions:
+    def create(self, **kwargs):
+        provider.append(kwargs)
+        return {}
+
+client = consent.wrap(
+    SimpleNamespace(chat=SimpleNamespace(completions=Completions())),
+    adapter=ProviderAdapter(load_descriptors()["openai"]),
+    consent_client=idside.HttpConsentClient(
+        "https://cloud.smoke.test", transport=httpx.MockTransport(cloud)
+    ),
+)
+client.chat.completions.create(model="gpt-5", messages=[])
+assert len(bodies) == 1 and "user_id" not in bodies[0] and "ubt" not in bodies[0], bodies
+assert len(provider) == 1, "a call naming nobody must reach the provider"
+for identity, error in (({"user_id": ""}, MissingIdentityError),
+                        ({"user_id": "usr_marie_456", "ubt": "ubt_demo"}, ConflictingIdentityError)):
+    try:
+        client.chat.completions.create(model="gpt-5", messages=[], **identity)
+    except error:
+        pass
+    else:  # pragma: no cover
+        raise SystemExit(f"{identity} was not refused with {error.__name__}")
+assert len(bodies) == 1 and len(provider) == 1, "a refused identity reached the cloud or the provider"
 SMOKE
-pass "wheel consumer: descriptors, catalogue, verify_act via [verify] extra"
+pass "wheel consumer: descriptors, catalogue, verify_act via [verify] extra, optional and fail-closed identity"
 
 # The sdist must build and install on its own — PyPI serves it to anyone using
 # --no-binary, and a wheel is rebuilt from it.

@@ -267,12 +267,27 @@ def test_fail_closed_when_cloud_unreachable(case: Case) -> None:
     assert recorder.calls == []  # the AI call never went out
 
 
-def test_missing_identity_is_rejected_before_any_io(case: Case) -> None:
+def test_a_call_naming_nobody_is_enforced_like_any_other(case: Case) -> None:
+    client, recorder = case.build()
+    consent_client = _FakeConsent(_decision(case.forced))
+    _wrap(case, client, consent_client)
+    case.call(client, dict(case.base_kwargs))
+    query = consent_client.calls[-1]
+    assert query["user_id"] is None
+    assert query["ubt"] is None
+    call = recorder.calls[-1]
+    assert case.headers_view(call)[_TOKEN_HEADER] == "tok_1"
+    assert case.forced_view(call) == case.forced
+    assert "user_id" not in call
+    assert "ubt" not in call
+
+
+def test_an_empty_identity_is_rejected_before_any_io(case: Case) -> None:
     client, recorder = case.build()
     consent_client = _FakeConsent(_decision(case.forced))
     _wrap(case, client, consent_client)
     with pytest.raises(MissingIdentityError):
-        case.call(client, dict(case.base_kwargs))
+        case.call(client, {**case.base_kwargs, "user_id": ""})
     assert recorder.calls == []
     assert consent_client.calls == []
 

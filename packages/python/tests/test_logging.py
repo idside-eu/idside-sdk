@@ -42,7 +42,9 @@ from idside.exceptions import (
     ConsentUnreachableError,
     IDSideError,
     MissingCredentialError,
+    MissingIdentityError,
     ToolUseRefusedError,
+    UnenforceableOptionError,
     UnenforcedCallError,
 )
 from idside.providers import load_descriptors
@@ -327,6 +329,45 @@ def test_the_salt_itself_is_never_logged(caplog: pytest.LogCaptureFixture) -> No
     assert _log._SALT.hex() not in _everything_logged(caplog)
 
 
+def test_a_call_that_names_nobody_has_no_subject_and_says_so(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """No pseudonym at all, rather than one every unnamed call would share.
+
+    A pseudonym of "nobody" would read as one person making every such call.
+    The absence of ``subject=`` says that nobody was named; ``binding=api_key``
+    says what the proof's subject is instead. The key itself never appears.
+    """
+    decision = ConsentDecision(
+        consent_state={"retention.conversation": False},
+        params_forced={"store": False},
+        act_token=_ACT_TOKEN,
+        source="default_policy",
+        legal_basis="legitimate_interest",
+        binding="api_key",
+    )
+    with caplog.at_level(logging.DEBUG, logger="idside"):
+        wrapped, _completions, _cc = _wrapped(_FakeConsent(decision), api_key=_API_KEY)
+        wrapped.chat.completions.create(model="gpt-5", messages=_MESSAGES)
+        failing, _completions, _cc = _wrapped(
+            _FakeConsent(exc=RuntimeError("cloud down")), api_key=_API_KEY
+        )
+        with pytest.raises(RuntimeError):
+            failing.chat.completions.create(model="gpt-5", messages=_MESSAGES)
+
+    lines = [r.getMessage() for r in _idside_records(caplog)]
+    authorized = [line for line in lines if line.startswith("authorize ")]
+    failed = [line for line in lines if line.startswith("authorize_failed ")]
+    assert len(authorized) == 1, lines
+    assert len(failed) == 1, lines
+    assert "binding=api_key" in authorized[0]
+    assert "subject=" not in authorized[0]
+    assert "subject=" not in failed[0]
+    payloads = [getattr(r, "idside", {}) for r in _idside_records(caplog)]
+    assert all("subject" not in payload for payload in payloads)
+    assert _API_KEY not in _everything_logged(caplog)
+
+
 # ── what it is actually for ──────────────────────────────────────────────────
 
 
@@ -466,6 +507,61 @@ def test_an_alias_that_defers_upstream_says_so_instead_of_going_quiet(
     assert len(cc.calls) == 1
     assert len(completions.calls) == 1
     assert "passthrough" in _everything_logged(caplog)
+
+
+def test_a_nested_hop_naming_nobody_is_refused_without_a_line_of_its_own(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Refused before anything worth recording: the journal holds the outer call only.
+
+    Like every refusal made before any I/O — a missing or conflicting identity,
+    an unenforceable option — the developer gets the exception, and the journal
+    gets no line about a call that never went anywhere.
+    """
+
+    class _HeaderlessReentrant(_Recording):
+        def parse(self, **kwargs: Any) -> dict[str, str]:
+            kwargs.pop(_OPENAI.headers_kwarg, None)
+            return self.create(**kwargs)
+
+    completions = _HeaderlessReentrant()
+    cc = _FakeConsent()
+    wrapped = consent.wrap(
+        SimpleNamespace(chat=SimpleNamespace(completions=completions)),
+        adapter=ProviderAdapter(_OPENAI),
+        consent_client=cc,
+    )
+    with (
+        caplog.at_level(logging.DEBUG, logger="idside"),
+        pytest.raises(MissingIdentityError),
+    ):
+        wrapped.chat.completions.parse(
+            model="gpt-5", messages=_MESSAGES, user_id=_USER_ID
+        )
+
+    assert len(cc.calls) == 1
+    assert completions.calls == []
+    events = [r.getMessage().split(" ", 1)[0] for r in _idside_records(caplog)]
+    assert events == ["authorize", "enforced"], events
+
+
+@pytest.mark.parametrize("written", ["userId", "Ubt"])
+def test_an_identity_spelled_another_way_is_refused_without_a_line(
+    caplog: pytest.LogCaptureFixture, written: str
+) -> None:
+    """Refused before any I/O, so nothing to record — least of all the value."""
+    wrapped, completions, cc = _wrapped()
+    with (
+        caplog.at_level(logging.DEBUG, logger="idside"),
+        pytest.raises(UnenforceableOptionError),
+    ):
+        wrapped.chat.completions.create(
+            model="gpt-5", messages=_MESSAGES, **{written: _USER_ID}
+        )
+
+    assert cc.calls == []
+    assert completions.calls == []
+    assert _idside_records(caplog) == []
 
 
 # ── the net stays blind ──────────────────────────────────────────────────────

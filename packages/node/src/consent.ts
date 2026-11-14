@@ -24,6 +24,7 @@ import {
   assertDerivableOptions,
   assertEnforceableClient,
   assertEnforceableOptions,
+  assertNoIdentityLookalike,
   forwardableOptions,
 } from "./adapters/callOptions.ts";
 import type { ProviderAdapter } from "./adapters/base.ts";
@@ -32,7 +33,7 @@ import type { CallSite as DescriptorCallSite } from "./descriptors.ts";
 import { originOf } from "./destination.ts";
 import {
   HttpConsentClient,
-  namesSomebody,
+  resolveIdentity,
   type ConsentClient,
   type ConsentDecision,
 } from "./transport.ts";
@@ -46,7 +47,6 @@ import { installTransportGuard, type NetState } from "./guard.ts";
 import type { Enforced } from "./enforced.ts";
 import * as log from "./log.ts";
 import {
-  ConflictingIdentityError,
   CredentialRoutingError,
   MissingCredentialError,
   MissingIdentityError,
@@ -68,8 +68,21 @@ interface InternalCall {
   transportRoute?: string;
 }
 
-/** Context-local, one-shot provenance for a nested provider-method hop. */
+/**
+ * Context-local, one-shot provenance for a nested provider-method hop. Its
+ * presence, consumed or not, is also what says an enforced call is in progress:
+ * a call naming nobody is refused there (see `makeEnforced`).
+ */
 const INTERNAL_CALL = new AsyncLocalStorage<InternalCall>();
+
+/** Written once for both SDKs: the Python wrapper raises the same words. */
+const NESTED_UNNAMED =
+  "A consent-enforced AI call was made from inside another one still in " +
+  "progress (a provider helper reaching an enforced method again), and it " +
+  "names nobody. A nested call is not authorized on its own: the identity of " +
+  "the outer call was consumed by it, and a proof made now would be about the " +
+  "API key, not about whoever the outer call named. The AI call was not made " +
+  "and ID Side was not asked.";
 
 export interface WrapOptions {
   /** Override the cloud transport (mainly for testing). */
@@ -145,12 +158,18 @@ interface ResolvedCallSite {
  * `X-AI-Consent-Token` header, (4) calls the provider. If consent cannot be
  * verified, the call does not happen (fail-closed).
  *
- * The caller names the end user on every AI call with exactly ONE of `user_id`
- * (developer-asserted) or `ubt` (widget-issued binding); both are consumed by the
+ * Naming the end user is optional. A call that names nobody is authorized with
+ * the API key as the proof's subject (`binding: "api_key"`): the organization's
+ * policy applies to whoever holds that key. To name the person a call is for,
+ * pass at most ONE of `user_id` (developer-asserted: a person, or a team such as
+ * `"team-marketing"`) or `ubt` (widget-issued binding); both are consumed by the
  * SDK and never forwarded to the provider. Passing both throws
- * `ConflictingIdentityError`; passing neither throws `MissingIdentityError` — in
- * both cases no cloud query and no AI call is made. Wrapping is idempotent and
- * returns the same client instance.
+ * `ConflictingIdentityError`; passing one that names nobody (`""`, blanks, `0`,
+ * `false`, an empty array or object) throws `MissingIdentityError` — in both
+ * cases no cloud query and no AI call is made. Leave it out, or pass
+ * `undefined` (or `null`, from plain JavaScript: `Enforced<T>` types the field
+ * as a string), to name nobody. Wrapping is idempotent and returns the same
+ * client instance.
  *
  * The same holds for a per-request option that could change what is sent after
  * it was authorized (`options.body`, `fetchOptions`, a `serverURL`, an
@@ -855,15 +874,6 @@ function transportProvenance(
 }
 
 /**
- * The identity as it will be sent, `undefined` when it names nobody — as the
- * Python SDK decides it: "", 0, false, null, undefined, [], {} and a string made
- * only of blanks are all absent. Nothing else is trimmed or converted.
- */
-function identityOf(value: unknown): unknown {
-  return namesSomebody(value) ? value : undefined;
-}
-
-/**
  * Build the consent-enforcing wrapper around one provider call method.
  *
  * `callSite` is the endpoint's stable id, closed over per patched method. It
@@ -892,10 +902,14 @@ function makeEnforced(
   /**
    * Re-entrancy: an alias routes through its own call site — the real
    * `chat.completions.parse` calls the very `create` this SDK just patched. A
-   * second enforcement would fail, and rightly: the identity was consumed by the
-   * first hop, so this one arrives without one. The outer wrapper issues a
-   * context-local one-shot permit bound to the call site and exact ACT token;
-   * the nested hop must present both the permit and matching header.
+   * second enforcement would ask again for a request already authorized. The
+   * outer wrapper issues a context-local one-shot permit bound to the call site
+   * and exact ACT token; the nested hop must present both the permit and
+   * matching header. A hop that does not is enforced on its own merits, and the
+   * identity having been consumed by the first hop, it names nobody: made from
+   * inside a call in progress, that is refused before the cloud is asked —
+   * authorized, it would be a second proof, about the API key, for a request
+   * somebody may have been named on.
    *
    * Deliberately NOT async: this hop must return the original's value
    * *untouched*, not a Promise wrapping it. `parse()` calls `._thenUnwrap()` on
@@ -919,21 +933,41 @@ function makeEnforced(
   ): Promise<ProviderResult> {
     const body = args[0];
     const rest = args.slice(1);
-    const params: Record<string, unknown> = { ...(isRecord(body) ? body : {}) };
-    const userId = identityOf(params[identityParam]);
-    const ubt = identityOf(params[ubtParam]);
-    delete params[identityParam];
-    delete params[ubtParam];
-
-    if (userId !== undefined && ubt !== undefined) {
-      throw new ConflictingIdentityError(
-        "Pass either user_id or ubt on a consent-enforced AI call, not both: the UBT already names the user.",
+    // Nothing can be read out of anything else: no request to hash, no proof to
+    // make. Refused rather than replaced by an empty stand-in, which a call
+    // naming nobody would otherwise get authorized and sent. Python's wrapper
+    // takes keyword arguments only, and refuses the same mistake with a
+    // TypeError of its own. The value is never quoted: it may be the prompt.
+    if (!isRecord(body)) {
+      const kind =
+        body === undefined ? "nothing" : body === null ? "null" : Array.isArray(body) ? "an array" : `a ${typeof body}`;
+      throw new TypeError(
+        `A consent-enforced AI call takes its request as one object, as the provider's own method does; it was given ${kind}. ` +
+          "The AI call was not made and ID Side was not asked.",
       );
     }
-    if (userId === undefined && ubt === undefined) {
-      throw new MissingIdentityError(
-        "user_id or ubt is required for consent-enforced AI calls.",
-      );
+    // `userId` for `user_id`: refused before the identity is read, so the same
+    // code fails the same way whatever the identity holds — as in Python.
+    assertNoIdentityLookalike(adapter.descriptor, body);
+    const params: Record<string, unknown> = { ...body };
+    // Absent, undefined and null name nobody, and that is allowed. Blank names
+    // nobody too, as empty already did, but a value that is THERE and names
+    // nobody is refused — as the Python SDK decides it. Nothing is trimmed or
+    // converted.
+    const [userId, ubt] = resolveIdentity(params[identityParam], params[ubtParam], {
+      conflict:
+        "Pass either user_id or ubt on a consent-enforced AI call, not both: the UBT already names the user.",
+      empty:
+        "user_id or ubt was passed but names nobody (it is empty, blank, zero, false or an empty container). " +
+        "Pass the identifier of the person this call is for, or leave both out to make the call without naming anyone.",
+    });
+    delete params[identityParam];
+    delete params[ubtParam];
+    // Any permit, consumed or not, for any client: its presence is what says an
+    // enforced call is in progress in this context. Checked before the options,
+    // so a retried hop still carrying the token header is told what it lacks.
+    if (userId === undefined && ubt === undefined && INTERNAL_CALL.getStore() !== undefined) {
+      throw new MissingIdentityError(NESTED_UNNAMED);
     }
 
     // Before the hash and before the cloud: an option that can change what is
@@ -945,8 +979,12 @@ function makeEnforced(
     // Every journalled field below is either a fact about the developer's own
     // request or already a digest: a salted pseudonym instead of the identity,
     // a truncated request hash instead of the ACT token, the names of the
-    // forced parameters instead of the consent state that chose them.
-    const subject = log.pseudonym(ubt ?? userId);
+    // forced parameters instead of the consent state that chose them. A call
+    // that named nobody has no subject at all — a pseudonym of "nobody" would
+    // read as one person making every such call — and nothing is derived from
+    // the API key, which is a secret, salted or not.
+    const named = ubt ?? userId;
+    const subject = named === undefined ? undefined : log.pseudonym(named);
     const elapsed = log.start();
     let decision: ConsentDecision;
     try {
@@ -983,7 +1021,7 @@ function makeEnforced(
       call_site: callSite,
       model: meta.model,
       subject,
-      binding: ubt !== undefined ? "ubt" : "user_id",
+      binding: ubt !== undefined ? "ubt" : userId !== undefined ? "user_id" : "api_key",
       request_hash: log.shortHash(meta.requestHash),
       duration_ms: elapsed(),
       forced: Object.keys(decision.paramsForced).sort(),

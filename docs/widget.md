@@ -1,9 +1,11 @@
 # Preference Center widget
 
-The widget is the half of ID Side your users see. It is where preferences are
-**written** — the SDK only ever reads them, and there is no other writer in the
-system. Skip it and the enforcement path still works, but it resolves every call
-to a **total refusal** — what nobody accepted is refused, on every option and
+The widget is for an application that **asks** its users rather than applying
+its organization's policy ([Concepts §4](./concepts.md#asking-instead-the-preference-center)).
+On such an application it is the half of ID Side your users see, and where
+preferences are **written** — the SDK only ever reads them, and there is no
+other writer in the system. Skip it there and the enforcement path still works,
+but it resolves every call to a **total refusal** — what nobody accepted is refused, on every option and
 every provider — and every proof you collect says `legal_basis: "not_established"`:
 nobody was asked.
 
@@ -14,17 +16,16 @@ model tools, every call raises `ToolUseRefusedError`, because a refusal of
 parameter. Running the widget is what turns that into a question somebody can
 answer.
 
-Most of this page describes the *asked* mode of
-[Concepts §4](./concepts.md#4-two-modes-asked-and-imposed), where the widget
-asks and the person answers. The *imposed* mode uses the **same widget**, and
-needs it more than it might seem: nobody is asked there, so everybody has to be
-told, and this is the surface that tells them. [§11](#11-the-imposed-mode) is
-what changes.
+Under an organization's policy — the main way ID Side is used — nobody is
+asked, and the SDK needs no widget at all: every call is decided by the policy
+and signed with the basis the organization declared. This page is about asking.
+[§11](#11-the-imposed-mode) describes what the widget shows if you embed it on
+an application that applies a policy: a read-only statement, never a question.
 
 > **Status.** The widget is implemented and served by the ID Side cloud, at
 > `https://sdk.idside.eu/widget/v1.js`. Everything below is the real interface;
 > create an application and its publishable key in the dashboard
-> (<https://sdk.idside.eu/dashboard/signup>) before integrating.
+> (<https://sdk.idside.eu/signup>) before integrating.
 > See [release status](./README.md#status).
 
 ---
@@ -220,9 +221,10 @@ same button until an answer is recorded.
 
 ## 4. What to send as `userId`
 
-The widget refuses to start without a `userId`, and the SDK refuses to make a
-call without one. It is the same identifier on both sides: it is what ties the
-answer given in the browser to the AI call made by your backend.
+The widget refuses to start without a `userId`, and an AI call made without one
+names nobody, so no answer given in the browser can apply to it. It is the same
+identifier on both sides: it is what ties the answer given in the browser to the
+AI call made by your backend.
 
 ID Side never stores it. It is turned into a per-app pseudonym on arrival —
 a one-way function — and the pseudonym is what lands in the database, the ledger
@@ -267,14 +269,12 @@ mistakenly treated as having agreed to something. That is the safe direction to
 fail in, and it is the reason this is a plumbing problem rather than a
 compliance one.
 
-**In the imposed mode, this is not your choice to make.** An organization's
-policy is resolved against people ID Side knows, so send **the person's work
-email address, or an identifier registered with ID Side**. Anything else is a
-subject the system has never met: the policy still applies — it always does —
-but no legal basis is signed for that call, because none was established for
-anyone. We cannot guess the mapping on your behalf. The pseudonymisation is
-one-way, which is exactly the property that protects your users, and exactly why
-it cannot be undone here.
+**Under an organization's policy, the identifier is optional.** The policy and
+the basis the organization declared apply to every call made with its keys,
+whether the call names a person, a team or nobody; an identifier only makes the
+proof say whom the call was for ([Concepts §8](./concepts.md#8-naming-the-end-user-user_id-vs-ubt)).
+Any stable identifier will do. The pseudonymisation is one-way, which is exactly
+the property that protects your users.
 
 ## 5. The publishable key and your declared origins
 
@@ -458,8 +458,8 @@ to the visitor.
 If the application requires bound tokens, the backend must wait for a UBT:
 `user_id` is rejected even before the first decision. A plain identifier is only
 an option when the application permits it; it is never a fallback for an invalid
-or expired UBT. For the organization-imposed mode, follow the application's
-employee identity instructions instead of requiring visitor consent.
+or expired UBT. Under an organization's policy no UBT is needed: name the person
+with `user_id`, or name nobody.
 
 ## 9. What your page can never do
 
@@ -493,10 +493,11 @@ specifically. The GPC specification allows exactly that.
 
 ## 11. The imposed mode
 
-When an application serves an organization's own employees rather than its
-visitors, the widget is **still the mandatory surface**, and everything above
-still applies: same tag, same `init()`, same presentations, same origin rules.
-What changes is that it stops asking and starts stating.
+On an application that applies an organization's policy, the SDK needs no
+widget: nobody is asked, and every call is decided by the policy. If you embed
+the widget there anyway, to show the people concerned what was decided,
+everything above still applies: same tag, same `init()`, same presentations,
+same origin rules. What changes is that it stops asking and starts stating.
 
 Falling silent was half an answer. "There is nothing for you to decide" says
 nothing about *what was decided*, and an organization that decides for its
@@ -527,13 +528,14 @@ to. For the same reason the account-linking affordances are not rendered, and
 `source` it claims — GPC included.
 
 The SDK side is unchanged: it reads `source` and `legal_basis` as opaque
-strings, and nothing in it branches on the mode. See [Concepts
-§4](./concepts.md#4-two-modes-asked-and-imposed) for why this mode is not a
-shortcut past the first, and why you must never point it at your own visitors.
+strings, and nothing in it branches on how a call was decided. See [Concepts
+§4](./concepts.md#4-the-policy-what-applies-to-a-call-and-who-decided) for what
+a policy signs, and why a basis the organization would not defend is
+[the mistake worth naming](./concepts.md#the-mistake-worth-naming).
 
 ## Next
 
-- [Concepts §4](./concepts.md#4-two-modes-asked-and-imposed) — asked and imposed, and why the second is not a shortcut past the first
-- [Concepts §8](./concepts.md#8-naming-the-end-user-user_id-vs-ubt) — `user_id` vs UBT on the SDK side
-- [Python quickstart](./quickstart-python.md) · [Node.js quickstart](./quickstart-node.md) — the other half of the integration
+- [Concepts §4](./concepts.md#4-the-policy-what-applies-to-a-call-and-who-decided) — the policy, who decides, and asking instead
+- [Concepts §8](./concepts.md#8-naming-the-end-user-user_id-vs-ubt) — `user_id` vs UBT on the SDK side, and naming nobody
+- [Python quickstart](./quickstart-python.md) · [Node.js quickstart](./quickstart-node.md) — the backend side of the integration
 - [What each provider actually lets you control](./providers-privacy-matrix.md) — which of the questions the widget asks can be enforced at all

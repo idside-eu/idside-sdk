@@ -30,16 +30,16 @@ import { IDSideError, ConsentDeniedError } from "@idside/sdk"; // Node.js
 | [`ConsentDeniedError`](#consentdeniederror) | HTTP 403 — the usage is refused | no | surface the denial in your product |
 | [`AuthenticationError`](#authenticationerror) | HTTP 401 — the API key is refused | no | fix the key |
 | [`InvalidBindingError`](#invalidbindingerror) | HTTP 401 `ubt_invalid` — the visitor's UBT did not verify: expired, issued for another application, altered, or not a UBT at all | with a new UBT | discard the stored UBT; the widget issues a new one |
-| [`BindingRequiredError`](#bindingrequirederror) | HTTP 401 `ubt_required` — the application requires a UBT and the call passed `user_id` | once the visitor is bound | show the widget before any AI call; pass its UBT as `ubt` |
+| [`BindingRequiredError`](#bindingrequirederror) | HTTP 401 `ubt_required` — the application requires a UBT and the call passed `user_id`, or named nobody | once the visitor is bound | show the widget before any AI call; pass its UBT as `ubt` |
 | [`BindingError`](#bindingerror) | the parent of the two above: the visitor's binding was refused, not the key | once the visitor is bound | show the widget — one handler for both |
 | [`ConsentRefreshRequiredError`](#consentrefreshrequirederror) | HTTP 409 `consent_refresh_required` — the visitor's choices no longer cover what the application requires | once the visitor has answered again | show the widget again — not an outage |
 | [`QuotaExceededError`](#quotaexceedederror) | HTTP 402 — plan quota exhausted | after reset | upgrade or wait |
 | [`RateLimitedError`](#ratelimitederror) | HTTP 429 — too many authorize calls | yes, backoff | slow down |
 | [`ContractError`](#contracterror) | HTTP 422 — payload rejected | no | fix the value the cloud's detail names; otherwise upgrade the SDK or report it |
 | [`ConsentTokenError`](#consenttokenerror) | the request cannot be hashed deterministically | no | pass JSON-compatible values |
-| [`MissingIdentityError`](#missingidentityerror) | neither `user_id` nor `ubt` | no | pass exactly one |
-| [`ConflictingIdentityError`](#conflictingidentityerror) | both `user_id` and `ubt` | no | pass exactly one |
-| [`UnenforceableOptionError`](#unenforceableoptionerror) | the call passes an option that could make it leave in a state enforcement cannot vouch for — a body override, a reserved header, another host | no | drop the option |
+| [`MissingIdentityError`](#missingidentityerror) | a `user_id` or `ubt` that names nobody — empty, blank, `0`, `false`, an empty container — or a call naming nobody made from inside an enforced call in progress | no | pass a real identifier, or leave the field out |
+| [`ConflictingIdentityError`](#conflictingidentityerror) | both `user_id` and `ubt` | no | pass at most one |
+| [`UnenforceableOptionError`](#unenforceableoptionerror) | the call passes an option that could make it leave in a state enforcement cannot vouch for — a body override, a reserved header, another host, a misspelled `user_id` | no | drop the option |
 | [`UnsupportedProviderError`](#unsupportedprovidererror) | no adapter matches the client, or the client cannot be guarded | no | check support, or register an adapter |
 | [`ToolUseRefusedError`](#tooluserefusederror) | the call hands the model a tool — `tools` or any other tool field — and this user has not accepted agentic tools: refused, never asked, or refused by a policy | no | retry without the tools, or route the user to a non-agentic path |
 | [`CredentialRoutingError`](#credentialroutingerror) | the `credentials` given to `wrap()` cannot route | no | fix the mapping — raised at `wrap()` time |
@@ -50,8 +50,10 @@ import { IDSideError, ConsentDeniedError } from "@idside/sdk"; // Node.js
 
 Four of them (`ConsentTokenError`, `MissingIdentityError`,
 `ConflictingIdentityError`, `UnenforceableOptionError`) and most
-`UnsupportedProviderError` cases are raised **before any network I/O**: nothing
-was sent to ID Side either.
+`UnsupportedProviderError` cases are raised **before any network I/O** of their
+own: nothing was sent to ID Side either for that call. (A `MissingIdentityError`
+raised inside another call in progress leaves that outer call's proof in the
+ledger.)
 
 `ToolUseRefusedError` is the one entry in this table that is not a failure. It
 is a user's answer — or the silence that counts as one — arriving where it can
@@ -260,11 +262,11 @@ different identity is exactly the pattern fraud detection is watching for.
 
 ### `policy_hold` — a call the policy held
 
-Only on an application that imposes an organization's policy on its employees
+Only on an application that applies an organization's policy
 ([Concepts §4](./concepts.md#enforce-and-observe--when-the-policy-cannot-apply)).
 When your policy cannot apply to a call (a provider with no such setting, a
-provider your organization has not allowed, an employee who is not identified),
-Observe lets the call through and flags it, Enforce holds it. This is Enforce:
+provider your organization has not allowed, no basis declared), Observe lets the
+call through and flags it, Enforce holds it. This is Enforce:
 `/v1/authorize` answers 403, no token is signed, and the provider is never
 called.
 
@@ -286,15 +288,15 @@ organization's ID Side dashboard.
 
 A developer can never bypass a wrapped client: a deviation never comes from a
 setting your code turned off, it comes from what the call names — the provider,
-the endpoint, the model or the identity, and the credentials you labelled — set
-against what the organization has set up. So no option in your code lets a held
+the endpoint, the model, and the credentials you labelled — set against what the
+organization has set up. So no option in your code lets a held
 call out, but what the call names is your code's, and the policy is its owner's:
 
 | `kind` | What it means | What your code controls | What whoever sets the policy controls |
 | --- | --- | --- | --- |
 | `provider_not_allowed` | the organization allows a list of providers, and this call's is not on it | the provider it calls: one on the list | the list: allowing the provider |
 | `option_not_enforced` | the policy refuses `option`, and nothing applies that refusal to this provider, endpoint or model — or only a credential you have not labelled could | the provider, endpoint and model it calls: one that applies the refusal, such as a model the provider's descriptor covers; and, where the refusal needs a dedicated credential, labelling one that carries it in `credentials` ([credential routing](./providers.md#6-credential-routing)) | the policy, and the provider account setting declared to ID Side that applies it, where one exists |
-| `basis_not_established` | the call would be signed `legal_basis: "not_established"` — the organization declared no basis, or the employee is not identified | the identifier it passes: the work email or external reference the organization registered for that employee, as `user_id` | the basis, and the employees the organization registers |
+| `basis_not_established` | the call would be signed `legal_basis: "not_established"` — the organization has declared no basis | nothing: naming the person or not changes nothing here | the basis, declared on the dashboard |
 
 What your code controls is a change to your integration, not a fallback in an
 error handler: retrying the same call is held again. Whether calls like it are
@@ -337,7 +339,7 @@ and the SDK raises a different class for each:
 | --- | --- | --- | --- |
 | `AuthenticationError` | `invalid_api_key`, or anything else | the secret key is missing, revoked, or of the wrong kind | **alert whoever operates the service**: every AI call fails until the key is fixed |
 | [`InvalidBindingError`](#invalidbindingerror) | `ubt_invalid` | the visitor's UBT did not verify: it expired — it lives 24 hours —, was issued for another application, was altered, or is not a UBT at all | **purge the UBT from this visitor's session**, stop the AI feature for them, and let the widget issue a new one |
-| [`BindingRequiredError`](#bindingrequirederror) | `ubt_required` | the application requires bound tokens, and the call named its user with `user_id` | **show the widget before any AI call**, and pass the UBT it issues as `ubt` |
+| [`BindingRequiredError`](#bindingrequirederror) | `ubt_required` | the application requires bound tokens, and the call named its user with `user_id`, or named nobody | **show the widget before any AI call**, and pass the UBT it issues as `ubt` |
 
 The second is the one a production application meets every day: any visitor
 who comes back after 24 hours with a server session still open sends a UBT
@@ -452,15 +454,15 @@ ends with the cloud's detail, which names the actual cause.
 
 ## `BindingRequiredError`
 
-**The application requires a UBT, and the call passed `user_id`** (HTTP 401,
-`ubt_required`). A [`BindingError`](#bindingerror). It is met the day an
-application is switched to bound tokens while its backend still names visitors
-with `user_id`; your key was accepted.
+**The application requires a UBT, and the call passed `user_id` or named
+nobody** (HTTP 401, `ubt_required`). A [`BindingError`](#bindingerror). It is met
+the day an application is switched to bound tokens while its backend still names
+visitors with `user_id`, or names nobody; your key was accepted.
 
 What to do: show the widget before any AI call, store the UBT it issues in the
-server session, and pass it as `ubt`. `user_id` is never a fallback for a strict
-application, so there is no retry that succeeds without the visitor going
-through the widget.
+server session, and pass it as `ubt`. Neither `user_id` nor a call naming nobody
+is a fallback for a strict application, so there is no retry that succeeds
+without the visitor going through the widget.
 
 ---
 
@@ -589,25 +591,56 @@ and has no public surface.
 
 ## `MissingIdentityError`
 
-**No `user_id` and no `ubt` was passed** to a consent-enforced AI call. Raised
-before any I/O — nothing was sent to ID Side or to the provider.
+**A `user_id` or `ubt` was passed, and it names nobody.** Raised before any I/O
+of its own — nothing was sent to ID Side or to the provider for this call (a
+call made from inside another one leaves that outer call's proof behind: see
+below).
+
+Naming the end user is optional: a call that passes neither field is authorized
+with the API key as the proof's subject (`binding: "api_key"`,
+[Concepts §8](./concepts.md#8-naming-the-end-user-user_id-vs-ubt)). What is
+refused is a field that is *there* and names nobody — an empty string, a string
+made only of blanks (whitespace as the cloud counts it), `0`, `false`, an empty
+list or dict (array or object) — while the other field names nobody either:
 
 ```python
-client.chat.completions.create(model="gpt-4o-mini", messages=[...])
-# MissingIdentityError: user_id or ubt is required for consent-enforced AI calls.
+client.chat.completions.create(model="gpt-4o-mini", messages=[...], user_id="")
+# MissingIdentityError: user_id or ubt was passed but names nobody (it is empty,
+# blank, zero, false or an empty container). Pass the identifier of the person
+# this call is for, or leave both out to make the call without naming anyone.
 ```
 
-What to do: pass exactly one identity on every call through a wrapped client.
-The SDK consumes it and never forwards it to the provider — see
-[Concepts §8](./concepts.md#8-naming-the-end-user-user_id-vs-ubt).
+Such a value is almost always a bug upstream — a lookup that failed, a form
+field left empty, a header that was not set — and reading it as "nobody" would
+quietly turn a call you meant to name into one about the key, with nothing to
+tell you. So it is refused rather than guessed at.
 
-Note that an empty string, `None`/`undefined`, `0`, `false` and an empty list or
-dict (array or object) all count as absent in both SDKs, and so does a string
-made only of blanks — whitespace as the cloud counts it, which would otherwise
-come back as a 422. Nothing else is trimmed: an identifier with spaces around it
-is sent as written, because its pseudonym is derived from those exact
-characters. A `user_id` that is empty because a lookup failed produces this
-error rather than an anonymous call, which is the intended behavior.
+What to do: pass the identifier of the person or team the call is for, or leave
+the field out. To name nobody explicitly, `None` in Python and `undefined` or
+`null` in JavaScript count as absent. One field that names nobody beside one
+that names somebody is not an error: the one that names somebody is the
+identity. Nothing else is trimmed: an identifier with spaces around it is sent
+as written, because its pseudonym is derived from those exact characters.
+Spell the field exactly: `userId` or `USER_ID` is refused with
+[`UnenforceableOptionError`](#unenforceableoptionerror), whatever its value.
+
+**A call made from inside another one names nobody.** A provider helper can
+reach an enforced method a second time while your call is still in progress — a
+retry, or a helper built on another. The SDK lets the one hop that belongs to
+your call through without asking again; any other is a second AI call, and it
+arrives without an identity, because the SDK consumed yours on the way in.
+Authorized, it would add a second proof about the API key rather than about
+whoever your call named, so it is refused with this error, before any I/O of
+its own. Your call itself was authorized first, so its proof is in the ledger;
+and when the refused hop was a retry, the first request had already left. A
+call naming nobody is allowed at the top level, never from inside a call in
+progress — and your own code is always at the top level: the body of a loop
+reading a stream, a listener a stream helper calls, a task running beside the
+call in `asyncio.gather()` or `Promise.all()`. What runs inside a call in
+progress is the provider's own work, plus any code you configured on the
+provider client itself (a custom HTTP transport, a `fetch`, a hook). Seeing this
+means a provider helper made a call the SDK cannot vouch for: report it with the
+method you called.
 
 **What a `user_id` may be is the cloud's to judge.** Neither SDK converts it:
 it leaves as you wrote it, and the cloud accepts a non-blank string or a finite
@@ -618,10 +651,10 @@ instead of merging your users into one. A number is read as written, so `42`
 and `"42"` are the same user. The float form is where the two SDKs part: in
 JavaScript `42.0` *is* the number `42`, so the Node SDK sends `42`, the same
 user as `42`, while Python sends `42.0` as `42.0`, which the cloud reads as
-another user. Pass the identifier as a string — the one the widget is given
-for the same person, since the two must match ([Concepts
-§8](./concepts.md#what-to-send-as-user_id)). In TypeScript, `Enforced<T>` asks
-for one.
+another user. Pass the identifier as a string — on an application that asks, the
+one the widget is given for the same person, since the two must match
+([Concepts §8](./concepts.md#what-to-send-as-user_id)). In TypeScript,
+`Enforced<T>` types it as one.
 
 ---
 
@@ -635,7 +668,7 @@ A `user_id` next to it is at best redundant and at worst a spoofing attempt the
 cloud would have to arbitrate — so the SDK refuses instead of picking one.
 
 What to do: pass `ubt` alone when your frontend runs the widget, `user_id` alone
-otherwise.
+otherwise — or neither, to name nobody.
 
 ---
 
@@ -660,6 +693,7 @@ enforcement *after* the SDK had applied it:
 | `prompt_cache_options` (OpenAI) | sets a prompt-cache lifetime (`ttl`, up to `12h`) that the forced `prompt_cache_retention` does not bound, so a user's refusal of extended caching could be recorded beside a twelve-hour cache |
 | `generation_output_config` / `generationOutputConfig` (Gemini) | had the provider write the generated media to a `gs://` bucket of the caller's choosing — a copy of the output kept somewhere the proof never names |
 | a per-call `fetch` in `httpOptions` (`@google/genai`) | sent the request on a transport nobody wrapped |
+| an argument spelled like `user_id` or `ubt` but not exactly as it — `userId`, `USER_ID`, `user-id`, `Ubt`: the same letters, another case or separators | was not read as the identity: the call was authorized as naming nobody, about the API key, and in Node the misspelled field went to the provider in the body. Refused whatever its value, `None` and `null` included, and before the identity is read. Only top-level arguments are compared: a `user_id` nested in Anthropic's `metadata` is the provider's own field and passes |
 
 So on an enforced call the SDK accepts a **closed list** of per-call options:
 timeouts, retry settings, an abort signal, an idempotency key, and headers that
@@ -676,7 +710,8 @@ carry — because the library sends them somewhere the hash does not reach, or
 because they undo a refusal from inside the body where nothing can force them
 back.
 
-What to do: drop the option. If you need a request parameter your provider
+What to do: drop the option — or, for a misspelled identity, write `user_id`
+or `ubt` exactly, as the message says. If you need a request parameter your provider
 library does not type yet, upgrade the library rather than smuggling it through
 the body. If you need a different host, credential or proxy, build a client
 with it and wrap *that* client — `wrap()` fixes the host it will allow when it
@@ -697,7 +732,7 @@ enforced, in these cases:
 
 | Case | Both SDKs |
 | --- | --- |
-| The client's library is not one of the four supported providers | yes |
+| The client is not one the shipped descriptors recognise (OpenAI, Anthropic, Google Gemini, Mistral, DeepSeek) and no adapter was passed | yes |
 | The client exposes none of the descriptor's declared call sites (e.g. a very old or very new provider version) | yes |
 | A supported HTTP transport is found but every route cannot be guarded | yes |
 | A transport whose `send` will not accept `follow_redirects`, so an authorized request could not be sent with redirects refused | Python only |
@@ -756,19 +791,19 @@ retention regime the user was promised. The SDK is the only component that can
 see that happening, because it is the only one that sees the outgoing request.
 
 **Three situations produce it, and the second is the one that surprises people.**
-The user refused agentic tools — or nobody ever put the question to them, which
-comes to the same answer: what nobody accepted is refused, so an option a person
-never answered is `false` before anything is enforced or signed. An integration
+On an application that asks its users, the user refused agentic tools — or
+nobody ever put the question to them, which comes to the same answer: what
+nobody accepted is refused, so an option a person never answered is `false`
+before anything is enforced or signed. An integration on such an application
 that hands the model tools and runs no [Preference Center](./widget.md)
 therefore raises this on *every* call, for *every* user. That is not a
 misconfiguration to work around and not an outage to escalate — it is the
 mechanism asking you to ask. Install the widget, and the users who accept stop
 raising it.
 
-The third is an organization policy that refuses agentic tools — for its
-employees in the imposed mode, or on top of a visitor's own answer. A policy only
-tightens, so no answer anybody gives in the widget lifts it; only the
-organization can.
+The third is an organization policy that refuses agentic tools — for every call
+made with its keys, or on top of a user's own answer. A policy only refuses, so
+no answer anybody gives in the widget lifts it; only the organization can.
 
 ```python
 from idside import ToolUseRefusedError

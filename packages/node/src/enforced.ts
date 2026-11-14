@@ -2,12 +2,14 @@
 // This software may be covered by the patents and applications listed there.
 
 /**
- * The typing half of enforcement: what a wrapped client's call sites demand.
+ * The typing half of enforcement: what a wrapped client's call sites accept.
  *
- * `consent.wrap()` requires an identity — `user_id` or `ubt` — on every AI call
- * it intercepts, and no provider's own types know that field exists. Under
- * strict TypeScript that made the identity an excess property on an object
- * literal, so the documented workaround was a cast at every call site:
+ * `consent.wrap()` reads an identity — `user_id` or `ubt` — on the AI calls it
+ * intercepts, and no provider's own types know that field exists. Naming the
+ * end user is optional (a call that names nobody is authorized with the API key
+ * as the proof's subject), but a call that does name them must be able to say
+ * so. Under strict TypeScript that made the identity an excess property on an
+ * object literal, so the documented workaround was a cast at every call site:
  *
  * ```ts
  * await client.chat.completions.create({ … } as unknown as Parameters<…>[0]);
@@ -17,15 +19,16 @@
  * WHOLE body, so a misspelled `mdoel` or a malformed `messages` stops being a
  * compile error too — the developer pays a cast and loses the type checking it
  * was supposed to protect. What follows removes the cast and gives that
- * checking back, on the one condition that matters: forgetting the identity has
- * to fail at compile time, never at run time.
+ * checking back, on the conditions that matter: naming the user twice, or
+ * misspelling the field (`userId` would reach the provider as part of the
+ * prompt's request), has to fail at compile time, never at run time.
  *
  * Three approaches were tried; two are recorded here because they look right.
  *
  * 1. **Augmenting the provider's own parameter types** (`declare module`) is
  *    global — it would teach `user_id` to EVERY OpenAI client in the program,
- *    wrapped or not — and it can only add the field as optional. An optional
- *    identity is exactly the failure this must prevent.
+ *    wrapped or not, and an unwrapped one would send it to the provider — and
+ *    it cannot say that the two identities exclude each other.
  * 2. **The obvious mapped type**, `(body: B, …r: R) => Ret` inferred once, keeps
  *    only the LAST overload of an overloaded method. On
  *    `chat.completions.create` that collapses three signatures into the base
@@ -36,12 +39,13 @@
  *
  * The replacement is the part with a visible cost. Intersecting (`T & {…}`)
  * would preserve the provider's own class identity, but an intersection can
- * only ADD signatures — the original identity-less ones would remain callable,
- * and forgetting `user_id` would still compile. Replacing means `Enforced<T>`
- * is a structural type where `T` was a class, so it no longer carries `T`'s
- * private fields and is no longer assignable to `T`. Annotate the wrapped
- * client `Enforced<OpenAI>` rather than `OpenAI`; that is the honest name for
- * it, since it is a client that demands more than an OpenAI client does.
+ * only ADD signatures — the provider's own would remain callable beside them,
+ * and with them every per-request option the narrowing below refuses:
+ * `fetchOptions` would compile again. Replacing means `Enforced<T>` is a
+ * structural type where `T` was a class, so it no longer carries `T`'s private
+ * fields and is no longer assignable to `T`. Annotate the wrapped client
+ * `Enforced<OpenAI>` rather than `OpenAI`; that is the honest name for it,
+ * since it is a client that accepts less than an OpenAI client does.
  */
 
 import type {
@@ -51,17 +55,19 @@ import type {
 } from "./adapters/callOptions.ts";
 
 /**
- * Exactly one of the two identities, never both and never neither.
+ * At most one of the two identities, never both.
  *
- * `ubt?: never` is what makes naming the user twice a compile error instead of
- * a `ConflictingIdentityError` at run time. The names mirror every descriptor's
- * `identity_param` / `ubt_param`, and `enforcedTyping.test.ts` fails the build
- * if a descriptor ever chooses different ones — a type cannot read a JSON file,
- * so the only thing standing between the two is that test.
+ * Neither is required: a call that names nobody is authorized with the API key
+ * as the proof's subject. `ubt?: never` is what makes naming the user twice a
+ * compile error instead of a `ConflictingIdentityError` at run time. The names
+ * mirror every descriptor's `identity_param` / `ubt_param`, and
+ * `enforcedTyping.test.ts` fails the build if a descriptor ever chooses
+ * different ones — a type cannot read a JSON file, so the only thing standing
+ * between the two is that test.
  */
-export type Identity = { user_id: string; ubt?: never } | { ubt: string; user_id?: never };
+export type Identity = { user_id?: string; ubt?: never } | { ubt?: string; user_id?: never };
 
-/** Marks a leaf of {@link CALL_SITE_TREE}: a method that carries the identity. */
+/** Marks a leaf of {@link CALL_SITE_TREE}: a method that may carry the identity. */
 const CALL = 1;
 type Call = typeof CALL;
 
@@ -80,8 +86,8 @@ type Call = typeof CALL;
  *
  * `stream` is here even though this SDK deliberately does not patch it (see
  * `UNPATCHABLE_ALIASES` in consent.ts): the helper forwards its one body object
- * to the `create` that IS patched, so a `stream()` call without an identity
- * fails at run time just the same. The type says what the call requires, not
+ * to the `create` that IS patched, so a `stream()` call naming the user twice
+ * fails at run time just the same. The type says what the call accepts, not
  * which function this SDK replaced.
  */
 export const CALL_SITE_TREE = {
@@ -120,7 +126,7 @@ type AcceptedOptions<Rest extends readonly unknown[]> = Rest extends readonly []
     : Rest;
 
 /**
- * Add the identity to a signature's first parameter, and narrow the options after it.
+ * Add the optional identity to a signature's first parameter, and narrow the options after it.
  *
  * Only the body carries the identity, because only the body is what the SDK
  * reads it out of. The options object is narrowed to what an enforced call
@@ -135,7 +141,7 @@ type WithIdentityParam<A extends readonly unknown[]> = A extends readonly [infer
   : A;
 
 /**
- * Rewrite every overload of a method so its body also carries the identity.
+ * Rewrite every overload of a method so its body may also carry the identity.
  *
  * TypeScript can only infer from an overloaded type through a pattern with the
  * same number of call signatures, and it has no way to iterate them — hence the
@@ -196,9 +202,10 @@ type Apply<T, Node> = [Enforcing<T, Node>] extends [never]
 /**
  * A provider client as `consent.wrap()` hands it back: same object, stricter type.
  *
- * Every declared call site now demands `user_id` or `ubt` on its body and keeps
- * its own overloads and return types; everything else is untouched. Use it to
- * annotate a wrapped client, or to type a function that receives one:
+ * Every declared call site now accepts `user_id` or `ubt` on its body — at most
+ * one of them — and keeps its own overloads and return types; everything else
+ * is untouched. Use it to annotate a wrapped client, or to type a function that
+ * receives one:
  *
  * ```ts
  * const client: Enforced<OpenAI> = consent.wrap(new OpenAI());

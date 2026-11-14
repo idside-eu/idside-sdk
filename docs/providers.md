@@ -558,9 +558,9 @@ the user's preferences, which is the one thing this architecture never does.
 
 **A posture you have not provisioned stops the call**
 ([`MissingCredentialError`](./errors.md#missingcredentialerror)), it does not
-fall back. On an application that serves employees, the cloud reads the labels
-you declare first: when the policy refuses an option only a posture you have
-not labelled can carry, Observe names no posture — the call leaves on your
+fall back. On an application under an organization's policy, the cloud reads
+the labels you declare first: when the policy refuses an option only a posture
+you have not labelled can carry, Observe names no posture — the call leaves on your
 ordinary credential, and its proof records the refusal as not applied — and
 Enforce holds the call (`policy_hold`). Either way the SDK never picks another
 credential itself. And the credential never leaves your process: ID Side is

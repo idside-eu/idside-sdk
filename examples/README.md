@@ -1,6 +1,6 @@
 # Examples
 
-Three programs, in the two languages the SDK ships, that you can run right now:
+Four programs, in the two languages the SDK ships, that you can run right now:
 clone, one setup command, watch a consent-enforced AI call happen and read what
 actually left the process.
 
@@ -8,6 +8,7 @@ actually left the process.
 examples/
   python/  wrapped_call.py           a consent-enforced OpenAI call, end to end
            async_wrapped_call.py     the same, on an async client, two users at once
+           unnamed_call.py           a call that names nobody: the API key is the subject
   node/    wrapped-call.ts           the same call in TypeScript, with no cast
   .env.example                       what the SDK reads from the environment
 ```
@@ -120,6 +121,46 @@ $ uv run async_wrapped_call.py
    two requests cannot be told apart here except by what was asked.
 ```
 
+### A call that names nobody
+
+Naming the end user is optional, and most calls name nobody. This one uses the
+SDK's real transport to the cloud, so step 2 is the body the SDK actually sent —
+with no identity field in it — and only the answer comes from a stand-in. The
+SDK accepts `binding: "api_key"` there, on a call that named nobody, and on no
+other.
+
+```console
+$ uv run unnamed_call.py
+1. The call the developer writes — naming nobody
+   client.chat.completions.create(
+       model='gpt-4o-mini',
+       messages=[{'role': 'user', 'content': 'Draft a polite reply to this supplier.'}],
+   )
+
+2. What ID Side was asked
+   POST /v1/authorize
+   body: {"call_site":"chat.completions.create","credential_postures":[],"model":"gpt-4o-mini","provider":"openai","request_hash":"sha256:20054f1d7b16d19ba03b7e9a277122fd655e57511916991a88285f9a3d4b579a"}
+   ...no user_id, no ubt: the call names nobody.
+
+3. What ID Side answered
+   source='default_policy' legal_basis='legitimate_interest'
+   binding='api_key'   <- the subject is the API key
+   params_forced={'store': False}
+
+4. What actually left this process
+   POST https://api.openai.com/v1/chat/completions
+   X-AI-Consent-Token: eyJhbGciOiJFUzI1NiJ9.unsigned-placeholder.signature
+   body: {"messages":[{"content":"Draft a polite reply to this supplier.","role":"user"}],"model":"gpt-4o-mini","store":false}
+
+5. What the provider replied
+   'ok'
+
+Two things to read twice:
+   - no identity left this process, and none was needed: the policy
+     applies to every call made with the key;
+   - the proof still carries the basis the organization declared.
+```
+
 ## Node.js
 
 Needs Node 23.6+ (the examples are TypeScript run in place) and npm. The SDK is
@@ -135,8 +176,9 @@ npm install
 ### A consent-enforced call, typed
 
 The identity is part of the type: this file compiles under `strict` with no cast
-anywhere, and dropping `user_id` from the call would not compile at all. Running
-a `.ts` file only strips the types, so the check that matters is separate:
+anywhere, `user_id` included, and naming the user twice — `user_id` and `ubt` —
+would not compile at all. Running a `.ts` file only strips the types, so the
+check that matters is separate:
 
 ```bash
 npm run typecheck
@@ -214,7 +256,7 @@ errors worth catching and how to read the journal.
 ## Keeping these honest
 
 An example nothing runs rots exactly like the documentation around it, so CI
-runs all three on every pull request and diffs their output against the
+runs all four on every pull request and diffs their output against the
 `console` blocks above, character for character —
 `scripts/check_docs_examples.sh`, the same script that does it for the
 quickstarts. A new example is a file, a `console` block here, and one line in

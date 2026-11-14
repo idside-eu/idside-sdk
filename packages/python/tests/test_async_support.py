@@ -271,14 +271,31 @@ def test_an_async_call_is_authorized_forced_and_carries_the_token() -> None:
     assert wire.unenforced == []
 
 
-def test_an_async_call_without_an_identity_never_reaches_the_wire() -> None:
+def test_an_async_call_with_an_empty_identity_never_reaches_the_wire() -> None:
     wrapped, fake, wire = _probe()
 
     with pytest.raises(MissingIdentityError):
-        _run(wrapped.chat.completions.create(model="gpt-5", messages=_MESSAGES))
+        _run(
+            wrapped.chat.completions.create(
+                model="gpt-5", messages=_MESSAGES, user_id=""
+            )
+        )
 
     assert fake.calls == []
     assert wire.requests == []
+
+
+def test_an_async_call_naming_nobody_is_authorized_and_carries_its_proof() -> None:
+    """Naming nobody is allowed, and the async path enforces it like any call."""
+    wrapped, fake, wire = _probe()
+
+    with pytest.raises(openai.APIConnectionError):
+        _run(wrapped.chat.completions.create(model="gpt-5", messages=_MESSAGES))
+
+    assert len(fake.calls) == 1
+    assert fake.calls[0]["user_id"] is None
+    assert fake.calls[0]["ubt"] is None
+    assert wire.requests == [("POST", "/v1/chat/completions", True)]
 
 
 def test_an_async_call_with_two_identities_is_refused() -> None:
@@ -340,12 +357,14 @@ def test_an_async_stream_is_enforced_and_the_token_reaches_the_wire() -> None:
     assert wire.requests == [("POST", "/v1/chat/completions", True)]
 
 
-def test_an_async_stream_without_an_identity_fails_at_the_call_not_at_entry() -> None:
+def test_an_async_stream_with_an_empty_identity_fails_at_the_call_not_at_entry() -> (
+    None
+):
     """The identity check is pure, so it happens where the mistake was made."""
     wrapped, fake, wire = _probe()
 
     with pytest.raises(MissingIdentityError):
-        wrapped.chat.completions.stream(model="gpt-5", messages=_MESSAGES)
+        wrapped.chat.completions.stream(model="gpt-5", messages=_MESSAGES, user_id=" ")
 
     assert fake.calls == []
     assert wire.requests == []

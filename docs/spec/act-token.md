@@ -19,7 +19,8 @@
 ## 1. Purpose
 
 The ACT token is **cryptographic proof**, attached to every AI API call,
-attesting that the user's consent preferences were verified **before** sending.
+attesting that the policy or the consent preferences that govern the call were
+verified **before** sending.
 It is designed to be independently verifiable (audit, data protection authority,
 DSR response).
 
@@ -44,22 +45,55 @@ JOSE header: `{ "alg": "ES256", "typ": "act+jwt", "kid": "act-2026q3" }`.
 | Claim | Type | Description |
 | ----- | ---- | ----------- |
 | `iss` | string | Issuer — `idside.eu` on the production service, whatever the mode of the key (`test.idside.eu` on a deployment of the cloud that is not the production service). A test key is told apart by `mode`, not by `iss` |
-| `sub` | string | `user_pseudo_id` — pseudonymized, scoped per app. Never a raw identifier |
+| `sub` | string | The subject of the proof, pseudonymized and scoped per app: the person the call named, or — on a call that named nobody — the API key it was made with. `binding` says which. Never a raw identifier |
 | `app_id` | string | The application the call was authorized for |
 | `iat` | number | Issued-at (epoch) |
 | `exp` | number | Expiry; the validity interval `exp - iat` is at most 3600 seconds |
 | `jti` | string | Unique token id. Also the public `token_id` used by §5 |
-| `consent_state` | object | The consent state that applied to this call (e.g. `{ "training.foundation": false, "agentic_tools": false, … }`). Outside the imposed mode it is complete: an option the person never accepted reads `false`, so a value records what applied, not necessarily what they said — `source` and `legal_basis` say whether anybody decided |
+| `consent_state` | object | The consent state that applied to this call (e.g. `{ "training.foundation": false, "agentic_tools": false, … }`). On an application that asks its users it is complete: an option the person never accepted reads `false`, so a value records what applied, not necessarily what they said — `source` and `legal_basis` say whether anybody decided |
 | `legal_basis` | string | `consent`, `legitimate_interest`, `contractual_obligation`, `public_task`, `legal_obligation`, `vital_interests`, `not_established` — see below. Read it as opaque: the list only grows |
 | `source` | string | `widget`, `widget_override_gpc`, `gpc`, `idside_account`, `default_policy`, `app_default` — see §4 |
 | `provider` | string | Target provider (`openai`, `anthropic`…) |
 | `model` | string | Target model |
 | `request_hash` | string | `sha256:<hex>` over the canonical request (§3.1) |
 | `nonce` | string | Unique non-reusable value (anti-replay) |
-| `binding` | string | How the identity was established: `ubt` (the widget bound it) or `user_id` (the developer asserted it). Makes the **strength of the proof** visible to an auditor |
+| `binding` | string | What the subject is and how it was established: `api_key` (the call named nobody; the subject is the key), `ubt` (the widget bound the identity) or `user_id` (the developer asserted it). Makes the **strength of the proof** visible to an auditor — see below. Read it as opaque: the list only grows |
+| `api_key` | string | The public identifier of the API key the call was made with — never the secret key itself. See below |
 | `mode` | string | `test` or `live` — see below |
 | `refused_by` | object | Which layer refused each option this call refuses — see below |
 | `deviations` | array | What the organization's policy could not apply to this call, on an application that lets such calls through — see below. Absent when the call is compliant |
+
+### `binding` and `api_key` — who the proof is about
+
+Naming the end user on a call is optional. The subject of a proof is therefore
+one of three things, and `binding` says which:
+
+| `binding` | `sub` is the pseudonym of | Issued on |
+| --- | --- | --- |
+| `api_key` | the API key the call was made with | a request that named nobody |
+| `user_id` | the identifier the developer passed — a person, or a team | a request carrying `user_id` |
+| `ubt` | the person the widget bound to the request | a request carrying `ubt` |
+
+`sub` keeps one meaning across all three: the pseudonymous subject of the proof,
+scoped per app, never a raw value. A key's subject is derived from the key the
+way a person's is derived from their identifier, and a key renewed from the
+dashboard keeps the same subject, so its proofs remain one subject. Tell the
+three apart by `binding`, never by the shape of `sub`.
+
+`binding: "api_key"` is issued on a request that named nobody, and only there:
+a request naming somebody keeps `user_id` or `ubt`, as before. Both SDKs hold
+the authorize answer to the table above — `user_id` for a request carrying
+`user_id`, `ubt` for one carrying `ubt`, `api_key` for one carrying neither —
+and treat an answer with any other binding as no answer at all.
+
+The `api_key` claim carries the public identifier of the key the call was made
+with — on every token issued since the claim was introduced, whatever the
+`binding`. It is never the secret, and a verifier should read it as an opaque
+string. Its absence means an older token. Both SDKs keep this claim in `claims`
+without examining it, like any claim they do not name.
+
+The claim names and the values of `binding` are signed, so they are never
+renamed or redefined ([`versioning.md`](../versioning.md) §1.2).
 
 ### `mode: "test" | "live"`
 
@@ -98,7 +132,7 @@ this order:
 | `person` | the person refused it: in the widget, on their ID Side account, or through a browser signal (`source: "gpc"`, in the same token, tells that one apart) |
 | `silence` | nobody answered, and what nobody accepted is refused |
 | `organization` | the organization's policy refuses it for everyone |
-| `team` | a team the person belongs to, or one above it, refuses it (imposed mode only) |
+| `team` | a team the person belongs to, or one above it, refuses it (under an organization's policy only) |
 | `app` | the application refuses it for everyone who uses it |
 
 `person` and `silence` never share an entry, and appear only when the
@@ -124,11 +158,10 @@ it, like any claim they do not name.
 
 ### `deviations` — what the policy could not apply
 
-Added 2026-10-11, and only ever on a token issued where an organization imposes
-its policy on its employees. When your policy cannot apply to a call (a provider
-with no such setting, a provider your organization has not allowed, an employee
-who is not identified), Observe lets the call through and flags it, Enforce
-holds it. This claim is the flag: an array with one entry per deviation, on a
+Added 2026-10-11, and only ever on a token issued under an organization's
+policy. When your policy cannot apply to a call (a provider with no such
+setting, a provider your organization has not allowed, no basis declared),
+Observe lets the call through and flags it, Enforce holds it. This claim is the flag: an array with one entry per deviation, on a
 token for a call that went out under Observe.
 
 ```json
@@ -142,7 +175,7 @@ token for a call that went out under Observe.
 | --- | --- |
 | `provider_not_allowed` | the organization allows a list of providers, and this call's provider is not on it |
 | `option_not_enforced` | the policy refuses `option`, and nothing applies that refusal to this call: the provider has no parameter for it, only its terms answer it and they leave the processing possible, it rests on an account setting no current declaration covers, only a credential the application has not labelled could carry it, or the endpoint or model is one the provider's descriptor does not cover |
-| `basis_not_established` | the call is signed `legal_basis: "not_established"`: the organization declared no basis, or the employee is not identified |
+| `basis_not_established` | the call is signed `legal_basis: "not_established"`: the organization has declared no basis |
 
 `option` names an option of the catalogue and appears only on
 `option_not_enforced`. Like `refused_by`, the claim names kinds and options,
@@ -164,7 +197,7 @@ examining it.
 
 | Value | What the proof asserts |
 | --- | --- |
-| `consent` | Article 6(1)(a). With a `widget` or `idside_account` source, the person made a positive act: a widget answer, or their own ID Side account. With `source: "default_policy"`, the basis the organization's policy declared — ID Side collected no answer from the employee |
+| `consent` | Article 6(1)(a). With a `widget` or `idside_account` source, the person made a positive act: a widget answer, or their own ID Side account. With `source: "default_policy"`, the basis the organization's policy declared — ID Side collected no answer from anyone |
 | `contractual_obligation` | the basis the organization's policy declared: Article 6(1)(b) |
 | `legal_obligation` | the basis the organization's policy declared: Article 6(1)(c) |
 | `vital_interests` | the basis the organization's policy declared: Article 6(1)(d) |
@@ -172,13 +205,14 @@ examining it.
 | `legitimate_interest` | the basis the organization's policy declared: Article 6(1)(f) |
 | `not_established` | no basis was established here — see below |
 
-A basis a policy declares is only ever signed where an organization imposes
-its policy on its employees, with `source: "default_policy"`, and only for an
-employee who is identified; any other call under that policy reads
-`not_established`. Since 2026-11-08 an organization may declare `consent` too.
-The GDPR generally presumes consent not to be freely given at work, and ID Side
-collects no answer from the employee: the token's `source` shows that the
-decision was the organization's.
+A basis a policy declares is signed on every call made under that policy,
+with `source: "default_policy"`, whether the call names a person or nobody;
+while the organization has declared none, the call reads `not_established`. The
+basis is the organization's declaration: ID Side does not assess it, and the
+token's `source` shows that the decision was the organization's. Since
+2026-11-08 an organization may declare `consent` too. The GDPR generally
+presumes consent not to be freely given at work, and ID Side collects no answer
+from anyone under a policy.
 
 `public_task`, `legal_obligation` and `vital_interests` were added on
 2026-10-13; no value was renamed. Neither SDK enumerates `legal_basis`: both
@@ -251,10 +285,10 @@ declaring `none` or an HMAC algorithm is a forgery attempt, not a negotiation.
 | `widget_override_gpc` | MAXIMUM | An explicit widget answer taken over a GPC signal for this site — which the GPC specification itself provides for |
 | `gpc` | MAXIMUM | Browser signal `Sec-GPC: 1` detected automatically |
 | `idside_account` | MAXIMUM | User's ID Side account — full opaque tunnel |
-| `default_policy` | STRONG | An organization's policy, applied to its employees without asking them. May carry `legal_basis: "consent"` since 2026-11-08, as a basis the organization declared: no answer was collected from the employee |
+| `default_policy` | STRONG | An organization's policy, applied to the calls made with its keys without asking anyone. May carry `legal_basis: "consent"` since 2026-11-08, as a basis the organization declared: no answer was collected from anyone |
 | `app_default` | NONE | Nobody said anything, so nothing is allowed: every option in the catalogue resolves to `false` for a person the system has never met — always paired with `legal_basis: "not_established"` |
 
-The last two are the *imposed* and *unknown-subject* cases. A verifier weighing
+The last two are the *policy* and *unknown-subject* cases. A verifier weighing
 a proof should read `source` and `legal_basis` together: `default_policy` says a
 decision was made *about* the person, and `app_default` says none was made at
 all.

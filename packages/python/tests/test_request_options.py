@@ -158,6 +158,45 @@ def test_every_option_is_classified(key: tuple[str, str, str]) -> None:
     )
 
 
+@pytest.mark.parametrize("provider", sorted(_DESCRIPTORS))
+def test_no_argument_a_call_may_carry_is_spelled_like_the_identity(
+    provider: str,
+) -> None:
+    """The look-alike refusal must never catch a real request parameter.
+
+    An argument differing from ``user_id`` or ``ubt`` only by case and
+    separators is refused (``refuse_identity_lookalikes``). That is safe only
+    while no body field, option or helper argument of a wrapped endpoint is
+    spelled that way; a library adding one fails here, before a customer's
+    call is refused for it.
+    """
+    descriptor = _DESCRIPTORS[provider]
+
+    def spelled(name: str) -> str:
+        return re.sub(r"[^a-z0-9]", "", name.lower())
+
+    carried: set[str] = set(_call_options.GENAI_ARGUMENTS)
+    library = LIBRARIES.get(descriptor.client_module)
+    if library is not None:
+        carried |= library.permitted | library.transport
+        for site in descriptor.call_sites:
+            carried |= library.body_fields.get(site.id, frozenset())
+            carried |= (
+                _call_options._body_fields(library.body_schemas.get(site.id, ()))
+                or frozenset()
+            )
+    carried |= {
+        name
+        for key, surface in _computed().items()
+        if key[0] == provider
+        for name in surface
+    }
+    identities = {spelled(descriptor.identity_param), spelled(descriptor.ubt_param)}
+
+    assert "model" in carried, "nothing was read: the check would pass vacuously"
+    assert not [name for name in carried if spelled(name) in identities]
+
+
 @pytest.mark.parametrize("module", sorted(LIBRARIES))
 def test_the_frozen_body_is_the_one_the_installed_library_declares(module: str) -> None:
     """The snapshot is only worth having while it still matches the live schema.

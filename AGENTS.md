@@ -34,7 +34,15 @@
   starting-from-nothing forms (`pip install 'idside[openai]'`,
   `npm install @idside/sdk openai`).
   `IDSIDE_BASE_URL` is for a local or staging cloud: the origin alone, without
-  `/v1` or `/widget`. Strict visitor apps
-  need a UBT bound to the same server session; never fall back to `user_id`.
-  Employees use a registered work email or external reference, not an anonymous
-  visitor identifier.
+  `/v1` or `/widget`. Naming the end user is optional: a call with no
+  identity sends no identity field, and the API key is the proof's subject
+  (`binding: api_key`; the answer's binding must be the identity sent —
+  `user_id`, `ubt`, or `api_key` for none — and nothing else). An identity that
+  is present but names nobody stays a `MissingIdentityError`, and so does a call
+  naming nobody made from inside an enforced call in progress (a provider
+  helper re-entering without the permit); two stay a `ConflictingIdentityError`.
+  An argument spelled like `user_id`/`ubt` but not exactly (`userId`, `USER_ID`,
+  `Ubt`: equal once case and separators are stripped) is an
+  `UnenforceableOptionError` before the identity is read, in both SDKs. Strict
+  visitor apps need a UBT bound to the same server session; never fall back to
+  `user_id` or to naming nobody.

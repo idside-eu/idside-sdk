@@ -381,6 +381,60 @@ def transport_options(descriptor: ProviderDescriptor) -> frozenset[str]:
     return library.transport if library is not None else frozenset()
 
 
+def spelling(name: str) -> str:
+    """``name`` without case or separators: ``userId``, ``USER-ID`` → ``userid``.
+
+    Lower-cased, then everything but ``a``-``z`` and ``0``-``9`` removed. The
+    Node SDK applies the same rule; a different one would let a spelling
+    through one SDK that the other refuses.
+    """
+    return re.sub(r"[^a-z0-9]", "", name.lower())
+
+
+_IDENTITY_ROLE = {
+    "identity_param": "names the person the call is for",
+    "ubt_param": "carries the User Binding Token",
+}
+
+
+def refuse_identity_lookalikes(
+    descriptor: ProviderDescriptor, kwargs: Mapping[str, Any]
+) -> None:
+    """Refuse an argument spelled like ``user_id`` or ``ubt`` but not as it.
+
+    A call may name nobody, so a misspelled identity is not missing anything
+    the identity check could notice: ``userId="team-marketing"`` would be
+    authorized as a call about the API key and the argument read as a request
+    parameter — refused or let through by whatever the library's schema says,
+    or, with a value of ``None``, waved through as "not given" until the
+    provider's own signature rejected it after the proof was signed. So a name
+    that differs from either identity argument only by case and separators is
+    refused here, whatever its value, before the identity is even read: it is
+    a fault in the code, and is reported the same way whatever the data.
+
+    No provider body field of a classified library spells like either
+    argument; ``tests/test_request_options.py`` holds that against the pinned
+    libraries. Only top-level arguments are read: a ``user_id`` nested in
+    Anthropic's ``metadata`` is the provider's own.
+    """
+    meant = {
+        spelling(getattr(descriptor, field)): (getattr(descriptor, field), role)
+        for field, role in _IDENTITY_ROLE.items()
+    }
+    for name in kwargs:
+        exact, role = meant.get(spelling(name), (name, ""))
+        if name != exact:
+            raise UnenforceableOptionError(
+                f"`{name}` cannot be passed on a consent-enforced call: it is "
+                f"spelled like `{exact}`, which {role}, and the SDK reads only "
+                "that exact spelling. Under any other it is not the identity: "
+                "the call would name nobody, and the argument would be left in "
+                "the request for the provider. The AI call was not made and ID "
+                f"Side was not asked. Rename it `{exact}`, or leave it out to "
+                "make the call without naming anyone."
+            )
+
+
 def refuse_unenforceable(
     descriptor: ProviderDescriptor, call_site: str, kwargs: Mapping[str, Any]
 ) -> None:

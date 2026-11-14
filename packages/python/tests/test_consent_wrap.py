@@ -273,15 +273,81 @@ def test_wrap_is_fail_closed_when_cloud_unreachable() -> None:
     assert completions.calls == []  # provider NOT called
 
 
-def test_wrap_requires_user_id() -> None:
+_KEY_DECISION = ConsentDecision(
+    consent_state={"training": False},
+    params_forced={"store": False},
+    act_token="tok_key",
+    source="default_policy",
+    legal_basis="legitimate_interest",
+    binding="api_key",
+)
+
+
+@pytest.mark.parametrize(
+    "identity",
+    [
+        pytest.param({}, id="absent"),
+        pytest.param({"user_id": None}, id="user-id-none"),
+        pytest.param({"ubt": None}, id="ubt-none"),
+    ],
+)
+def test_a_call_may_name_nobody(identity: dict[str, Any]) -> None:
+    """Naming the end user is optional: the API key is then the proof's subject."""
+    client, completions = _fake_openai()
+    consent_client = _FakeConsent(_KEY_DECISION)
+
+    _wrap(client, consent_client).chat.completions.create(
+        model="gpt-4o", messages=[{"role": "user", "content": "hi"}], **identity
+    )
+
+    query = consent_client.calls[-1]
+    assert query["user_id"] is None
+    assert query["ubt"] is None
+    assert query["request_hash"].startswith("sha256:")
+    call = completions.calls[-1]
+    assert call["store"] is False
+    assert call["extra_headers"]["X-AI-Consent-Token"] == "tok_key"
+    assert "user_id" not in call
+    assert "ubt" not in call
+
+
+def test_naming_nobody_does_not_change_the_request_hash() -> None:
+    """The identity was never hashed, so leaving it out changes nothing proven."""
+    client, _ = _fake_openai()
+    consent_client = _FakeConsent(_DECISION)
+    wrapped = _wrap(client, consent_client)
+    body = {"model": "gpt-4o", "messages": [{"role": "user", "content": "hi"}]}
+
+    wrapped.chat.completions.create(**body, user_id="usr_marie_456")
+    wrapped.chat.completions.create(**body)
+
+    named, unnamed = consent_client.calls
+    assert named["request_hash"] == unnamed["request_hash"]
+
+
+@pytest.mark.parametrize(
+    "identity",
+    [
+        pytest.param({"user_id": ""}, id="empty-user-id"),
+        pytest.param({"ubt": ""}, id="empty-ubt"),
+        pytest.param({"user_id": 0}, id="zero"),
+        pytest.param({"user_id": False}, id="false"),
+        pytest.param({"user_id": {}}, id="empty-dict"),
+        pytest.param({"user_id": "", "ubt": None}, id="empty-beside-none"),
+    ],
+)
+def test_an_identity_given_that_names_nobody_is_refused_before_any_io(
+    identity: dict[str, Any],
+) -> None:
+    """Present but naming nobody is a bug upstream, never a call about the key."""
     client, completions = _fake_openai()
     consent_client = _FakeConsent(_DECISION)
     with pytest.raises(MissingIdentityError):
         _wrap(client, consent_client).chat.completions.create(
-            model="gpt-4o", messages=[{"role": "user", "content": "hi"}]
+            model="gpt-4o", messages=[{"role": "user", "content": "hi"}], **identity
         )
     assert completions.calls == []
-    assert consent_client.calls == []  # cloud never queried without identity
+    assert consent_client.calls == []  # cloud never queried
 
 
 def test_wrap_unknown_client_raises() -> None:

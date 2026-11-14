@@ -8,8 +8,9 @@
  *
  * What each group pins:
  *   - the identity is accepted on an object literal, with no cast at all;
- *   - forgetting it is a COMPILE error, not a runtime one;
- *   - naming the user twice is a compile error too;
+ *   - leaving it out compiles: naming the end user is optional;
+ *   - naming the user twice is a COMPILE error, not a runtime one, and so is a
+ *     misspelled identity, which would otherwise reach the provider;
  *   - the provider's own overloads survive — `stream: true` still returns a
  *     stream, and the non-streaming call still returns a completion;
  *   - the surfaces the SDK does not enforce keep their own types untouched.
@@ -54,11 +55,18 @@ export async function openaiChatCompletions(): Promise<void> {
   });
   for await (const chunk of streamed) void chunk; // still a Stream: the overload survived
 
-  // @ts-expect-error the identity is required, and forgetting it must not compile
-  await openai.chat.completions.create({ model: "gpt-4o-mini", messages: [] });
+  // Naming nobody: the API key is the proof's subject. Same return type.
+  const unnamed = await openai.chat.completions.create({ model: "gpt-4o-mini", messages: [] });
+  const unnamedId: string = unnamed.id;
+  void unnamedId;
+  // `undefined` is "nobody" at run time too, so the type lets it through.
+  await openai.chat.completions.create({ model: "gpt-4o-mini", messages: [], user_id: undefined });
 
   // @ts-expect-error naming the user twice is a contradiction, not a choice
   await openai.chat.completions.create({ model: "gpt-4o-mini", messages: [], user_id: "u", ubt: "b" });
+
+  // @ts-expect-error a misspelled identity would reach the provider instead of naming anyone
+  await openai.chat.completions.create({ model: "gpt-4o-mini", messages: [], userId: "usr_marie_456" });
 }
 
 export async function openaiResponses(): Promise<void> {
@@ -70,18 +78,21 @@ export async function openaiResponses(): Promise<void> {
   const text: string = response.output_text;
   void text;
 
-  // @ts-expect-error the identity is required here too
   await openai.responses.create({ model: "gpt-4o-mini", input: "Hello!" });
+
+  // @ts-expect-error naming the user twice fails here too
+  await openai.responses.create({ model: "gpt-4o-mini", input: "Hello!", user_id: "u", ubt: "b" });
 }
 
 export function openaiAliases(): void {
-  // `parse` and `stream` reach the same endpoint, so they demand the same identity.
+  // `parse` and `stream` reach the same endpoint, so they accept the same identity.
   void openai.chat.completions.stream({ model: "gpt-4o-mini", messages: [], user_id: "usr_marie_456" });
   void openai.chat.completions.parse({ model: "gpt-4o-mini", messages: [], ubt: "ubt_marie_456" });
   void openai.responses.stream({ model: "gpt-4o-mini", input: "Hello!", user_id: "usr_marie_456" });
-
-  // @ts-expect-error an alias without the identity fails at the same place as its call site
   void openai.chat.completions.stream({ model: "gpt-4o-mini", messages: [] });
+
+  // @ts-expect-error an alias naming the user twice fails at the same place as its call site
+  void openai.chat.completions.stream({ model: "gpt-4o-mini", messages: [], user_id: "u", ubt: "b" });
 }
 
 export async function refusedOptions(): Promise<void> {
@@ -130,8 +141,10 @@ export async function anthropicMessages(): Promise<void> {
     ubt: "ubt_marie_456",
   });
 
-  // @ts-expect-error the identity is required
   await anthropic.messages.create({ model: "claude-sonnet-4-5", max_tokens: 64, messages: [] });
+
+  // @ts-expect-error naming the user twice
+  await anthropic.messages.create({ model: "claude-sonnet-4-5", max_tokens: 64, messages: [], user_id: "u", ubt: "b" });
 }
 
 export async function mistralCallSites(): Promise<void> {
@@ -141,6 +154,8 @@ export async function mistralCallSites(): Promise<void> {
   void (await mistral.agents.complete({ agentId: "ag_medhelp", messages: [], user_id: "usr_marie_456" }));
   void (await mistral.beta.conversations.start({ inputs: "Hello!", user_id: "usr_marie_456" }));
 
-  // @ts-expect-error every declared call site demands the identity, on every provider
-  await mistral.chat.complete({ model: "mistral-small-latest", messages: [] });
+  void (await mistral.chat.complete({ model: "mistral-small-latest", messages: [] }));
+
+  // @ts-expect-error every declared call site refuses two identities, on every provider
+  await mistral.chat.complete({ model: "mistral-small-latest", messages: [], user_id: "u", ubt: "b" });
 }

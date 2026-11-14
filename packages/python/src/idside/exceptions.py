@@ -114,6 +114,14 @@ class UnenforceableOptionError(IDSideError):
     for a related reason: it would send several requests under a single ACT
     token.
 
+    So is an argument spelled like ``user_id`` or ``ubt`` but not exactly as
+    either — ``userId``, ``USER_ID``, ``user-id``, ``Ubt``: case and separators
+    aside, the same name. Naming the end user is optional, so the call would
+    otherwise be authorized as naming nobody, and the misspelled argument read
+    as a request parameter for the provider. Refused whatever its value,
+    ``None`` included, and before the identity is read; the message names the
+    argument to use.
+
     The message names the option or the header, never its value, which may be a
     key. What to do: pass the parameter as a named argument of the call, where
     it is part of the request that is authorized and hashed; set credentials
@@ -219,9 +227,10 @@ class BindingRequiredError(BindingError):
     """The application requires a UBT; the call had none (401, ``ubt_required``).
 
     The application is set to accept only widget-bound identities, and the call
-    named its user with ``user_id``. What to do: have the visitor go through the
-    widget before any AI call, store the UBT it issues in the server session, and
-    pass it as ``ubt``. ``user_id`` is not a fallback for a strict application.
+    named its user with ``user_id``, or named nobody. What to do: have the
+    visitor go through the widget before any AI call, store the UBT it issues in
+    the server session, and pass it as ``ubt``. Neither ``user_id`` nor a call
+    naming nobody is a fallback for a strict application.
     """
 
 
@@ -415,18 +424,29 @@ class ActVerificationUnavailableError(ActVerificationError):
 
 
 class MissingIdentityError(IDSideError):
-    """No ``user_id`` and no ``ubt`` was provided for a consent-enforced AI call.
+    """An identity was passed and names nobody, or a nested call names nobody.
 
-    What to do: pass exactly one of ``user_id="usr_..."`` or ``ubt="eyJ..."``
-    on every AI call made through a wrapped client — the SDK consumes it and
-    never forwards it to the provider. Use ``ubt`` when your frontend runs the
-    ID Side widget (strongest identity binding); use ``user_id`` for
-    backend-only integrations without the widget.
+    Naming the end user is optional: a call that passes neither ``user_id`` nor
+    ``ubt`` (or passes ``None``) is authorized with the API key as the proof's
+    subject. What is refused, before any I/O, is an identity argument that is
+    present but names nobody — ``""``, a string of blanks, ``0``, ``False``, an
+    empty list or dict — while the other one names nobody either. Such a value
+    is almost always a bug upstream, and reading it as "nobody" would silently
+    drop the per-person proof the call was meant to carry.
+
+    Also refused: a call naming nobody made from inside an enforced call still
+    in progress — a provider helper reaching an enforced method a second time.
+    The outer call consumed the identity, so the nested one arrives without it,
+    and authorizing it would be a second proof about the API key rather than
+    whoever the outer call named.
+
+    What to do: pass the identifier of the person the call is for, or leave the
+    argument out. The SDK consumes either and never forwards it to the provider.
     """
 
 
 class ConflictingIdentityError(IDSideError):
-    """Both ``user_id`` and ``ubt`` were provided for the same AI call.
+    """Both ``user_id`` and ``ubt`` name somebody on the same AI call.
 
     The two identity forms are exclusive: the User Binding Token already names
     the user (it is a JWT signed by ID Side, bound to user, app, session and

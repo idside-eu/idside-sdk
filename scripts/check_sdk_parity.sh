@@ -214,16 +214,22 @@ for (const [status, type, same] of JSON.parse(process.argv[1])) {
 done
 
 echo
-echo "An identity that is not a string (sent as written, judged by the cloud alone):"
+echo "An identity that is not a string, or none at all (sent as written, judged by the cloud alone):"
 # Node once turned every user_id into text on its way out: `true` was authorized
 # as the user "true", and every object as one person, "[object Object]", where
 # Python sent the value and the cloud refused it. Only identities that were
 # strings were compared here, which is how that went unseen. Each value now goes
 # through wrap() in both SDKs, to a stubbed cloud that applies the cloud's rule
 # (a non-blank string or a finite number names somebody, anything else is a
-# 422); what reached it, what came back and whether the provider was called must
-# match. Floats are left out on purpose: JavaScript has no 42.0 to send.
-identities='["usr_marie_456", 4242101, true, false, 0, null, {"id": "usr_marie_456"}, ["usr_marie_456"], {}, []]'
+# 422, and a body with no identity at all is authorized with the API key as its
+# subject); what reached it, what came back and whether the provider was called
+# must match. Floats are left out on purpose: JavaScript has no 42.0 to send.
+#
+# Naming the end user is optional, and the two SDKs must agree on what "nobody"
+# is: the argument left out ("absent" below), Python's None and JavaScript's
+# null. A value that is there and names nobody ("", 0, false, [], {}) is refused
+# locally in both, before any request.
+identities='["absent", "usr_marie_456", 4242101, true, false, 0, "", null, {"id": "usr_marie_456"}, ["usr_marie_456"], {}, []]'
 allow='{"decision": "allow", "consent_state": {}, "params_forced": {}, "mode": "test",
   "act_token": "act.jwt.token", "token_id": "act_01k4f9h2m3", "expires_at": "2026-09-12T12:00:00Z",
   "source": "widget", "legal_basis": "consent", "binding": "user_id"}'
@@ -243,6 +249,8 @@ for identity in json.loads(sys.argv[1]):
         body = json.loads(request.content)
         value = body.get('user_id')
         sent.append(json.dumps(value, separators=(',', ':')) if 'user_id' in body else '-')
+        if 'user_id' not in body and 'ubt' not in body:
+            return httpx.Response(200, json={**allow, 'source': 'default_policy', 'binding': 'api_key'})
         named = (isinstance(value, str) and value.strip() != '') or (
             isinstance(value, (int, float)) and not isinstance(value, bool))
         if named:
@@ -257,8 +265,9 @@ for identity in json.loads(sys.argv[1]):
         adapter=ProviderAdapter(load_descriptors()['openai']),
         consent_client=HttpConsentClient(base_url='https://cloud.parity.test', transport=httpx.MockTransport(answer)),
     )
+    named = {} if identity == 'absent' else {'user_id': identity}
     try:
-        client.chat.completions.create(model='gpt-4o-mini', messages=[], user_id=identity)
+        client.chat.completions.create(model='gpt-4o-mini', messages=[], **named)
         outcome = 'allowed'
     except Exception as exc:
         outcome = type(exc).__name__
@@ -278,6 +287,10 @@ for (const identity of JSON.parse(process.argv[1])) {
       const body = JSON.parse(init.body);
       const value = body.user_id;
       sent.push('user_id' in body ? JSON.stringify(value) : '-');
+      if (!('user_id' in body) && !('ubt' in body)) {
+        const unnamed = {...JSON.parse(allow), source: 'default_policy', binding: 'api_key'};
+        return new Response(JSON.stringify(unnamed), {status: 200, headers: {'content-type': 'application/json'}});
+      }
       const named = (typeof value === 'string' && value.trim() !== '') || (typeof value === 'number' && Number.isFinite(value));
       return named
         ? new Response(allow, {status: 200, headers: {'content-type': 'application/json'}})
@@ -290,7 +303,7 @@ for (const identity of JSON.parse(process.argv[1])) {
   );
   let outcome;
   try {
-    await client.chat.completions.create({model: 'gpt-4o-mini', messages: [], user_id: identity});
+    await client.chat.completions.create({model: 'gpt-4o-mini', messages: [], ...(identity === 'absent' ? {} : {user_id: identity})});
     outcome = 'allowed';
   } catch (error) {
     outcome = error.constructor.name;
@@ -299,6 +312,77 @@ for (const identity of JSON.parse(process.argv[1])) {
 }" "$identities" "$allow")
 if [ "$py" = "$nd" ]; then
   echo "$py" | sed 's/^/  ✅ /'
+else
+  echo "  ❌ DIVERGENCE"
+  diff <(echo "$py") <(echo "$nd") | sed 's/^/     /'
+  status=1
+fi
+
+echo
+echo "An identity argument spelled another way (refused by both, whatever its value, in the same words):"
+# A call may name nobody, so \`userId\` for \`user_id\` was authorized in Node as a
+# call about the API key, the misspelled field sent to the provider in the body,
+# while Python refused it with a message that did not say what was wrong — or,
+# given None, authorized it and failed in the provider's own signature. Both now
+# refuse any key that matches an identity argument once case and separators are
+# taken out, before any I/O. The message is compared word for word; the last
+# case is OpenAI's own \`user\` field, which must still go out.
+lookalikes='[{"userId": "team-marketing"}, {"userId": null}, {"UserId": "team-marketing"}, {"user-id": "team-marketing"}, {"USER_ID": "team-marketing"}, {"user id": "team-marketing"}, {"Ubt": "eyJ.ubt.sig"}, {"user_id": "usr_marie_456", "userId": "usr_marie_456"}, {"user_id": "", "userId": "team-marketing"}, {"user": "end-user-hash"}]'
+py=$(cd packages/python && uv run python -c "
+import json, sys
+from types import SimpleNamespace
+from idside import consent
+from idside._transport import ConsentDecision
+from idside.adapters import ProviderAdapter
+from idside.providers import load_descriptors
+
+for case in json.loads(sys.argv[1]):
+    asked, calls = [], []
+    class Cloud:
+        def authorize(self, **kwargs):
+            asked.append(kwargs)
+            return ConsentDecision(consent_state={}, params_forced={}, act_token='act.jwt.token',
+                source='default_policy', legal_basis='legitimate_interest', binding='api_key')
+    class Completions:
+        def create(self, **kwargs):
+            calls.append(kwargs)
+            return {'id': 'chatcmpl_fake'}
+    client = consent.wrap(
+        SimpleNamespace(chat=SimpleNamespace(completions=Completions())),
+        adapter=ProviderAdapter(load_descriptors()['openai']),
+        consent_client=Cloud(),
+    )
+    try:
+        client.chat.completions.create(model='gpt-4o-mini', messages=[], **case)
+        outcome = 'allowed'
+    except Exception as exc:
+        outcome = type(exc).__name__ + ': ' + str(exc)
+    print(json.dumps(case, separators=(',', ':')), f'cloud={len(asked)} provider={len(calls)}', outcome)
+" "$lookalikes")
+nd=$(cd packages/node && node --experimental-strip-types -e "
+import {wrap} from './src/consent.ts';
+import {GenericAdapter} from './src/adapters/index.ts';
+import {loadDescriptors} from './src/descriptors.ts';
+
+for (const kase of JSON.parse(process.argv[1])) {
+  const asked = [], calls = [];
+  const cloud = {authorize: async (request) => (asked.push(request), {consentState: {}, paramsForced: {}, actToken: 'act.jwt.token',
+    source: 'default_policy', legalBasis: 'legitimate_interest', binding: 'api_key', constraints: {}})};
+  const client = wrap(
+    {chat: {completions: {create: async (body) => { calls.push(body); return {id: 'chatcmpl_fake'}; }}}},
+    {adapter: new GenericAdapter(loadDescriptors().get('openai')), consentClient: cloud},
+  );
+  let outcome;
+  try {
+    await client.chat.completions.create({model: 'gpt-4o-mini', messages: [], ...kase});
+    outcome = 'allowed';
+  } catch (error) {
+    outcome = error.constructor.name + ': ' + error.message;
+  }
+  console.log(JSON.stringify(kase), 'cloud=' + asked.length + ' provider=' + calls.length, outcome);
+}" "$lookalikes")
+if [ "$py" = "$nd" ]; then
+  echo "$py" | cut -c1-150 | sed 's/^/  ✅ /'
 else
   echo "  ❌ DIVERGENCE"
   diff <(echo "$py") <(echo "$nd") | sed 's/^/     /'
@@ -373,6 +457,9 @@ echo "The journal (a developer debugging one SDK must read the same story in the
 # subject pseudonym, whose salt is random per process precisely so that two
 # processes cannot produce the same one. Everything else — including the
 # request_hash, which crosses to the cloud — must match character for character.
+#
+# Two calls: one naming its user, and one naming nobody, whose line must carry
+# `binding=api_key` and no `subject=` at all in both SDKs.
 mask() { sed -E 's/duration_ms=[0-9]+/duration_ms=N/; s/subject=[0-9a-f]+/subject=S/'; }
 
 py=$(cd packages/python && uv run python -c "
@@ -398,8 +485,18 @@ decision = ConsentDecision(
     binding='user_id',
 )
 
+key_decision = ConsentDecision(
+    consent_state={'retention.conversation': False},
+    params_forced={'store': False},
+    act_token='act.jwt.token',
+    source='default_policy',
+    legal_basis='legitimate_interest',
+    binding='api_key',
+)
+
 class Cloud:
-    async def authorize(self, **kwargs): return decision
+    async def authorize(self, **kwargs):
+        return decision if kwargs['user_id'] or kwargs['ubt'] else key_decision
 
 class Completions:
     async def create(self, **kwargs): return {'id': 'chatcmpl_fake'}
@@ -416,6 +513,10 @@ asyncio.run(client.chat.completions.create(
     model='gpt-4o-mini',
     messages=[{'role': 'user', 'content': 'hello'}],
     user_id='usr_marie_456',
+))
+asyncio.run(client.chat.completions.create(
+    model='gpt-4o-mini',
+    messages=[{'role': 'user', 'content': 'hello'}],
 ))" | mask)
 
 # `util.debuglog` writes to stderr, so the journal is read from there and stdout
@@ -438,7 +539,8 @@ const decision = {
   binding: 'user_id',
   constraints: {},
 };
-const cloud = {authorize: async () => decision};
+const keyDecision = {...decision, source: 'default_policy', legalBasis: 'legitimate_interest', binding: 'api_key'};
+const cloud = {authorize: async (request) => (request.userId === undefined && request.ubt === undefined ? keyDecision : decision)};
 const calls = [];
 const client = wrap(
   {chat: {completions: {create: async (body) => { calls.push(body); return {id: 'chatcmpl_fake'}; }}}},
@@ -448,6 +550,10 @@ await client.chat.completions.create({
   model: 'gpt-4o-mini',
   messages: [{role: 'user', content: 'hello'}],
   user_id: 'usr_marie_456',
+});
+await client.chat.completions.create({
+  model: 'gpt-4o-mini',
+  messages: [{role: 'user', content: 'hello'}],
 });" 2>&1 >/dev/null | sed -n -E 's/^IDSIDE [0-9]+: //p' | mask)
 
 if [ "$py" = "$nd" ]; then

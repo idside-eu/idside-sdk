@@ -360,16 +360,6 @@ def test_422_says_the_value_may_be_the_callers_own() -> None:
     assert "contract mismatch — upgrade" not in message
 
 
-def test_authorize_requires_some_identity() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        raise AssertionError("no HTTP request must be made without an identity")
-
-    with pytest.raises(MissingIdentityError):
-        _client(handler).authorize(
-            provider="openai", model="gpt-4o", request_hash="abc123"
-        )
-
-
 # ── S0.4: typed error mapping (a config problem must not look like an outage) ─
 
 
@@ -807,6 +797,7 @@ def test_every_openapi_required_decision_field_is_required(field: str) -> None:
         pytest.param("legal_basis", "   ", id="blank-legal-basis"),
         pytest.param("binding", {}, id="object-binding"),
         pytest.param("binding", "cookie", id="unknown-binding"),
+        pytest.param("binding", "api_key", id="key-binding-on-a-named-call"),
         pytest.param("constraints", [], id="constraints-array"),
         pytest.param("constraints", {"tools": "allow"}, id="unknown-tools-action"),
         pytest.param(
@@ -1122,6 +1113,174 @@ def _both(
     return blocking, concurrent
 
 
+# ── A call that names nobody: the API key is the proof's subject ─────────────
+#
+# Naming the end user is optional. A call that names nobody sends no identity
+# field at all, and the cloud answers `binding: "api_key"`: the key the call was
+# made with is the subject of the proof. Each binding is true of one request
+# only — `user_id` of one carrying `user_id`, `ubt` of one carrying `ubt`,
+# `api_key` of one carrying neither — so each is accepted exactly there. A cloud
+# that answered `api_key` to a call naming somebody, `user_id` to one naming
+# nobody, or `ubt` to one whose identity the developer asserted, would sign a
+# proof about a subject, or a link to it, the call did not have.
+
+_KEY_BODY = {**_OK_BODY, "source": "default_policy", "binding": "api_key"}
+_UNNAMED_ARGS = {k: v for k, v in _AUTHORIZE_ARGS.items() if k != "user_id"}
+
+
+def _both_named(
+    handler: Callable[[httpx.Request], httpx.Response], **identity: Any
+) -> tuple[Any, Any]:
+    """The same call, naming whoever ``identity`` names, put to both clients."""
+    args = {**_UNNAMED_ARGS, **identity}
+    blocking = _outcome(lambda: _client(handler).authorize(**args))
+    client = _async_client(handler)
+    concurrent = _outcome(lambda: asyncio.run(client.authorize(**args)))
+    return blocking, concurrent
+
+
+@pytest.mark.parametrize(
+    "identity",
+    [
+        pytest.param({}, id="absent"),
+        pytest.param({"user_id": None}, id="user-id-none"),
+        pytest.param({"ubt": None}, id="ubt-none"),
+        pytest.param({"user_id": None, "ubt": None}, id="both-none"),
+    ],
+)
+def test_a_call_that_names_nobody_sends_no_identity_field(
+    identity: dict[str, Any],
+) -> None:
+    sent: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, json=_KEY_BODY)
+
+    blocking, concurrent = _both_named(handler, **identity)
+
+    assert blocking[0] == "returned", blocking
+    assert blocking[1].binding == "api_key"
+    assert concurrent == blocking
+    assert len(sent) == 2
+    assert sent[0] == sent[1]
+    assert "user_id" not in sent[0]
+    assert "ubt" not in sent[0]
+    assert sent[0]["provider"] == "openai"
+
+
+@pytest.mark.parametrize(
+    "identity",
+    [
+        pytest.param({"user_id": "usr_marie_456"}, id="user-id"),
+        pytest.param({"ubt": "eyJ.fake.ubt"}, id="ubt"),
+    ],
+)
+def test_an_api_key_binding_on_a_call_naming_somebody_fails_closed(
+    identity: dict[str, Any],
+) -> None:
+    blocking, concurrent = _both_named(
+        lambda req: httpx.Response(200, json=_KEY_BODY), **identity
+    )
+
+    assert blocking[0] is ConsentUnreachableError, blocking
+    assert "binding" in blocking[1]
+    assert concurrent == blocking
+
+
+@pytest.mark.parametrize(
+    ("identity", "own", "other"),
+    [
+        pytest.param({"user_id": "usr_marie_456"}, "user_id", "ubt", id="user-id"),
+        pytest.param({"ubt": "eyJ.fake.ubt"}, "ubt", "user_id", id="ubt"),
+    ],
+)
+def test_each_identity_is_answered_with_its_own_binding_and_no_other(
+    identity: dict[str, Any], own: str, other: str
+) -> None:
+    """``ubt`` and ``user_id`` are not two words for "somebody".
+
+    ``ubt`` says the widget bound the person and the cloud verified it;
+    ``user_id`` says the developer asserted the identifier. One accepted in
+    answer to the other would put in the proof a link the call never had.
+    """
+
+    def answering(binding: str) -> Callable[[httpx.Request], httpx.Response]:
+        return lambda req: httpx.Response(200, json={**_OK_BODY, "binding": binding})
+
+    matched, matched_async = _both_named(answering(own), **identity)
+    crossed, crossed_async = _both_named(answering(other), **identity)
+
+    assert matched[0] == "returned", matched
+    assert matched[1].binding == own
+    assert matched_async == matched
+    assert crossed[0] is ConsentUnreachableError, crossed
+    assert "binding" in crossed[1]
+    assert f"'{other}'" not in crossed[1], "the value received is never echoed"
+    assert crossed_async == crossed
+
+
+@pytest.mark.parametrize("binding", ["user_id", "ubt", "cookie"])
+def test_an_identity_binding_on_a_call_naming_nobody_fails_closed(
+    binding: str,
+) -> None:
+    body = {**_OK_BODY, "binding": binding}
+
+    blocking, concurrent = _both_named(lambda req: httpx.Response(200, json=body))
+
+    assert blocking[0] is ConsentUnreachableError, blocking
+    assert "binding" in blocking[1]
+    assert concurrent == blocking
+
+
+@pytest.mark.parametrize(
+    "identity",
+    [
+        pytest.param({"user_id": ""}, id="empty-user-id"),
+        pytest.param({"ubt": ""}, id="empty-ubt"),
+        pytest.param({"user_id": 0}, id="zero"),
+        pytest.param({"user_id": False}, id="false"),
+        pytest.param({"user_id": " \t"}, id="blank"),
+        pytest.param({"user_id": [], "ubt": None}, id="empty-list-beside-none"),
+    ],
+)
+def test_an_identity_given_that_names_nobody_is_still_refused(
+    identity: dict[str, Any],
+) -> None:
+    """Present but naming nobody is not absent: it is refused, with no I/O.
+
+    Leaving the argument out (or passing ``None``) is how a call names nobody.
+    A value that is there and names nobody is almost always a bug upstream — an
+    empty field, a header that was not set — and turning it into a call about
+    the API key would lose the per-person proof its caller meant to get,
+    without a sound.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise AssertionError("no HTTP request must be made for an empty identity")
+
+    blocking, concurrent = _both_named(handler, **identity)
+
+    assert blocking[0] is MissingIdentityError, blocking
+    assert concurrent == blocking
+
+
+def test_a_blank_identity_beside_one_that_names_somebody_is_ignored() -> None:
+    """As before: one argument naming somebody is the identity, the blank one is not."""
+    sent: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, json={**_OK_BODY, "binding": "ubt"})
+
+    blocking, concurrent = _both_named(handler, user_id="", ubt="eyJ.fake.ubt")
+
+    assert blocking[0] == "returned", blocking
+    assert concurrent == blocking
+    assert sent[0]["ubt"] == "eyJ.fake.ubt"
+    assert "user_id" not in sent[0]
+
+
 def _refused(request: httpx.Request) -> httpx.Response:
     raise httpx.ConnectError("connection refused", request=request)
 
@@ -1225,7 +1384,7 @@ def test_an_identity_that_is_not_one_is_refused_before_any_async_request() -> No
     client = _async_client(handler)
     args = {k: v for k, v in _AUTHORIZE_ARGS.items() if k != "user_id"}
     with pytest.raises(MissingIdentityError):
-        asyncio.run(client.authorize(**args))
+        asyncio.run(client.authorize(**args, user_id="   "))
     with pytest.raises(ConflictingIdentityError):
         asyncio.run(client.authorize(**args, user_id="usr_marie_456", ubt="eyJ.ubt.x"))
     assert sent == []

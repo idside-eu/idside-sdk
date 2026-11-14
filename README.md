@@ -2,7 +2,7 @@
 
 # ID Side SDK
 
-**AI consent infrastructure — a signed proof, on every AI call, of the choices it was authorized against and the settings forced on it.**
+**AI consent infrastructure — a signed proof, on every AI call, of the policy it was authorized against and the settings forced on it.**
 
 [![License: Source Available](https://img.shields.io/badge/License-Source_Available-blue.svg)](./LICENSE)
 [![Status](https://img.shields.io/badge/status-pre--release-orange.svg)](#status)
@@ -19,25 +19,28 @@
 > wraps the AI provider client you already use and does not replace it; starting
 > from nothing, `pip install 'idside[openai]'` or
 > `npm install @idside/sdk openai` installs both. Create an account at
-> <https://sdk.idside.eu/dashboard/signup> — a free plan exists, see
+> <https://sdk.idside.eu/signup> — a free plan exists, see
 > <https://sdk.idside.eu/pricing> — or test without one at <https://sdk.idside.eu/sdk>. See
 > [Status](#status).
 
 ## The problem
 
-Your app sends user data to an AI API. Months later, a data protection authority
-asks you to prove that *this specific call*, on *this date*, for *this user*,
-honored what that user had chosen at that moment.
+Your organization sends data to an AI API — your staff's work, your users'
+requests. Months later, a data protection authority asks you to prove that
+*this specific call*, on *this date*, honored the AI policy you had set at that
+moment: no training, no retention, only the providers you allowed.
 
 A row in your database is an assertion. A screenshot is not evidence. Without a
 verifiable record of each call, that question is very hard to answer.
 
 ## The answer
 
-ID Side applies **the Stripe model to AI consent**: an *opaque tunnel*.
-Preferences travel from the user straight to ID Side — your backend is never on
-that path, so it cannot leak them, and cannot fake them either. You supply an
-identity; you get back an enforced call and a signed proof.
+ID Side applies **the Stripe model to AI consent**: an *opaque tunnel*. Your
+organization sets its AI policy on the ID Side dashboard — what may be retained
+or trained on, which providers may be called — and it applies to every call made
+with your API keys. The code that makes the call is never on that path, so it
+cannot loosen the policy, and cannot fake the proof either. You call the
+provider as before; you get back an enforced call and a signed proof.
 
 ```python
 from openai import OpenAI
@@ -46,9 +49,9 @@ from idside import consent
 client = consent.wrap(OpenAI())          # wrap the provider client, once
 
 client.chat.completions.create(
-    model="gpt-4o-mini",                 # call it exactly as before…
+    model="gpt-4o-mini",                 # call it exactly as before
     messages=[{"role": "user", "content": "Summarize my last consultation."}],
-    user_id="usr_marie_456",             # …plus the end user's identity
+    user_id="usr_marie_456",             # optional: whom the call is for
 )
 ```
 
@@ -64,7 +67,7 @@ const client = consent.wrap(new OpenAI());
 await client.chat.completions.create({
   model: "gpt-4o-mini",
   messages: [{ role: "user", content: "Summarize my last consultation." }],
-  user_id: "usr_marie_456",
+  user_id: "usr_marie_456", // optional: whom the call is for
 });
 ```
 
@@ -72,8 +75,9 @@ await client.chat.completions.create({
 
 On every call, the SDK:
 
-1. **asks** the ID Side cloud to authorize the request — sending an identifier, a
-   provider, a model and a *hash*, never the prompt;
+1. **asks** the ID Side cloud to authorize the request — sending a provider, a
+   model and a *hash*, plus the identifier when the call names someone, never
+   the prompt;
 2. **applies** the non-retention parameters the cloud decided (`store=false`,
    no-training headers…);
 3. **attaches** the cloud-signed ACT token (ECDSA P-256 JWT, 1 h TTL, bound to
@@ -81,12 +85,19 @@ On every call, the SDK:
 4. leaves the call recorded in an **immutable hash-chained ledger** (an audit trail
    that can support your DSR responses and GDPR Art. 30 records).
 
-If consent cannot be verified, **the call does not happen** — [fail-closed](./docs/concepts.md#9-fail-closed).
+If the decision cannot be verified, **the call does not happen** — [fail-closed](./docs/concepts.md#9-fail-closed).
 
-Apps running the ID Side widget pass `ubt="eyJ..."` (a **User Binding Token**
-signed by ID Side) instead of `user_id`: the cloud then verifies the identity
-rather than taking the developer's word for it, and the proof records the
-stronger `binding="ubt"`.
+Naming the end user is optional. A call that names nobody is proven against the
+API key that made it (`binding="api_key"`); a `user_id` — a person, or a team
+such as `team-marketing` — makes the proof say whom the call was for. Every
+proof carries the basis your organization declared for the processing
+([Concepts §4](./docs/concepts.md#4-the-policy-what-applies-to-a-call-and-who-decided)).
+
+Applications can also ask their users rather than decide for them: the ID Side
+[Preference Center](./docs/widget.md) asks, and its users' calls pass
+`ubt="eyJ..."` (a **User Binding Token** signed by ID Side) instead of
+`user_id`. The cloud then verifies the identity rather than taking the
+developer's word for it, and the proof records the stronger `binding="ubt"`.
 
 And because a proof only the issuer can check is not a proof, both SDKs verify
 ACT tokens **offline** — `verify_act()` / `verifyAct()`: signature against the
@@ -97,13 +108,13 @@ ID Side. This repository verifies; it never signs.
 
 | Page | |
 | --- | --- |
-| [Examples](./examples/) | Three programs that run today, offline, and print what actually left the process |
+| [Examples](./examples/) | Four programs that run today, offline, and print what actually left the process |
 | [Quickstart — Python](./docs/quickstart-python.md) | Install, wrap, first call, and a runnable offline dry run |
 | [Quickstart — Node.js](./docs/quickstart-node.md) | The same for `@idside/sdk`, with how to run it from a checkout |
-| [Concepts](./docs/concepts.md) | Opaque tunnel, ACT token, ledger, GPC, fail-closed — and the trust model, stated honestly |
+| [Concepts](./docs/concepts.md) | Opaque tunnel, the policy and who decides, ACT token, ledger, GPC, fail-closed — and the trust model, stated honestly |
 | [Providers](./docs/providers.md) | Supported clients, intercepted call sites, what gets forced and why |
 | [Provider privacy matrix](./docs/providers-privacy-matrix.md) | Option by option, what each provider actually lets you control — and what it does not |
-| [Preference Center widget](./docs/widget.md) | The `<script>` tag that collects the answers the SDK enforces |
+| [Preference Center widget](./docs/widget.md) | The `<script>` tag for an application that asks its users instead of deciding for them |
 | [Errors](./docs/errors.md) | Every error both SDKs raise, and what to do about it |
 | [Versioning](./docs/versioning.md) | What `0.x` promises, what the protocol promises instead, and how deprecations work |
 | [Changelog](./CHANGELOG.md) | What each release changed — one version number covers both packages |
@@ -117,9 +128,10 @@ ID Side. This repository verifies; it never signs.
 | Provider | Python client | Node client | Notes |
 | --- | --- | --- | --- |
 | OpenAI | `openai` | `openai` | Chat Completions & Responses APIs; covers OpenAI-compatible providers (Groq, Together, xAI…) |
-| Anthropic | `anthropic` | `@anthropic-ai/sdk` | consent params injected as request headers |
+| Anthropic | `anthropic` | `@anthropic-ai/sdk` | Messages API; forced parameters go in the request body, the token in a header |
 | Google Gemini | `google-genai` | `@google/genai` | token carried via `config.http_options.headers` |
 | Mistral | `mistralai` | `@mistralai/mistralai` | chat, FIM and agents entry points, streaming included |
+| DeepSeek | `openai` | `openai` | an `openai` client pointed at `api.deepseek.com`; its own descriptor, so proofs record `provider: "deepseek"` |
 
 Adding a standard provider is a JSON descriptor, not code — see
 [`packages/descriptors/`](./packages/descriptors/) and
@@ -152,8 +164,8 @@ examples/             runnable programs, run and diffed against their own README
 
 Pre-release and under active development. What is true today:
 
-- **Python SDK** — implemented and tested (`consent.wrap()`, four providers,
-  typed errors, request-hash vectors, offline `verify_act()`). Blocking and
+- **Python SDK** — implemented and tested (`consent.wrap()`, five provider
+  descriptors: OpenAI, Anthropic, Google Gemini, Mistral and DeepSeek; typed errors, request-hash vectors, offline `verify_act()`). Blocking and
   async clients alike — `AsyncOpenAI` and `AsyncAnthropic` are enforced with the
   same guarantees, so FastAPI and other ASGI applications are supported.
   Published on PyPI as `idside` `0.1.0.dev2`.

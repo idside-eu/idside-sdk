@@ -19,6 +19,7 @@ import {
   IDSideError,
   InvalidBindingError,
   MissingIdentityError,
+  UnenforceableOptionError,
   UnsupportedProviderError,
 } from "../src/exceptions.ts";
 import { POLICY_HOLD } from "./cloudProblems.ts";
@@ -143,19 +144,38 @@ test("preserves caller headers passed as a Headers instance (not just a plain ob
   assert.equal(headers["X-AI-Consent-Token"], "act.jwt.token");
 });
 
-test("requires exactly one identity, making no cloud query or AI call otherwise", async () => {
-  const missing = fakeOpenAI();
-  const ccMissing = fakeConsentClient();
-  const wMissing = wrap(missing.client, {
-    consentClient: ccMissing,
-    provider: "openai",
-  });
-  await assert.rejects(
-    // @ts-expect-error omitting the identity is a compile error; this pins the runtime one
-    wMissing.chat.completions.create({ model: "gpt-4o", messages: [] }),
-    MissingIdentityError,
-  );
+test("a call may name nobody: the API key is then the proof's subject", async () => {
+  const keyDecision: ConsentDecision = { ...DECISION, source: "default_policy", binding: "api_key" };
+  for (const identity of [{}, { user_id: undefined }, { ubt: undefined }, { user_id: null }, { ubt: null }]) {
+    const { client, calls } = fakeOpenAI();
+    const cc = fakeConsentClient(keyDecision);
+    const wrapped = wrap(client, { consentClient: cc, provider: "openai" });
 
+    await wrapped.chat.completions.create({ model: "gpt-4o", messages: [], ...identity } as never);
+
+    assert.equal(cc.calls.length, 1, JSON.stringify(identity));
+    assert.equal(cc.calls[0]!.userId, undefined);
+    assert.equal(cc.calls[0]!.ubt, undefined);
+    assert.equal(calls.length, 1);
+    assert.ok(!("user_id" in calls[0]!.body), "the identity field is consumed, never forwarded");
+    assert.ok(!("ubt" in calls[0]!.body));
+  }
+});
+
+test("naming nobody does not change the request hash", async () => {
+  // The identity was never hashed, so leaving it out changes nothing proven.
+  const { client } = fakeOpenAI();
+  const cc = fakeConsentClient();
+  const wrapped = wrap(client, { consentClient: cc, provider: "openai" });
+  const body = { model: "gpt-4o", messages: [{ role: "user" as const, content: "hi" }] };
+
+  await wrapped.chat.completions.create({ ...body, user_id: "usr_marie_456" });
+  await wrapped.chat.completions.create(body);
+
+  assert.equal(cc.calls[0]!.requestHash, cc.calls[1]!.requestHash);
+});
+
+test("refuses two identities, making no cloud query or AI call", async () => {
   const conflict = fakeOpenAI();
   const ccConflict = fakeConsentClient();
   const wConflict = wrap(conflict.client, {
@@ -173,16 +193,8 @@ test("requires exactly one identity, making no cloud query or AI call otherwise"
     ConflictingIdentityError,
   );
 
-  assert.equal(
-    ccMissing.calls.length + ccConflict.calls.length,
-    0,
-    "no authorize call",
-  );
-  assert.equal(
-    missing.calls.length + conflict.calls.length,
-    0,
-    "no provider call",
-  );
+  assert.equal(ccConflict.calls.length, 0, "no authorize call");
+  assert.equal(conflict.calls.length, 0, "no provider call");
 });
 
 test("is fail-closed: an unreachable cloud stops the provider call", async () => {
@@ -451,14 +463,17 @@ test("a call named by a UBT is authorized on the UBT, and the UBT never travels 
   assert.equal(calls[0]!.body.user_id, undefined);
 });
 
-test("an identity that is present but empty is no identity at all", async () => {
-  // "", 0 and false are absent in both SDKs. A falsy `user_id` reaching the
-  // cloud as the literal "" would mint a proof naming nobody.
+test("an identity that is present but empty is refused, not read as nobody", async () => {
+  // "", 0 and false name nobody in both SDKs. A falsy `user_id` reaching the
+  // cloud as the literal "" would mint a proof naming nobody; read as "no
+  // identity" it would silently become a call about the API key, dropping the
+  // per-person proof its caller meant to get. `null` and `undefined` are how a
+  // call names nobody, and are allowed (above).
   const { client, calls } = fakeOpenAI();
   const cc = fakeConsentClient();
   const wrapped = wrap(client, { consentClient: cc, provider: "openai" });
 
-  for (const empty of ["", 0, false, null, undefined]) {
+  for (const empty of ["", 0, false]) {
     await assert.rejects(
       wrapped.chat.completions.create({ model: "gpt-4o", messages: [], user_id: empty } as never),
       MissingIdentityError,
@@ -469,18 +484,51 @@ test("an identity that is present but empty is no identity at all", async () => 
   assert.equal(calls.length, 0);
 });
 
-test("a body that is not an object is refused for want of an identity", async () => {
-  // Nothing can be read out of it, so nothing names the user, so the call does
-  // not happen. What must not happen is the SDK inventing a body of its own and
-  // sending it.
+test("a misspelled identity is refused, not authorized about the key and sent to the provider", async () => {
+  // Plain JavaScript, no compiler: `userId` for `user_id`. With the identity
+  // optional, the call was authorized naming nobody and `userId` reached the
+  // provider in the body. Refused before any I/O, whatever the value.
+  for (const value of ["team-marketing", null]) {
+    const { client, calls } = fakeOpenAI();
+    const cc = fakeConsentClient();
+    const wrapped = wrap(client, { consentClient: cc, provider: "openai" });
+
+    await assert.rejects(
+      wrapped.chat.completions.create({ model: "gpt-4o", messages: [], userId: value } as never),
+      (error: unknown) =>
+        error instanceof UnenforceableOptionError &&
+        error.message.includes("`userId`") &&
+        error.message.includes("`user_id`") &&
+        !error.message.includes("team-marketing"),
+      String(value),
+    );
+    assert.equal(cc.calls.length, 0, "the cloud was asked");
+    assert.equal(calls.length, 0, "the provider was called");
+  }
+});
+
+test("a body that is not an object is refused before anything happens", async () => {
+  // Nothing can be read out of it, so there is no request to hash and nothing
+  // to prove, and the call does not happen. What must not happen is the SDK
+  // inventing a body of its own and sending it — which, now that a call may
+  // name nobody, is exactly what an empty stand-in would be authorized as.
+  // Python refuses the same mistake with a TypeError: its wrapper takes keyword
+  // arguments only.
   const { client, calls } = fakeOpenAI();
   const cc = fakeConsentClient();
   const wrapped = wrap(client, { consentClient: cc, provider: "openai" });
 
-  for (const body of ["hi", 42, null, undefined, ["hi"]]) {
+  for (const [body, kind] of [
+    ["hi", "a string"],
+    [42, "a number"],
+    [null, "null"],
+    [undefined, "nothing"],
+    [["hi"], "an array"],
+  ] as const) {
     await assert.rejects(
       wrapped.chat.completions.create(body as never),
-      MissingIdentityError,
+      (error: unknown) =>
+        error instanceof TypeError && error.message.includes(`was given ${kind}`) && !error.message.includes('"hi"'),
       String(body),
     );
   }
@@ -491,7 +539,7 @@ test("a body that is not an object is refused for want of an identity", async ()
   // body the SDK never understood.
   const arrayBody = ["hi"] as unknown as Record<string, unknown>;
   arrayBody.user_id = "usr_marie_456";
-  await assert.rejects(wrapped.chat.completions.create(arrayBody as never), MissingIdentityError);
+  await assert.rejects(wrapped.chat.completions.create(arrayBody as never), TypeError);
 
   assert.equal(cc.calls.length, 0);
   assert.equal(calls.length, 0);

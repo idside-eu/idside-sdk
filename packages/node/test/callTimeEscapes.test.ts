@@ -1748,6 +1748,158 @@ test("gemini: an enforced request is sent with redirect: manual, and a 307 comes
   assert.ok(error instanceof Error && /307/.test(String((error as { status?: unknown }).status ?? error.message)), `got ${String(error)}`);
   assert.deepEqual(w.sent.map((s) => s.redirect), ["manual"]);
 });
+// ── L. an identity argument spelled some other way ───────────────────────────
+//
+// In plain JavaScript nothing stops `userId` for `user_id`. Since a call may
+// name nobody, the call was then authorized about the API key, and `userId` went
+// out in the body sent to the provider: the body is open, so a misspelled
+// identity is just one more request parameter. Every key that differs from an
+// identity argument only by case and separators is refused before the cloud is
+// asked, whatever its value. Mirrors the D9 section of the Python suite.
+
+/** [what the caller wrote, the argument it looks like]. */
+const LOOKALIKES: readonly (readonly [string, string])[] = [
+  ["userId", "user_id"],
+  ["userID", "user_id"],
+  ["UserId", "user_id"],
+  ["user-id", "user_id"],
+  ["userid", "user_id"],
+  ["USER_ID", "user_id"],
+  ["User_Id", "user_id"],
+  ["user id", "user_id"],
+  ["Ubt", "ubt"],
+  ["UBT", "ubt"],
+  ["u_b_t", "ubt"],
+];
+
+interface IdentityCall {
+  readonly wire: Wire;
+  readonly cloud: Cloud;
+  readonly call: () => Promise<unknown>;
+}
+
+/** A real client of each shipped descriptor, wrapped, and one call carrying `extra` in its body. */
+const IDENTITY_CALLS: Record<string, (extra: Record<string, unknown>) => IdentityCall> = {
+  openai: (extra) => {
+    const w = openaiWire();
+    const cc = cloud();
+    const client = wrap(openai(w), { consentClient: cc });
+    return { wire: w, cloud: cc, call: () => client.chat.completions.create({ model: "gpt-4o", messages: MESSAGES, ...extra } as never) };
+  },
+  deepseek: (extra) => {
+    const w = openaiWire();
+    const cc = cloud();
+    const client = wrap(deepseek(w), { consentClient: cc });
+    return { wire: w, cloud: cc, call: () => client.chat.completions.create({ model: "deepseek-chat", messages: MESSAGES, ...extra } as never) };
+  },
+  anthropic: (extra) => {
+    const w = wire(() => json(MESSAGE));
+    const cc = cloud();
+    const client = wrap(anthropic(w), { consentClient: cc });
+    return {
+      wire: w,
+      cloud: cc,
+      call: () => client.messages.create({ model: "claude-sonnet-4-5", max_tokens: 16, messages: MESSAGES, ...extra } as never),
+    };
+  },
+  gemini: (extra) => {
+    const w = wire(() => json(GEMINI_RESPONSE));
+    const cc = cloud();
+    const client = wrap(gemini(), { consentClient: cc });
+    return {
+      wire: w,
+      cloud: cc,
+      call: () => withGlobalFetch(w, () => client.models.generateContent({ model: "gemini-2.0-flash", contents: "hi", ...extra } as never)),
+    };
+  },
+  mistral: (extra) => {
+    const endpoint = mistralEndpoint();
+    return {
+      wire: endpoint.wire,
+      cloud: endpoint.cloud,
+      call: () => endpoint.client.chat.complete({ model: "mistral-small-latest", messages: MESSAGES, ...extra } as never),
+    };
+  },
+};
+
+async function assertLookalikeRefused(made: IdentityCall, written: string, meant: string, label: string): Promise<void> {
+  const error = await outcome(made.call);
+  assert.ok(error instanceof UnenforceableOptionError, `${label}: expected UnenforceableOptionError, got ${String(error)}`);
+  assert.ok(error.message.includes(`\`${written}\``), `${label}: ${error.message}`);
+  assert.ok(error.message.includes(`\`${meant}\``), `${label}: ${error.message}`);
+  assert.ok(!error.message.includes("team-marketing"), `${label}: the message quoted the identity`);
+  assert.equal(made.cloud.calls.length, 0, `${label}: the cloud was asked`);
+  assert.equal(made.wire.sent.length, 0, `${label}: a request left the process`);
+}
+
+test("an identity spelled another way is refused before authorize, on every shipped provider", async () => {
+  for (const [provider, make] of Object.entries(IDENTITY_CALLS)) {
+    for (const [written, meant] of [["userId", "user_id"], ["Ubt", "ubt"]] as const) {
+      for (const value of ["team-marketing", null, undefined]) {
+        await assertLookalikeRefused(make({ [written]: value }), written, meant, `${provider} ${written}=${String(value)}`);
+      }
+    }
+  }
+});
+
+test("every case and separator variant of an identity is refused", async () => {
+  for (const [written, meant] of LOOKALIKES) {
+    await assertLookalikeRefused(IDENTITY_CALLS.openai!({ [written]: "team-marketing" }), written, meant, written);
+  }
+});
+
+test("a look-alike is refused beside the identity itself, whatever the identity holds", async () => {
+  // A fault in the code, reported the same whatever the data: an empty user_id
+  // beside it does not turn the refusal into a MissingIdentityError.
+  for (const [label, body, written, meant] of [
+    ["beside user_id", { user_id: USER, userId: USER }, "userId", "user_id"],
+    ["beside an empty user_id", { user_id: "", userId: USER }, "userId", "user_id"],
+    ["beside ubt", { ubt: "eyJ.ubt.sig", UBT: "eyJ.ubt.sig" }, "UBT", "ubt"],
+  ] as const) {
+    await assertLookalikeRefused(IDENTITY_CALLS.openai!(body), written, meant, label);
+  }
+});
+
+test("a look-alike is refused on a streaming helper too, before its request is built", async () => {
+  const w = openaiWire();
+  const cc = cloud();
+  const client = wrap(openai(w), { consentClient: cc });
+  const error = await outcome(async () => {
+    const stream = client.chat.completions.stream({ model: "gpt-4o", messages: MESSAGES, userId: USER } as never);
+    for await (const _chunk of stream) void _chunk;
+  });
+  assert.ok(inChain(error, UnenforceableOptionError), `got ${String(error)}`);
+  assert.equal(cc.calls.length, 0);
+  assert.equal(w.sent.length, 0);
+});
+
+test("fields that merely mention a user still go out: openai's user, anthropic's metadata.user_id", async () => {
+  const chat = IDENTITY_CALLS.openai!({ user: "end-user-hash", user_id: USER });
+  await chat.call();
+  assert.equal(JSON.parse(chat.wire.sent[0]!.body).user, "end-user-hash");
+
+  const message = IDENTITY_CALLS.anthropic!({ metadata: { user_id: "u-1" } });
+  await message.call();
+  assert.deepEqual(JSON.parse(message.wire.sent[0]!.body).metadata, { user_id: "u-1" });
+  assert.equal(chat.cloud.calls.length + message.cloud.calls.length, 2);
+});
+
+test("a library this SDK does not know refuses a look-alike as well", async () => {
+  const { GenericAdapter } = await import("../src/adapters/index.ts");
+  const { loadDescriptors } = await import("../src/descriptors.ts");
+  const house = new GenericAdapter({ ...loadDescriptors().get("openai")!, clientModule: "house_llm", name: "house" });
+  const sent: unknown[] = [];
+  const cc = cloud();
+  const client = wrap(
+    { chat: { completions: { create: async (body: unknown) => (sent.push(body), {}) } } },
+    { consentClient: cc, adapter: house },
+  );
+  const create = client.chat.completions.create as unknown as (body: unknown) => Promise<unknown>;
+  await assert.rejects(create({ model: "house-1", messages: MESSAGES, userId: "team-marketing" }), UnenforceableOptionError);
+  assert.equal(cc.calls.length, 0);
+  assert.equal(sent.length, 0);
+});
+
 // ── the edges of the same rules ──────────────────────────────────────────────
 
 test("gemini: a top-level key the signature does not have is refused, not dropped in silence", async () => {

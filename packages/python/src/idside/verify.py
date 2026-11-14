@@ -158,9 +158,12 @@ class VerifiedAct:
     Its existence is the success signal; a failure is always an exception, never
     a falsy return.
 
-    ``binding`` records how the end user was tied to the request — ``"ubt"``
-    (the ID Side widget bound the identity, the strong link) or ``"user_id"``
-    (the developer asserted it). It is the evidentiary weight of the proof.
+    ``binding`` records what the subject is and how it was tied to the request
+    — ``"api_key"`` (the call named nobody; ``subject`` is the pseudonymous
+    subject of the API key it was made with, whose public id is in
+    ``claims["api_key"]``), ``"ubt"`` (the ID Side widget bound the identity,
+    the strong link) or ``"user_id"`` (the developer asserted it). It is the
+    evidentiary weight of the proof. Read it as opaque: its list only grows.
     """
 
     issuer: str

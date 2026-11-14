@@ -5,7 +5,7 @@ wrap, call.
 
 > **Status.** Pre-release: `idside` is published on PyPI as `0.1.0.dev2`. A real
 > call needs an ID Side API key — sign up at
-> <https://sdk.idside.eu/dashboard/signup> (a free plan exists, see
+> <https://sdk.idside.eu/signup> (a free plan exists, see
 > <https://sdk.idside.eu/pricing>), or take a 24-hour test key from the no-account sandbox
 > ([step 3](#3-configure-and-call)). Step 3 shows the real code;
 > [step 6](#6-run-it-offline-without-an-account) runs the whole mechanism end to
@@ -65,7 +65,7 @@ You need one ID Side API key and your usual provider key. The ID Side key comes
 from one of two places:
 
 - **the dashboard**, after signing up at
-  <https://sdk.idside.eu/dashboard/signup> — a free plan exists, and
+  <https://sdk.idside.eu/signup> — a free plan exists, and
   <https://sdk.idside.eu/pricing> says what it covers;
 - **the no-account sandbox**, *Test without an account* on
   <https://sdk.idside.eu/sdk> — an `sk_test_` key valid for 24 hours and
@@ -85,9 +85,9 @@ from idside import consent
 client = consent.wrap(OpenAI())          # 1. wrap the provider client, once
 
 response = client.chat.completions.create(
-    model="gpt-4o-mini",                 # 2. call it exactly as before…
+    model="gpt-4o-mini",                 # 2. call it exactly as before
     messages=[{"role": "user", "content": "Summarize my last consultation."}],
-    user_id="usr_marie_456",             # 3. …plus the end user's identity
+    user_id="usr_marie_456",             # 3. optional: whom the call is for
 )
 
 print(response.choices[0].message.content)
@@ -103,12 +103,15 @@ The default, `https://sdk.idside.eu`, is the ID Side service. Set
 `/v1` or `/widget`. Use the same deployment for the dashboard, widget and
 backend.
 
-The call above uses `user_id`, which requires an application that permits that
-identity path. Declare your providers in the dashboard before showing the
-widget. If your visitor application requires bound tokens, first connect
-the [widget and your backend session](./widget.md#8-from-a-recorded-decision-to-a-stronger-proof),
-then pass `ubt` instead. Do not enable AI requests until the backend has stored
-the visitor’s token; do not fall back to `user_id` when bound tokens are required.
+The call above names the person it is for with `user_id`. Leave it out and the
+call is proven against your API key instead: your organization's policy applies
+either way ([naming the end user](#naming-the-end-user)). If your application
+asks its users instead and requires bound tokens, declare your providers in the
+dashboard, connect the
+[widget and your backend session](./widget.md#8-from-a-recorded-decision-to-a-stronger-proof)
+first, then pass `ubt`. Do not enable AI requests until the backend has stored
+the visitor’s token; do not fall back to `user_id`, or to naming nobody, when
+bound tokens are required.
 
 ### Configuration
 
@@ -139,9 +142,9 @@ client = consent.wrap(
 ```
 
 You label; ID Side chooses. A posture you have not provisioned stops the call
-rather than falling back to the wrong one — except on an application that
-serves employees and is set to Observe, where ID Side names no posture you did
-not label: the call leaves on your ordinary credential and its proof records the
+rather than falling back to the wrong one — except on an application under an
+organization's policy that is set to Observe, where ID Side names no posture
+you did not label: the call leaves on your ordinary credential and its proof records the
 refusal as not applied (set to Enforce, the call is held instead). See
 [credential routing](./providers.md#6-credential-routing).
 
@@ -177,23 +180,33 @@ else:  # a cloud on your own machine: its key set, and its test issuer
 
 ### Naming the end user
 
-Every call needs exactly one of `user_id=` or `ubt=`; the SDK consumes it and
-never forwards it to the provider. Use `ubt=` when your frontend runs the ID Side
-widget — it is the stronger proof. The distinction is explained in
-[Concepts §8](./concepts.md#8-naming-the-end-user-user_id-vs-ubt). Pass
-`user_id=` as a string: it is sent as written, and a number the cloud accepts
-does not always name the same user from both SDKs — `42.0` is another user than
-`42` here, and the same one in JavaScript
+Naming the end user is optional. A call that passes neither `user_id=` nor
+`ubt=` is authorized with your API key as the proof's subject — the proof
+records `binding: "api_key"` — and your organization's policy applies to it as
+to any other. Pass one of the two, never both, when you want the proof to say
+whom the call was for; the SDK consumes it and never forwards it to the
+provider. `user_id=` is your own identifier for a person or a team
+(`"team-marketing"`); `ubt=` is the token the ID Side widget issues on an
+application that asks its users — the stronger proof. The distinction is
+explained in [Concepts §8](./concepts.md#8-naming-the-end-user-user_id-vs-ubt).
+
+A `user_id=` that is there but names nobody — `""`, blanks, `0`, `False` — raises
+[`MissingIdentityError`](./errors.md#missingidentityerror) instead of quietly
+becoming a call about the key; leave the argument out, or pass `None`, to name
+nobody. Pass `user_id=` as a string: it is sent as written, and a number the
+cloud accepts does not always name the same user from both SDKs — `42.0` is
+another user than `42` here, and the same one in JavaScript
 ([what a `user_id` may be](./errors.md#missingidentityerror)).
 
-If nobody is signed in to your product, you have to invent the identifier
-yourself, and the choice matters: an unstable one makes every visit a new
-person, and a browser fingerprint makes ID Side complicit in the tracking it
-exists to counter. Read
+If nobody is signed in to your product and your application asks its users,
+you have to invent the identifier yourself, and the choice matters: an unstable
+one makes every visit a new person, and a browser fingerprint makes ID Side
+complicit in the tracking it exists to counter. Read
 [what to send as `user_id`](./concepts.md#what-to-send-as-user_id) before you
 pick one.
 
-**Until the widget runs, a `user_id` names someone who has refused everything.**
+**On an application that asks, until the widget runs, everyone has refused
+everything.**
 The SDK cannot write a preference and never will — that is the
 [opaque tunnel](./concepts.md#3-the-opaque-tunnel) — so what nobody accepted is
 refused: every option resolves to `false`, on every provider, and each proof
@@ -271,9 +284,9 @@ any of steps 2–4 could not complete, step 5 does not happen at all —
 
 The token is an `ES256` JWT, valid one hour, signed with a key that exists only
 in the ID Side cloud. Attached to *this* request, it attests that at this instant
-the user's resolved consent state was checked, records where that consent came
-from (`source`), on what legal basis, and how strongly the identity was bound
-(`binding: "ubt" | "user_id"`).
+the policy or consent state that applies to the call was checked, records where
+that decision came from (`source`), on what legal basis, and what the subject is
+and how strongly it was bound (`binding: "api_key" | "user_id" | "ubt"`).
 
 It carries the `request_hash`, so it is worthless on any other request: **one
 token = one request**. Full claim list in
@@ -368,7 +381,10 @@ not the end user's `user_id` or `ubt`, not the prompt, not the ACT token, not a
 credential. `subject` is a pseudonym salted with a random per-process value: two
 calls by one person share it, so you can follow one user through a log, and
 nobody can work backwards from it to the identifier — not even for a guessable
-one like `usr_marie_456`, which is why the salt is there. `request_hash` is the
+one like `usr_marie_456`, which is why the salt is there. A call that names
+nobody has no `subject=` at all — a pseudonym of "nobody" would read as one
+person making every such call — and reads `binding=api_key`; nothing is derived
+from your API key. `request_hash` is the
 value the ledger indexes, so it is how you find the proof for a given call.
 
 Two deliberate absences. The **ACT token** is never logged: it is bearer

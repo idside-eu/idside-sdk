@@ -250,6 +250,48 @@ def test_a_proof_flagged_by_its_organization_verifies_with_its_deviations() -> N
     assert verified.legal_basis == "not_established"
 
 
+def test_a_proof_whose_subject_is_the_api_key_verifies() -> None:
+    """A call that named nobody: ``binding: "api_key"`` and an ``api_key`` claim.
+
+    Both arrived under `/v1`. ``sub`` is still there and still a pseudonymous
+    subject scoped per app — of the key this time, not of a person — so the
+    check that every proof has one holds, and ``binding`` is what tells the two
+    kinds of subject apart. The new claim is kept in ``claims`` unexamined, as
+    every claim the verifier does not name.
+    """
+    token = _es256(
+        payload=_claims(
+            sub="psk_9f2c1a7e0b3d4c5a",
+            source="default_policy",
+            legal_basis="legitimate_interest",
+            binding="api_key",
+            api_key="key_medhelp_backend",  # pragma: allowlist secret
+        )
+    )
+
+    verified = _verify(token, subject="psk_9f2c1a7e0b3d4c5a")
+
+    assert verified.binding == "api_key"
+    assert verified.subject == "psk_9f2c1a7e0b3d4c5a"
+    assert verified.claims["api_key"] == "key_medhelp_backend"
+
+
+def test_a_proof_from_before_the_api_key_claim_still_verifies() -> None:
+    """Every archived token lacks the claim, and must verify as it always did."""
+    verified = _verify(_es256(payload=_claims(binding="user_id")))
+
+    assert "api_key" not in verified.claims
+    assert verified.binding == "user_id"
+
+
+def test_a_proof_whose_subject_is_the_api_key_still_needs_a_subject() -> None:
+    """The key being the subject does not make ``sub`` optional."""
+    token = _es256(payload=_claims(sub=_ABSENT, binding="api_key", api_key="key_x"))
+
+    with pytest.raises(ActMalformedError):
+        _verify(token)
+
+
 @pytest.mark.parametrize(
     "legal_basis",
     ["public_task", "legal_obligation", "vital_interests", "a_basis_added_later"],

@@ -168,7 +168,7 @@ test("re-wrapping does not retain another transport provenance", () => {
   assert.equal(provenanceCount(guardedFetch), 1);
 });
 
-test("chat.completions.parse() without an identity sends nothing at all", async () => {
+test("chat.completions.parse() with an empty identity sends nothing at all", async () => {
   const probe = probeFetch();
   const cc = fakeConsentClient();
   const client = wrap(openaiClient(probe), {
@@ -177,7 +177,7 @@ test("chat.completions.parse() without an identity sends nothing at all", async 
   });
 
   await assert.rejects(
-    client.chat.completions.parse({ model: "gpt-4o", messages: [] } as never),
+    client.chat.completions.parse({ model: "gpt-4o", messages: [], user_id: "" } as never),
     MissingIdentityError,
   );
   assert.equal(cc.calls.length, 0);
@@ -193,7 +193,7 @@ test("responses.parse() is enforced too (both openai call sites declare the alia
   });
 
   await assert.rejects(
-    client.responses.parse({ model: "gpt-4o", input: "hi" } as never),
+    client.responses.parse({ model: "gpt-4o", input: "hi", user_id: "" } as never),
     MissingIdentityError,
   );
   assert.equal(probe.calls.length, 0, "no HTTP request may leave");
@@ -278,27 +278,205 @@ test("a caller-supplied token header cannot skip authorization", async () => {
     { messages },
     { consentClient: cc, provider: "anthropic" },
   );
-  const callWithoutIdentity = client.messages.create as unknown as (
+  const create = client.messages.create as unknown as (
     body: Record<string, unknown>,
     options?: { headers?: Record<string, string> },
   ) => Promise<unknown>;
 
-  for (const token of ["", "act.caller.supplied"]) {
-    await assert.rejects(
-      callWithoutIdentity(
-        { model: "claude-3", messages: [] },
-        { headers: { "X-AI-Consent-Token": token } },
-      ),
-      MissingIdentityError,
-    );
+  // Refused whoever the call names: a token header written by the caller is not
+  // a permit, so it cannot pass a call through, and it would leave beside the
+  // one the SDK attaches, on terms no proof describes.
+  for (const identity of [{}, { user_id: "usr_x" }]) {
+    for (const token of ["", "act.caller.supplied"]) {
+      await assert.rejects(
+        create(
+          { model: "claude-3", messages: [], ...identity },
+          { headers: { "X-AI-Consent-Token": token } },
+        ),
+        UnenforceableOptionError,
+        `${JSON.stringify(identity)} ${token}`,
+      );
+    }
   }
 
   assert.equal(
     cc.calls.length,
     0,
-    "identity failure happens before authorization",
+    "the refusal happens before authorization",
   );
   assert.equal(calls.length, 0, "the provider method was not called");
+});
+
+type Options = { headers?: Record<string, string> };
+
+/**
+ * An anthropic-shaped resource whose `parse` defers to `create` the way `hop`
+ * says: with the options it was given (the permit's token on them), without
+ * them, or twice.
+ */
+function reentrantMessages(
+  hop: (
+    create: (body: Record<string, unknown>, options?: Options) => Promise<unknown>,
+    body: Record<string, unknown>,
+    options?: Options,
+  ) => Promise<unknown>,
+) {
+  const calls: { body: Record<string, unknown>; options?: Options }[] = [];
+  const messages = {
+    create(body: Record<string, unknown>, options?: Options) {
+      calls.push({ body, options });
+      return Promise.resolve({ id: "msg_1" });
+    },
+    parse(body: Record<string, unknown>, options?: Options) {
+      return hop(this.create.bind(this), body, options);
+    },
+  };
+  const cc = fakeConsentClient();
+  const client = wrap({ messages }, { consentClient: cc, provider: "anthropic" });
+  const call = (name: "create" | "parse", body: Record<string, unknown>) =>
+    (client.messages[name] as unknown as (body: Record<string, unknown>) => Promise<unknown>)(body);
+  return { calls, cc, call };
+}
+
+const OUTER_IDENTITIES = [{ user_id: "usr_marie_456" }, {}] as const;
+
+test("a nested hop naming nobody is refused, not authorized about the key", async () => {
+  // A provider helper that reaches the patched method a second time without
+  // the permit is a second AI call, and it names nobody: the identity went to
+  // the first hop. Authorized, it would put a second proof in the ledger whose
+  // subject is the API key, not whoever the outer call named. A call naming
+  // nobody at the top level stays allowed, on the same client, right after.
+  for (const outer of OUTER_IDENTITIES) {
+    const { calls, cc, call } = reentrantMessages((create, body) => create(body));
+
+    await assert.rejects(
+      call("parse", { model: "claude-3", messages: [], ...outer }),
+      (error: unknown) => error instanceof MissingIdentityError && /inside another/.test(error.message),
+      JSON.stringify(outer),
+    );
+    assert.equal(cc.calls.length, 1, "the nested hop was authorized about the key");
+    assert.equal(calls.length, 0, "an unauthorized call reached the provider");
+
+    await call("create", { model: "claude-3", messages: [] });
+    assert.equal(cc.calls.length, 2);
+    assert.equal(cc.calls[1]!.userId, undefined);
+    assert.equal(cc.calls[1]!.ubt, undefined);
+    assert.equal(calls.length, 1);
+  }
+});
+
+test("one permit covers one nested hop and not the next", async () => {
+  // A helper that retries reaches the patched method again with the same ACT
+  // token on it. Waving that through would put two inference calls behind one
+  // authorization; enforced on its own merits, it names nobody, from inside a
+  // call in progress.
+  const { calls, cc, call } = reentrantMessages(async (create, body, options) => {
+    const first = await create(body, options);
+    await create(body, options);
+    return first;
+  });
+
+  await assert.rejects(
+    call("parse", { model: "claude-3", messages: [], user_id: "usr_marie_456" }),
+    (error: unknown) => error instanceof MissingIdentityError && /inside another/.test(error.message),
+  );
+  assert.equal(cc.calls.length, 1, "the second hop rode the first hop's permit");
+  assert.equal(calls.length, 1, "an unauthorized call reached the provider");
+});
+
+test("a nested hop that names somebody is enforced on its own", async () => {
+  const { calls, cc, call } = reentrantMessages((create, body) =>
+    create({ model: body.model, messages: body.messages, user_id: "usr_paul_789" }),
+  );
+
+  await call("parse", { model: "claude-3", messages: [] });
+
+  assert.deepEqual(cc.calls.map((request) => request.userId), [undefined, "usr_paul_789"]);
+  assert.equal(calls.length, 1);
+});
+
+test("another wrapped client re-entered from inside a call is refused too", async () => {
+  // The provider behind one wrapped client is another wrapped client's enforced
+  // method. The hop carries no permit of its own and no identity: a guard
+  // limited to the same client would authorize it as a call about the key.
+  const inner = reentrantMessages((create, body) => create(body));
+  const cc = fakeConsentClient();
+  const outer = wrap(
+    { messages: { create: (body: Record<string, unknown>, _options?: unknown) => inner.call("create", body) } },
+    { consentClient: cc, provider: "anthropic" },
+  );
+
+  await assert.rejects(
+    (outer.messages.create as unknown as (body: Record<string, unknown>) => Promise<unknown>)({
+      model: "claude-3",
+      messages: [],
+      user_id: "usr_marie_456",
+    }),
+    (error: unknown) => error instanceof MissingIdentityError && /inside another/.test(error.message),
+  );
+  assert.equal(cc.calls.length, 1);
+  assert.equal(inner.cc.calls.length, 0);
+  assert.equal(inner.calls.length, 0);
+});
+
+test("an alias on a call naming nobody still passes through once", async () => {
+  // The permit, not an identity, is what lets the nested hop through.
+  const { calls, cc, call } = reentrantMessages((create, body, options) => create(body, options));
+
+  await call("parse", { model: "claude-3", messages: [] });
+
+  assert.equal(cc.calls.length, 1);
+  assert.equal(cc.calls[0]!.userId, undefined);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]!.options?.headers?.["X-AI-Consent-Token"], DECISION.actToken);
+});
+
+test("a call naming nobody beside a named one in Promise.all is allowed", async () => {
+  // The named call is held inside its provider, permit in force, while the call
+  // naming nobody is made — after a promise the provider settled, from inside
+  // that permit. The permit is the provider's async context, not the
+  // developer's, so the call naming nobody is a top-level call.
+  for (const sameClient of [true, false]) {
+    let inside!: () => void;
+    const entered = new Promise<void>((resolve) => (inside = resolve));
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => (release = resolve));
+    const calls: Record<string, unknown>[] = [];
+    // One raw function, put on a fresh resource per client: wrap() patches the
+    // resource in place, so sharing one would hand the other client an already
+    // enforced method to re-enter.
+    const held = async (body: Record<string, unknown>, _options?: unknown) => {
+      calls.push(body);
+      if (calls.length === 1) {
+        inside();
+        await released;
+      }
+      return { id: "msg_1" };
+    };
+    const cc = fakeConsentClient();
+    const client = wrap({ messages: { create: held } }, { consentClient: cc, provider: "anthropic" });
+    const other = sameClient
+      ? client
+      : wrap({ messages: { create: held } }, { consentClient: cc, provider: "anthropic" });
+    const create = (target: typeof client, body: Record<string, unknown>) =>
+      (target.messages.create as unknown as (body: Record<string, unknown>) => Promise<unknown>)(body);
+
+    const results = await Promise.all([
+      create(client, { model: "claude-3", messages: [], user_id: "usr_marie_456" }),
+      (async () => {
+        await entered;
+        try {
+          return await create(other, { model: "claude-3", messages: [] });
+        } finally {
+          release();
+        }
+      })(),
+    ]);
+
+    assert.deepEqual(results, [{ id: "msg_1" }, { id: "msg_1" }], `same client: ${sameClient}`);
+    assert.deepEqual(cc.calls.map((request) => request.userId), ["usr_marie_456", undefined]);
+    assert.equal(calls.length, 2);
+  }
 });
 
 // ── layer 3: the transport net ───────────────────────────────────────────────
@@ -651,9 +829,9 @@ test("withOptions() hands back a client that is still enforced", async () => {
   const derived = client.withOptions({ maxRetries: 0 });
 
   await assert.rejects(
-    derived.chat.completions.create({ model: "gpt-4o", messages: [] }),
+    derived.chat.completions.create({ model: "gpt-4o", messages: [], user_id: " " } as never),
     MissingIdentityError,
-    "the derived client must demand an identity like its parent",
+    "the derived client must check the identity like its parent",
   );
   assert.equal(probe.calls.length, 0, "no HTTP request may leave");
 
@@ -686,6 +864,7 @@ test("a derived client keeps its aliases, its net, and its own withOptions()", a
     grandchild.chat.completions.parse({
       model: "gpt-4o",
       messages: [],
+      user_id: "",
     } as never),
     MissingIdentityError,
   );
