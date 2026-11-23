@@ -109,6 +109,33 @@ export interface CredentialRouting {
   readonly unit: string;
 }
 
+/**
+ * What prompt cleaning reads on a provider (the descriptor's `content`).
+ *
+ * Every string value of a call is text, except the values under
+ * `structuralKeys` (never scanned, never changed) and the attachments: a value
+ * under `attachmentKeys`, an object under a key of `attachmentObjects` whose
+ * `type` is listed there, and any string that is a base64 data: URI. Under a
+ * key of `freeFormKeys` (what the developer or the model wrote: tool
+ * arguments, metadata) neither applies, and every string is text. A
+ * descriptor that declares none of them gets the widest reading.
+ */
+export interface ContentFields {
+  readonly structuralKeys: ReadonlySet<string>;
+  readonly freeFormKeys: ReadonlySet<string>;
+  readonly callerKeyedKeys: ReadonlySet<string>;
+  readonly attachmentKeys: ReadonlySet<string>;
+  readonly attachmentObjects: ReadonlyMap<string, ReadonlySet<string>>;
+}
+
+export const NO_CONTENT_FIELDS: ContentFields = {
+  structuralKeys: new Set(),
+  freeFormKeys: new Set(),
+  callerKeyedKeys: new Set(),
+  attachmentKeys: new Set(),
+  attachmentObjects: new Map(),
+};
+
 export interface ProviderDescriptor {
   readonly name: string;
   readonly clientModule: string;
@@ -155,6 +182,8 @@ export interface ProviderDescriptor {
    */
   readonly credentialRouting?: CredentialRouting;
   readonly descriptorVersion: string;
+  /** What prompt cleaning reads, and what it leaves alone, on this provider. */
+  readonly content: ContentFields;
 }
 
 interface RawToolField {
@@ -193,6 +222,13 @@ interface RawDescriptor {
     header_value_pattern?: string;
     unit?: string;
     note?: string;
+  };
+  content?: {
+    structural_keys?: string[];
+    free_form_keys?: string[];
+    caller_keyed_keys?: string[];
+    attachment_keys?: string[];
+    attachment_objects?: Record<string, string[]>;
   };
   notes?: string;
 }
@@ -265,6 +301,20 @@ function fromRaw(raw: RawDescriptor): ProviderDescriptor {
         }
       : undefined,
     descriptorVersion: raw.descriptor_version ?? "2",
+    content: contentFromRaw(raw.content),
+  };
+}
+
+function contentFromRaw(raw: RawDescriptor["content"]): ContentFields {
+  if (!raw) return NO_CONTENT_FIELDS;
+  return {
+    structuralKeys: new Set(raw.structural_keys ?? []),
+    freeFormKeys: new Set(raw.free_form_keys ?? []),
+    callerKeyedKeys: new Set(raw.caller_keyed_keys ?? []),
+    attachmentKeys: new Set(raw.attachment_keys ?? []),
+    attachmentObjects: new Map(
+      Object.entries(raw.attachment_objects ?? {}).map(([key, types]) => [key, new Set(types)]),
+    ),
   };
 }
 

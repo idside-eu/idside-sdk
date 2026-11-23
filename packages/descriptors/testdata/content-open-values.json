@@ -1,0 +1,304 @@
+{
+ "description": "Values that run on, written to fill a whole text: `before`, then the value (`head`, its parts joined when it is a list, and `fill` repeated), then `after`. At each of `sizes`, cleaned under a policy enabling that rule alone, the text must become `before`, one placeholder and `after`, counted once, in linear time; one character more than the engine's limit is blocked `size_limit`. Both suites read this file.",
+ "sizes": [
+  1048576,
+  5242880,
+  8388608
+ ],
+ "past_limit": 8388609,
+ "forms": [
+  {
+   "rule": "private_key",
+   "before": "",
+   "head": [
+    "-----BEGIN ",
+    "PRIVATE KEY-----\n"
+   ],
+   "fill": "A",
+   "after": ""
+  },
+  {
+   "rule": "generic_secret",
+   "before": "SECRET_KEY=",
+   "head": "",
+   "fill": "a",
+   "after": ""
+  },
+  {
+   "rule": "generic_secret",
+   "before": "password: \"",
+   "head": "",
+   "fill": "a",
+   "after": "\""
+  },
+  {
+   "rule": "connection_string_password",
+   "before": "PGPASSWORD=",
+   "head": "",
+   "fill": "a",
+   "after": ""
+  },
+  {
+   "rule": "connection_string_password",
+   "before": "Server=db;Password='",
+   "head": "",
+   "fill": "a",
+   "after": "'"
+  },
+  {
+   "rule": "connection_string_password",
+   "before": "Server=db;Password=\"",
+   "head": "",
+   "fill": "a",
+   "after": "\""
+  },
+  {
+   "rule": "connection_string_password",
+   "before": "POSTGRES_PASSWORD='",
+   "head": "",
+   "fill": "a",
+   "after": "'"
+  },
+  {
+   "rule": "connection_string_password",
+   "before": "POSTGRES_PASSWORD=\"",
+   "head": "",
+   "fill": "a",
+   "after": "\""
+  },
+  {
+   "rule": "connection_string_password",
+   "before": "jdbc:oracle:thin:",
+   "head": "scott/p@",
+   "fill": "a",
+   "after": "@db:1521:orcl"
+  },
+  {
+   "rule": "generic_secret",
+   "before": "password: '",
+   "head": "",
+   "fill": "a",
+   "after": "'"
+  },
+  {
+   "rule": "generic_secret",
+   "before": "MY_APP_KEY=",
+   "head": "",
+   "fill": "a",
+   "after": ""
+  },
+  {
+   "rule": "generic_secret",
+   "before": "token = os.getenv(\"T\", \"",
+   "head": "",
+   "fill": "a",
+   "after": "\")"
+  },
+  {
+   "rule": "generic_secret",
+   "before": "token = os.getenv('T', '",
+   "head": "",
+   "fill": "a",
+   "after": "')"
+  },
+  {
+   "rule": "generic_secret",
+   "before": "MY_APP_KEY=\"",
+   "head": "",
+   "fill": "a",
+   "after": "\""
+  },
+  {
+   "rule": "generic_secret",
+   "before": "MY_APP_KEY='",
+   "head": "",
+   "fill": "a",
+   "after": "'"
+  },
+  {
+   "rule": "connection_string_password",
+   "before": "Server=db;Password=",
+   "head": "",
+   "fill": "a",
+   "after": ";"
+  },
+  {
+   "rule": "connection_string_password",
+   "before": "redis://",
+   "head": ":p@",
+   "fill": "a",
+   "after": "@cache:6379"
+  },
+  {
+   "rule": "url_credentials",
+   "before": "https://",
+   "head": "u:p@",
+   "fill": "a",
+   "after": "@host.example"
+  },
+  {
+   "rule": "email",
+   "before": "",
+   "head": "a@b.co",
+   "fill": "m",
+   "after": ""
+  },
+  {
+   "rule": "phone",
+   "before": "",
+   "head": "+33612345678",
+   "fill": "a",
+   "after": ""
+  },
+  {
+   "rule": "ip_address",
+   "before": "",
+   "head": "10.0.0.0/",
+   "fill": "1",
+   "after": ""
+  },
+  {
+   "rule": "ip_address",
+   "before": "",
+   "head": "2001:db8::1",
+   "fill": "a",
+   "after": ""
+  },
+  {
+   "rule": "bic",
+   "before": "BIC ",
+   "head": "BNPA FR PP XXX",
+   "fill": "A",
+   "after": ""
+  },
+  {
+   "rule": "key_openai",
+   "before": "",
+   "head": "sk-proj-",
+   "fill": "a",
+   "after": ""
+  },
+  {
+   "rule": "key_anthropic",
+   "before": "",
+   "head": "sk-ant-",
+   "fill": "a",
+   "after": ""
+  },
+  {
+   "rule": "key_github",
+   "before": "",
+   "head": "ghp_",
+   "fill": "a",
+   "after": ""
+  },
+  {
+   "rule": "key_github",
+   "before": "",
+   "head": "github_pat_",
+   "fill": "a",
+   "after": ""
+  },
+  {
+   "rule": "key_gitlab",
+   "before": "",
+   "head": "glpat-",
+   "fill": "a",
+   "after": ""
+  },
+  {
+   "rule": "key_slack",
+   "before": "",
+   "head": "xoxb-",
+   "fill": "a",
+   "after": ""
+  },
+  {
+   "rule": "key_slack",
+   "before": "",
+   "head": "https://hooks.slack.com/services/",
+   "fill": "a",
+   "after": ""
+  },
+  {
+   "rule": "key_stripe",
+   "before": "",
+   "head": "sk_live_",
+   "fill": "a",
+   "after": ""
+  },
+  {
+   "rule": "key_stripe",
+   "before": "",
+   "head": "whsec_",
+   "fill": "a",
+   "after": ""
+  },
+  {
+   "rule": "key_pypi",
+   "before": "",
+   "head": [
+    "pypi-",
+    "AgEIcHlwaS5vcmc"
+   ],
+   "fill": "a",
+   "after": ""
+  },
+  {
+   "rule": "key_azure",
+   "before": "AccountKey=",
+   "head": [
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    "=="
+   ],
+   "fill": "A",
+   "after": ";"
+  },
+  {
+   "rule": "key_azure",
+   "before": "SharedAccessKey=",
+   "head": [
+    "AAAAAAAAAAAAAAAAAAAAA",
+    "AAAAAAAAAAAAAAAAAAAAAA",
+    "="
+   ],
+   "fill": "A",
+   "after": ";"
+  },
+  {
+   "rule": "jwt",
+   "before": "",
+   "head": "eyJhbGci.eyJzdWIi.",
+   "fill": "a",
+   "after": ""
+  },
+  {
+   "rule": "bearer_token",
+   "before": "Authorization: Bearer ",
+   "head": "",
+   "fill": "a",
+   "after": ""
+  },
+  {
+   "rule": "bearer_token",
+   "before": "Authorization: Basic ",
+   "head": "",
+   "fill": "a",
+   "after": ""
+  },
+  {
+   "rule": "custom:D",
+   "custom": {
+    "kind": "domain",
+    "value": "acme.example",
+    "action": "mask",
+    "label": "D"
+   },
+   "before": "",
+   "head": "https://acme.example/",
+   "fill": "a",
+   "after": ""
+  }
+ ]
+}

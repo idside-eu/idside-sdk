@@ -104,5 +104,42 @@
       "note": "No per-request file expiry control on the endpoint this descriptor wraps."
     }
   },
-  "enforcement_verified_at": "2026-07-26"
+  "enforcement_verified_at": "2026-07-26",
+  "content": {
+    "structural_keys": [
+      "format",
+      "id",
+      "model",
+      "name",
+      "role",
+      "tool_call_id",
+      "tool_choice",
+      "type"
+    ],
+    "free_form_keys": [
+      "const",
+      "default",
+      "enum",
+      "examples"
+    ],
+    "caller_keyed_keys": [
+      "$defs",
+      "definitions",
+      "dependencies",
+      "dependentRequired",
+      "dependentSchemas",
+      "patternProperties",
+      "properties"
+    ],
+    "attachment_keys": [
+      "file",
+      "file_data",
+      "file_id",
+      "file_url",
+      "image_url",
+      "input_audio"
+    ],
+    "attachment_objects": {},
+    "note": "Same reading as the OpenAI descriptor: structural keys are never scanned nor changed, attachment keys are opaque attachments, and a base64 data: URI is an attachment wherever it appears. The maps whose keys are names the caller chose (a JSON Schema's `properties`, `$defs`, `definitions`, `patternProperties`) are `caller_keyed_keys`: a key there spelled `name`, `id` or `type` is the caller's word, and the value it holds is read with the usual rules — a schema's `description` is read, its `type` stays structural."
+  }
 }

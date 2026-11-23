@@ -22,6 +22,7 @@ DEFAULT_CONSENT_HEADER = "X-AI-Consent-Token"
 
 __all__ = [
     "CallSite",
+    "ContentFields",
     "CredentialRouting",
     "ProviderDescriptor",
     "ToolField",
@@ -156,6 +157,50 @@ class CallSite:
 
 
 @dataclass(frozen=True)
+class ContentFields:
+    """What prompt cleaning reads on a provider (the descriptor's ``content``).
+
+    Every string value of a call is text, except the values under
+    ``structural_keys`` (never scanned, never changed) and the attachments: a
+    value under ``attachment_keys``, an object under a key of
+    ``attachment_objects`` whose ``type`` is listed there, and any string that
+    is a base64 data: URI. Under a key of ``free_form_keys`` (what the developer
+    or the model wrote: tool arguments, metadata) neither applies, and every
+    string is text. A descriptor that declares none of them gets the widest
+    reading: everything is text.
+    """
+
+    structural_keys: frozenset[str] = frozenset()
+    free_form_keys: frozenset[str] = frozenset()
+    caller_keyed_keys: frozenset[str] = frozenset()
+    attachment_keys: frozenset[str] = frozenset()
+    attachment_objects: tuple[tuple[str, frozenset[str]], ...] = ()
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> ContentFields:
+        return cls(
+            structural_keys=frozenset(data.get("structural_keys", ())),
+            free_form_keys=frozenset(data.get("free_form_keys", ())),
+            caller_keyed_keys=frozenset(data.get("caller_keyed_keys", ())),
+            attachment_keys=frozenset(data.get("attachment_keys", ())),
+            attachment_objects=tuple(
+                (key, frozenset(types))
+                for key, types in sorted(data.get("attachment_objects", {}).items())
+            ),
+        )
+
+    def attachment_object(self, key: str, value: Any) -> bool:
+        """Whether ``value``, found under ``key``, is an attachment object."""
+        if not isinstance(value, dict):
+            return False
+        kind = value.get("type")
+        return any(
+            key == name and isinstance(kind, str) and kind in types
+            for name, types in self.attachment_objects
+        )
+
+
+@dataclass(frozen=True)
 class ProviderDescriptor:
     """Declarative description of a provider's injection mechanics.
 
@@ -197,6 +242,8 @@ class ProviderDescriptor:
     #: ``consent.wrap(credentials=…)`` is refused rather than quietly ignored.
     credential_routing: CredentialRouting | None = None
     descriptor_version: str = "2"
+    #: What prompt cleaning reads, and what it leaves alone, on this provider.
+    content: ContentFields = ContentFields()
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ProviderDescriptor:
@@ -221,6 +268,7 @@ class ProviderDescriptor:
                 else None
             ),
             descriptor_version=data.get("descriptor_version", "2"),
+            content=ContentFields.from_dict(data.get("content") or {}),
         )
 
     def is_reserved_header(self, name: str) -> bool:

@@ -31,10 +31,13 @@ export { loadDescriptors, DEFAULT_CONSENT_HEADER } from "./descriptors.ts";
 export type { ProviderDescriptor, CredentialRouting } from "./descriptors.ts";
 
 export { HttpConsentClient, DEFAULT_BASE_URL } from "./transport.ts";
-export type { ConsentClient, ConsentDecision, AuthorizeRequest, HttpConsentClientOptions } from "./transport.ts";
+export type { ConsentClient, ConsentDecision, AuthorizeRequest, ContentEvents, HttpConsentClientOptions } from "./transport.ts";
 
 export { canonicalize, canonicalizeToString, CanonicalizationError } from "./jcs.ts";
 export { requestHash } from "./requestHash.ts";
+
+// Prompt cleaning: the replay check an auditor runs on a request that went out.
+export { verifyClean, contentPolicyDigest } from "./cleaning/index.ts";
 
 export {
   verifyAct,
@@ -59,6 +62,8 @@ export {
   RateLimitedError,
   ContractError,
   ConsentTokenError,
+  ContentBlockedError,
+  ContentPolicyError,
   MissingIdentityError,
   ConflictingIdentityError,
   UnsupportedProviderError,

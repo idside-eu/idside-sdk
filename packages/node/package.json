@@ -30,6 +30,9 @@
   "engines": {
     "node": ">=22.12.0"
   },
+  "bin": {
+    "idside-verify-clean": "dist/cleaning/cli.js"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -55,7 +58,7 @@
     "build": "npm run clean && tsc -p tsconfig.build.json && node scripts/copy-assets.mjs",
     "prepack": "npm run build",
     "test": "node --test test/*.test.ts",
-    "test:coverage": "node --test --experimental-test-coverage --test-coverage-lines=99 --test-coverage-branches=99 --test-coverage-functions=99 test/*.test.ts",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-exclude='test/**' --test-coverage-exclude='../descriptors/testdata/**' --test-coverage-lines=99 --test-coverage-branches=99 --test-coverage-functions=99 test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

@@ -106,5 +106,50 @@
   "credential_routing": {
     "unit": "workspace",
     "note": "API keys belong to a workspace, and `allowed_inference_geos` / retention are workspace settings. Routing means selecting the key, not a header. A credential that can act on several workspaces picks one per request with `anthropic-workspace-id`, and `anthropic-user-profile-id` attributes the request to a user profile whose programs can require retention and human review; both are reserved, and the `workspace_id` / `user_profile_id` arguments the libraries turn into them are refused on an enforced call, so a call cannot leave the workspace and the terms its key routes to."
+  },
+  "content": {
+    "structural_keys": [
+      "cache_control",
+      "container",
+      "id",
+      "media_type",
+      "model",
+      "name",
+      "role",
+      "service_tier",
+      "stop_reason",
+      "tool_choice",
+      "tool_use_id",
+      "type"
+    ],
+    "free_form_keys": [
+      "const",
+      "default",
+      "enum",
+      "examples",
+      "input",
+      "input_examples",
+      "metadata"
+    ],
+    "caller_keyed_keys": [
+      "$defs",
+      "definitions",
+      "dependencies",
+      "dependentRequired",
+      "dependentSchemas",
+      "patternProperties",
+      "properties"
+    ],
+    "attachment_keys": [
+      "file_id"
+    ],
+    "attachment_objects": {
+      "source": [
+        "base64",
+        "file",
+        "url"
+      ]
+    },
+    "note": "Anthropic carries media in a `source` object: one whose `type` is `base64`, `url` or `file` is an attachment as a whole (`attachment_objects`). A `text` source is plain text and is read like any other string. A tool call's `input` is whatever the model wrote, and a tool's `input_examples` what the developer wrote, so both are free-form: their `name` or `id` keys are read as text there. The maps whose keys are names the caller chose (a JSON Schema's `properties`, `$defs`, `definitions`, `patternProperties`) are `caller_keyed_keys`: a key there spelled `name`, `id` or `type` is the caller's word, and the value it holds is read with the usual rules — a schema's `description` is read, its `type` stays structural."
   }
 }

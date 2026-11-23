@@ -74,6 +74,10 @@ all = [
   "cryptography>=50",
 ]
 
+# The replay check of prompt cleaning, as a command (see docs/prompt-cleaning.md).
+[project.scripts]
+idside-verify-clean = "idside._cleaning.cli:main"
+
 [project.urls]
 Homepage = "https://sdk.idside.eu"
 Repository = "https://github.com/idside-eu/idside-sdk"

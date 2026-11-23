@@ -185,6 +185,44 @@ export class RateLimitedError extends IDSideError {}
 export class ContractError extends IDSideError {}
 
 /**
+ * The organization's prompt-cleaning policy cannot be applied.
+ *
+ * Raised when a policy document is malformed (a field of the wrong type, a
+ * custom entry whose label or value breaks the rules), is of a schema this SDK
+ * does not read, or — once the SDK fetches it from the cloud — when its
+ * signature, type, application, expiry or digest does not check out. The SDK
+ * is fail-closed: a policy it cannot apply is never replaced by no policy, so
+ * the AI call is not made. The message names the field or the entry's
+ * position, never a value.
+ */
+export class ContentPolicyError extends IDSideError {}
+
+/**
+ * The organization's prompt-cleaning policy blocks this call.
+ *
+ * One of its rules set to *block* found something in the request — a payment
+ * card, an attachment, a term the organization listed. Nothing was sent: not to
+ * the AI provider, not to ID Side (which receives only the rule ids and counts
+ * in `blocked`, never a value). The message names the same ids and counts.
+ * Show the person that this content cannot be sent; never retry the same call.
+ */
+export class ContentBlockedError extends IDSideError {
+  readonly blocked: Readonly<Record<string, number>>;
+  constructor(blocked: Record<string, number>) {
+    // Keys of one object are distinct: two never compare equal.
+    const sorted = Object.fromEntries(Object.entries(blocked).sort(([a], [b]) => (a < b ? -1 : 1)));
+    const named = Object.entries(sorted)
+      .map(([rule, count]) => `${rule} (${count})`)
+      .join(", ");
+    super(
+      `The organization's prompt-cleaning policy blocks this call: it found ${named}. ` +
+        "The AI call was not made and nothing of it was sent; remove that content and try again.",
+    );
+    this.blocked = sorted;
+  }
+}
+
+/**
  * An ACT token or its request binding is invalid, or a deterministic
  * `request_hash` cannot be computed from the call payload (e.g. a value is not
  * JSON-serializable). The error message names the offending parameter.

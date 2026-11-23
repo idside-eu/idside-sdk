@@ -126,5 +126,54 @@
   "credential_routing": {
     "unit": "project",
     "note": "Whether prompts train Google's models depends on the billing tier of the project behind the key. Routing means selecting the key."
+  },
+  "content": {
+    "structural_keys": [
+      "allowedFunctionNames",
+      "allowed_function_names",
+      "cachedContent",
+      "cached_content",
+      "id",
+      "mediaResolution",
+      "media_resolution",
+      "mimeType",
+      "mime_type",
+      "mode",
+      "model",
+      "name",
+      "responseMimeType",
+      "response_mime_type",
+      "role",
+      "type"
+    ],
+    "free_form_keys": [
+      "args",
+      "const",
+      "default",
+      "enum",
+      "examples",
+      "response"
+    ],
+    "caller_keyed_keys": [
+      "$defs",
+      "definitions",
+      "defs",
+      "dependencies",
+      "dependentRequired",
+      "dependentSchemas",
+      "labels",
+      "patternProperties",
+      "properties"
+    ],
+    "attachment_keys": [
+      "fileData",
+      "fileUri",
+      "file_data",
+      "file_uri",
+      "inlineData",
+      "inline_data"
+    ],
+    "attachment_objects": {},
+    "note": "Both spellings google-genai accepts are listed (`inline_data` and `inlineData`): a key read in one spelling only is media the other walks past. A function call's `args` and a function response's `response` are free-form: every string in them is text. The maps whose keys are names the caller chose (the config's `labels`, and a schema's `properties`, `$defs`, `defs`, `definitions`, `patternProperties`) are `caller_keyed_keys`: a key there spelled `name`, `id` or `type` is the caller's word, and the value it holds is read with the usual rules — a schema's `description` is read, its `type` stays structural."
   }
 }

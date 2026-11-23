@@ -1,0 +1,594 @@
+{
+  "description": "Whether key material follows a private key's BEGIN line (the `private_key_material` check a pattern names in `followed_by`). Each case is the text after the BEGIN line `begin` (written in two pieces: no tracked file holds the marker whole); `material` is what the check must answer at the end of that line. A `$concat` value is the concatenation of its parts, a part being a string or a {repeat, times} object. The answers are stated by hand, at the bounds the catalogue's description names; each was also the answer of the look-ahead the check replaced.",
+  "begin": {
+    "$concat": [
+      "-----BEGIN ",
+      "RSA PRIVATE KEY-----"
+    ]
+  },
+  "cases": [
+    {
+      "name": "one run of 32 base64 characters",
+      "after": {
+        "$concat": [
+          "\n",
+          {
+            "repeat": "A",
+            "times": 32
+          }
+        ]
+      },
+      "material": true
+    },
+    {
+      "name": "one run of 31 is not key material",
+      "after": {
+        "$concat": [
+          "\n",
+          {
+            "repeat": "A",
+            "times": 31
+          }
+        ]
+      },
+      "material": false
+    },
+    {
+      "name": "two runs of 16, a line break between",
+      "after": {
+        "$concat": [
+          "\n",
+          {
+            "repeat": "A",
+            "times": 16
+          },
+          "\n",
+          {
+            "repeat": "B",
+            "times": 16
+          }
+        ]
+      },
+      "material": true
+    },
+    {
+      "name": "a first run of 15 is too short",
+      "after": {
+        "$concat": [
+          "\n",
+          {
+            "repeat": "A",
+            "times": 15
+          },
+          "\n",
+          {
+            "repeat": "B",
+            "times": 17
+          }
+        ]
+      },
+      "material": false
+    },
+    {
+      "name": "a first run of 31 and one character",
+      "after": {
+        "$concat": [
+          "\n",
+          {
+            "repeat": "A",
+            "times": 31
+          },
+          " ",
+          "B"
+        ]
+      },
+      "material": true
+    },
+    {
+      "name": "1,024 separators between the runs",
+      "after": {
+        "$concat": [
+          "\n",
+          {
+            "repeat": "A",
+            "times": 16
+          },
+          {
+            "repeat": "\n",
+            "times": 1024
+          },
+          {
+            "repeat": "B",
+            "times": 16
+          }
+        ]
+      },
+      "material": true
+    },
+    {
+      "name": "1,025 separators between the runs",
+      "after": {
+        "$concat": [
+          "\n",
+          {
+            "repeat": "A",
+            "times": 16
+          },
+          {
+            "repeat": "\n",
+            "times": 1025
+          },
+          {
+            "repeat": "B",
+            "times": 16
+          }
+        ]
+      },
+      "material": false
+    },
+    {
+      "name": "1,024 separators before the key",
+      "after": {
+        "$concat": [
+          {
+            "repeat": "\n",
+            "times": 1024
+          },
+          {
+            "repeat": "A",
+            "times": 32
+          }
+        ]
+      },
+      "material": true
+    },
+    {
+      "name": "1,025 separators before the key",
+      "after": {
+        "$concat": [
+          {
+            "repeat": "\n",
+            "times": 1025
+          },
+          {
+            "repeat": "A",
+            "times": 32
+          }
+        ]
+      },
+      "material": false
+    },
+    {
+      "name": "1,024 escaped line breaks before the key",
+      "after": {
+        "$concat": [
+          {
+            "repeat": "\\n",
+            "times": 1024
+          },
+          {
+            "repeat": "A",
+            "times": 32
+          }
+        ]
+      },
+      "material": true
+    },
+    {
+      "name": "1,025 escaped line breaks before the key",
+      "after": {
+        "$concat": [
+          {
+            "repeat": "\\n",
+            "times": 1025
+          },
+          {
+            "repeat": "A",
+            "times": 32
+          }
+        ]
+      },
+      "material": false
+    },
+    {
+      "name": "the letter of an escape may start the key",
+      "after": {
+        "$concat": [
+          "\\n",
+          {
+            "repeat": "A",
+            "times": 31
+          }
+        ]
+      },
+      "material": true
+    },
+    {
+      "name": "the letter of an escape may start the second run",
+      "after": {
+        "$concat": [
+          "\n",
+          {
+            "repeat": "A",
+            "times": 16
+          },
+          "\\n",
+          {
+            "repeat": "B",
+            "times": 15
+          }
+        ]
+      },
+      "material": true
+    },
+    {
+      "name": "four header lines",
+      "after": {
+        "$concat": [
+          {
+            "repeat": "\nComment: x",
+            "times": 4
+          },
+          "\n",
+          {
+            "repeat": "A",
+            "times": 32
+          }
+        ]
+      },
+      "material": true
+    },
+    {
+      "name": "five header lines",
+      "after": {
+        "$concat": [
+          {
+            "repeat": "\nComment: x",
+            "times": 5
+          },
+          "\n",
+          {
+            "repeat": "A",
+            "times": 32
+          }
+        ]
+      },
+      "material": false
+    },
+    {
+      "name": "every header name",
+      "after": {
+        "$concat": [
+          "\nProc-Type: 4,ENCRYPTED\nDEK-Info: AES-128-CBC,0A1B\nVersion: 1\nHash: SHA256\n",
+          {
+            "repeat": "A",
+            "times": 32
+          }
+        ]
+      },
+      "material": true
+    },
+    {
+      "name": "a header name in lowercase is prose",
+      "after": {
+        "$concat": [
+          "\ncomment: x\n",
+          {
+            "repeat": "A",
+            "times": 32
+          }
+        ]
+      },
+      "material": false
+    },
+    {
+      "name": "a header value of 256 characters",
+      "after": {
+        "$concat": [
+          "\nComment:",
+          {
+            "repeat": ".",
+            "times": 255
+          },
+          "x\n",
+          {
+            "repeat": "A",
+            "times": 32
+          }
+        ]
+      },
+      "material": true
+    },
+    {
+      "name": "a header value of 257 characters",
+      "after": {
+        "$concat": [
+          "\nComment:",
+          {
+            "repeat": ".",
+            "times": 256
+          },
+          "x\n",
+          {
+            "repeat": "A",
+            "times": 32
+          }
+        ]
+      },
+      "material": false
+    },
+    {
+      "name": "512 separators after a header line",
+      "after": {
+        "$concat": [
+          "\nComment: x",
+          {
+            "repeat": "\n",
+            "times": 512
+          },
+          {
+            "repeat": "A",
+            "times": 32
+          }
+        ]
+      },
+      "material": true
+    },
+    {
+      "name": "513 separators after a header line",
+      "after": {
+        "$concat": [
+          "\nComment: x",
+          {
+            "repeat": "\n",
+            "times": 513
+          },
+          {
+            "repeat": "A",
+            "times": 32
+          }
+        ]
+      },
+      "material": false
+    },
+    {
+      "name": "a value may end inside a <br>, which leaves fewer separators",
+      "after": {
+        "$concat": [
+          "\nComment: ",
+          {
+            "repeat": "<br>",
+            "times": 520
+          },
+          "\n",
+          {
+            "repeat": "A",
+            "times": 40
+          }
+        ]
+      },
+      "material": true
+    },
+    {
+      "name": "no end of the value leaves 512 separators or fewer",
+      "after": {
+        "$concat": [
+          "\nComment: ",
+          {
+            "repeat": "<br>",
+            "times": 600
+          },
+          "\n",
+          {
+            "repeat": "A",
+            "times": 40
+          }
+        ]
+      },
+      "material": false
+    },
+    {
+      "name": "<br > after a value counts once",
+      "after": {
+        "$concat": [
+          "\nComment: x<br >",
+          {
+            "repeat": "\n",
+            "times": 511
+          },
+          {
+            "repeat": "A",
+            "times": 32
+          }
+        ]
+      },
+      "material": true
+    },
+    {
+      "name": "<br > after a value, then one separator too many",
+      "after": {
+        "$concat": [
+          "\nComment: x<br >",
+          {
+            "repeat": "\n",
+            "times": 512
+          },
+          {
+            "repeat": "A",
+            "times": 32
+          }
+        ]
+      },
+      "material": false
+    },
+    {
+      "name": "<br > after a blank is no shortcut",
+      "after": {
+        "$concat": [
+          "\nComment: x <br >",
+          {
+            "repeat": "\n",
+            "times": 511
+          },
+          {
+            "repeat": "A",
+            "times": 32
+          }
+        ]
+      },
+      "material": false
+    },
+    {
+      "name": "a placeholder across the bound of the value",
+      "after": {
+        "$concat": [
+          "\nComment: ",
+          {
+            "repeat": ".",
+            "times": 250
+          },
+          "[EMAIL_1]",
+          {
+            "repeat": "\n",
+            "times": 510
+          },
+          {
+            "repeat": "A",
+            "times": 32
+          }
+        ]
+      },
+      "material": true
+    },
+    {
+      "name": "a placeholder across the bound, then one separator too many",
+      "after": {
+        "$concat": [
+          "\nComment: ",
+          {
+            "repeat": ".",
+            "times": 250
+          },
+          "[EMAIL_1]",
+          {
+            "repeat": "\n",
+            "times": 512
+          },
+          {
+            "repeat": "A",
+            "times": 32
+          }
+        ]
+      },
+      "material": false
+    },
+    {
+      "name": "a value of + only starts no key",
+      "after": {
+        "$concat": [
+          "\nComment: ",
+          {
+            "repeat": "+",
+            "times": 40
+          },
+          "\n!!"
+        ]
+      },
+      "material": false
+    },
+    {
+      "name": "a <br> across the bound after a < is not reached",
+      "after": {
+        "$concat": [
+          "\nComment:",
+          {
+            "repeat": ".",
+            "times": 253
+          },
+          "<<br>",
+          {
+            "repeat": "\n",
+            "times": 3
+          },
+          {
+            "repeat": "A",
+            "times": 32
+          }
+        ]
+      },
+      "material": false
+    },
+    {
+      "name": "placeholders and quotes stand between",
+      "after": {
+        "$concat": [
+          "\n> [EMAIL_1] [EMAIL_2]\n> ",
+          {
+            "repeat": "A",
+            "times": 32
+          }
+        ]
+      },
+      "material": true
+    },
+    {
+      "name": "a comment marker stands between",
+      "after": {
+        "$concat": [
+          "\n// ",
+          {
+            "repeat": "A",
+            "times": 32
+          }
+        ]
+      },
+      "material": true
+    },
+    {
+      "name": "prose stands between",
+      "after": {
+        "$concat": [
+          "\nHere is the key:\n",
+          {
+            "repeat": "A",
+            "times": 32
+          }
+        ]
+      },
+      "material": false
+    },
+    {
+      "name": "four header lines of <br> and nothing after",
+      "after": {
+        "$concat": [
+          {
+            "repeat": "\nComment: <br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br>",
+            "times": 4
+          },
+          "\n!!"
+        ]
+      },
+      "material": false
+    },
+    {
+      "name": "four header lines of placeholders and nothing after",
+      "after": {
+        "$concat": [
+          {
+            "repeat": "\nComment: [A_1][A_1][A_1][A_1][A_1][A_1][A_1][A_1][A_1][A_1][A_1][A_1][A_1][A_1][A_1][A_1][A_1][A_1][A_1][A_1][A_1][A_1][A_1][A_1][A_1][A_1][A_1][A_1][A_1][A_1][A_1][A_1][A_1][A_1][A_1][A_1][A_1][A_1][A_1][A_1][A_1][A_1][A_1][A_1][A_1][A_1][A_1][A_1][A_1][A_1]",
+            "times": 4
+          },
+          "\n!!"
+        ]
+      },
+      "material": false
+    },
+    {
+      "name": "nothing after the BEGIN line",
+      "after": {
+        "$concat": []
+      },
+      "material": false
+    }
+  ]
+}

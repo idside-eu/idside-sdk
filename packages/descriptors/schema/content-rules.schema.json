@@ -1,0 +1,363 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sdk.idside.eu/schema/content-rules.schema.json",
+  "title": "ID Side prompt-cleaning rules",
+  "description": "The catalogue of detectors both SDKs run on the text of an AI call before it leaves the process, and the data their engine needs. Bundled byte-identical in each SDK; its SHA-256 is the `rules` digest an SDK declares on every call it cleans.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "rules_version",
+    "engine",
+    "normalization",
+    "placeholder",
+    "limits",
+    "groups",
+    "detectors",
+    "tables"
+  ],
+  "$defs": {
+    "ranges": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "prefixItems": [
+          {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1114111
+          },
+          {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1114111
+          }
+        ],
+        "items": false,
+        "minItems": 2
+      }
+    },
+    "lowercase_literals": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^(#digit|[^A-Z]+)$",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "pattern": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "regex",
+        "group",
+        "prefilter"
+      ],
+      "properties": {
+        "regex": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A regular expression in the portable subset: explicit ASCII classes, bounded quantifiers whose nesting never repeats more than 65,536 times, no lookbehind, no `.`, no `\\b`, `\\d`, `\\w` or `\\s`. A leading boundary is consumed as `(?:^|\\\\[nrt]|[^…])`: the start of the text, an escape written in two characters (the letter is not the value's) or a character outside the value. The value is the capture group `group`."
+        },
+        "group": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1
+        },
+        "ignore_case": {
+          "type": "boolean",
+          "description": "Match ASCII letters regardless of case (Python `re.I | re.A`, JavaScript `i`)."
+        },
+        "keywords": {
+          "$ref": "#/$defs/lowercase_literals",
+          "description": "Context words, one of which must appear as a whole word within `limits.keyword_window` characters of the value. Matched on the lowered shadow."
+        },
+        "prefilter": {
+          "$ref": "#/$defs/lowercase_literals",
+          "description": "Lowercase literals, one of which must appear in the lowered shadow for the pattern to run at all (`#digit`: any ASCII digit). Empty: always run (or, with keywords, run when a keyword is present)."
+        },
+        "extend": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A value that runs on: once a match is accepted, the engine applies this expression (in the same portable subset, case as the pattern) again and again right where the value ends, as long as it takes at least one character, and the value ends where the last one ended. So a value is taken to its delimiter, or to the end of its text value, in linear time, however long it is: never cut short, never rejected for what follows it."
+        },
+        "followed_by": {
+          "enum": ["private_key_material"],
+          "description": "A match is a match only where what must follow it does: the engine runs the check named here at the end of the match, and where it fails no match starts there, as if the expression had said so (the search goes on from the next character). For what no expression in the portable subset reads in linear time. `private_key_material`: key material right after a private key's BEGIN line, as `private_key` describes it (at most 1,024 separators, at most four PEM or PGP header lines each with a value of at most 256 characters and at most 512 separators after it, then 32 base64 characters in one run or in two, the first of 16 or more, with 1 to 1,024 separators between them)."
+        },
+        "block_only": {
+          "const": true,
+          "description": "Run this pattern only when the policy sets its detector to block: under mask it is left out, so what it alone finds is neither masked nor counted. For a shape that is often quoted rather than sent (a private key's BEGIN line with no key material after it): blocking on it is what was asked, masking it would hide words and count a value that is not there."
+        }
+      }
+    }
+  },
+  "properties": {
+    "rules_version": {
+      "type": "string",
+      "pattern": "^[0-9]+$"
+    },
+    "engine": {
+      "type": "string",
+      "pattern": "^[0-9]+$"
+    },
+    "note": {
+      "type": "string"
+    },
+    "normalization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ignorable",
+        "combining",
+        "equivalents",
+        "word"
+      ],
+      "properties": {
+        "note": {
+          "type": "string"
+        },
+        "ignorable": {
+          "$ref": "#/$defs/ranges"
+        },
+        "combining": {
+          "$ref": "#/$defs/ranges"
+        },
+        "word": {
+          "$ref": "#/$defs/ranges"
+        },
+        "equivalents": {
+          "type": "array",
+          "description": "Code points written as an ASCII equivalent in the shadow (typographic dashes and quotes).",
+          "items": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "integer",
+                "minimum": 128,
+                "maximum": 65535
+              },
+              {
+                "type": "string",
+                "pattern": "^[ -~]$"
+              }
+            ],
+            "items": false,
+            "minItems": 2
+          }
+        }
+      }
+    },
+    "placeholder": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "regex"
+      ],
+      "properties": {
+        "note": {
+          "type": "string"
+        },
+        "regex": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "max_text_chars",
+        "max_depth",
+        "max_passes",
+        "keyword_window",
+        "custom_entries",
+        "custom_value_chars",
+        "pattern_run"
+      ],
+      "properties": {
+        "max_text_chars": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_depth": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_passes": {
+          "type": "integer",
+          "minimum": 2
+        },
+        "keyword_window": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "custom_entries": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "custom_value_chars": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "pattern_run": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "groups": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "title"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "detectors": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "group",
+          "label",
+          "title",
+          "description",
+          "default_enabled",
+          "patterns"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "group": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "label": {
+            "type": "string",
+            "pattern": "^[A-Z0-9_]{1,24}$"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          },
+          "default_enabled": {
+            "type": "boolean"
+          },
+          "validator": {
+            "enum": [
+              "bic",
+              "card",
+              "fr_vat",
+              "iban",
+              "ip",
+              "nir",
+              "phone",
+              "plate",
+              "siren",
+              "siret"
+            ]
+          },
+          "patterns": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/$defs/pattern"
+            }
+          }
+        }
+      }
+    },
+    "tables": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "iban_lengths",
+        "country_codes",
+        "card_networks"
+      ],
+      "properties": {
+        "iban_lengths": {
+          "type": "object",
+          "propertyNames": {
+            "pattern": "^[A-Z]{2}$"
+          },
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 12,
+            "maximum": 34
+          }
+        },
+        "country_codes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Z]{2}$"
+          },
+          "uniqueItems": true
+        },
+        "card_networks": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Card networks by prefix range and length. A number is a card when its first len(from) digits lie between `from` and `to` (inclusive, compared as numbers), its length is listed, and it passes the Luhn check.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "network",
+              "from",
+              "to",
+              "lengths"
+            ],
+            "properties": {
+              "network": {
+                "type": "string"
+              },
+              "from": {
+                "type": "string",
+                "pattern": "^[0-9]{1,6}$"
+              },
+              "to": {
+                "type": "string",
+                "pattern": "^[0-9]{1,6}$"
+              },
+              "lengths": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "integer",
+                  "minimum": 12,
+                  "maximum": 19
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

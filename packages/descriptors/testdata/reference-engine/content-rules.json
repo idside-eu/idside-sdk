@@ -1,0 +1,1682 @@
+{
+  "rules_version": "1",
+  "engine": "1",
+  "note": "Prompt-cleaning catalogue, shared by both SDKs (bundled byte-identical) and copied to the ID Side cloud. Every pattern is written in a portable subset that Python's re and JavaScript's RegExp read alike; scripts and tests in both SDKs hold it. A pattern's value is its capture group `group`; a match in which that group took no part is context that rules a value out (four numbers after a version word), and the engine skips it whole. The id of a detector is what an organization's policy names and what counts are reported under: ids are added, never renamed.",
+  "normalization": {
+    "note": "Each code point of a text is mapped on its own: dropped if it is in `ignorable`, otherwise decomposed (NFKD), stripped of the code points in `combining`, with each code point listed in `equivalents` written as its ASCII equivalent; a code point above U+FFFF is written U+FFFD. Detectors read that shadow; custom terms, domains and keywords read it with A-Z lowered to a-z.",
+    "ignorable": [
+      [
+        173,
+        173
+      ],
+      [
+        847,
+        847
+      ],
+      [
+        1564,
+        1564
+      ],
+      [
+        6158,
+        6158
+      ],
+      [
+        8203,
+        8207
+      ],
+      [
+        8234,
+        8238
+      ],
+      [
+        8288,
+        8292
+      ],
+      [
+        8294,
+        8303
+      ],
+      [
+        65024,
+        65039
+      ],
+      [
+        65279,
+        65279
+      ]
+    ],
+    "combining": [
+      [
+        768,
+        879
+      ],
+      [
+        1155,
+        1161
+      ],
+      [
+        6832,
+        6911
+      ],
+      [
+        7616,
+        7679
+      ],
+      [
+        8400,
+        8447
+      ],
+      [
+        65056,
+        65071
+      ]
+    ],
+    "equivalents": [
+      [
+        8208,
+        "-"
+      ],
+      [
+        8210,
+        "-"
+      ],
+      [
+        8211,
+        "-"
+      ],
+      [
+        8212,
+        "-"
+      ],
+      [
+        8213,
+        "-"
+      ],
+      [
+        8722,
+        "-"
+      ],
+      [
+        8216,
+        "'"
+      ],
+      [
+        8217,
+        "'"
+      ],
+      [
+        8218,
+        "'"
+      ],
+      [
+        8219,
+        "'"
+      ],
+      [
+        8242,
+        "'"
+      ],
+      [
+        8220,
+        "\""
+      ],
+      [
+        8221,
+        "\""
+      ],
+      [
+        8222,
+        "\""
+      ],
+      [
+        8223,
+        "\""
+      ],
+      [
+        8243,
+        "\""
+      ]
+    ],
+    "word": [
+      [
+        48,
+        57
+      ],
+      [
+        65,
+        90
+      ],
+      [
+        97,
+        122
+      ],
+      [
+        192,
+        214
+      ],
+      [
+        216,
+        246
+      ],
+      [
+        248,
+        591
+      ],
+      [
+        880,
+        1023
+      ],
+      [
+        1024,
+        1327
+      ]
+    ]
+  },
+  "placeholder": {
+    "note": "A placeholder is [LABEL_n]. Text matching this pattern is never matched by any rule, and numbering for a label starts above the highest n already present in the request.",
+    "regex": "\\[[A-Z0-9_]{1,24}_[0-9]{1,9}\\]"
+  },
+  "limits": {
+    "max_text_chars": 8388608,
+    "max_depth": 128,
+    "max_passes": 8,
+    "keyword_window": 64,
+    "custom_entries": 500,
+    "custom_value_chars": 200,
+    "pattern_run": 64
+  },
+  "groups": [
+    {
+      "id": "contact",
+      "title": "Contact details"
+    },
+    {
+      "id": "banking",
+      "title": "Banking"
+    },
+    {
+      "id": "french_ids",
+      "title": "French identifiers"
+    },
+    {
+      "id": "ai_keys",
+      "title": "AI provider keys"
+    },
+    {
+      "id": "tech_keys",
+      "title": "Technical keys and tokens"
+    },
+    {
+      "id": "secrets",
+      "title": "Secrets"
+    },
+    {
+      "id": "generic_secrets",
+      "title": "Generic secrets"
+    }
+  ],
+  "detectors": [
+    {
+      "id": "email",
+      "group": "contact",
+      "label": "EMAIL",
+      "title": "E-mail address",
+      "description": "An address name@domain.tld in Latin, Greek or Cyrillic letters (punycode domains included), except an at sign between spaces, an address spelled out, a git remote user@host:path and an image name such as logo@2x.png.",
+      "default_enabled": true,
+      "patterns": [
+        {
+          "regex": "(?:^|[^A-Za-z\u00c0-\u00d6\u00d8-\u00f6\u00f8-\u024f\u0370-\u03ff\u0400-\u052f0-9._%+/:-]|[^/:]/|(?:^|[^A-Za-z\u00c0-\u00d6\u00d8-\u00f6\u00f8-\u024f\u0370-\u03ff\u0400-\u052f0-9._%+/:-])[A-Za-z\u00c0-\u00d6\u00d8-\u00f6\u00f8-\u024f\u0370-\u03ff\u0400-\u052f0-9._%+-]{1,64}:)([A-Za-z\u00c0-\u00d6\u00d8-\u00f6\u00f8-\u024f\u0370-\u03ff\u0400-\u052f0-9_%+-][A-Za-z\u00c0-\u00d6\u00d8-\u00f6\u00f8-\u024f\u0370-\u03ff\u0400-\u052f0-9._%+-]{0,63}@(?:[A-Za-z\u00c0-\u00d6\u00d8-\u00f6\u00f8-\u024f\u0370-\u03ff\u0400-\u052f0-9-]{1,63}\\.){1,8}(?!(?:png|jpe?g|gif|webp|svg|avif|bmp|ico|tiff?|heic)(?![A-Za-z\u00c0-\u00d6\u00d8-\u00f6\u00f8-\u024f\u0370-\u03ff\u0400-\u052f0-9-]))(?:xn--[A-Za-z0-9-]{1,59}|[A-Za-z\u00c0-\u00d6\u00d8-\u00f6\u00f8-\u024f\u0370-\u03ff\u0400-\u052f]{2,24}))(?![A-Za-z\u00c0-\u00d6\u00d8-\u00f6\u00f8-\u024f\u0370-\u03ff\u0400-\u052f0-9-]|:[A-Za-z0-9_~./-])",
+          "group": 1,
+          "prefilter": [
+            "@"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "phone",
+      "group": "contact",
+      "label": "PHONE",
+      "title": "Phone number",
+      "description": "A French number of ten digits starting 01 to 09, in pairs separated by one or two spaces, dots, dashes or slashes (the same throughout) or written +33, 0033 or (+33), and an international number written with a leading + and 9 to 15 digits, unless a currency (\u20ac, $, \u00a3, EUR, USD...) follows it directly.",
+      "default_enabled": true,
+      "validator": "phone",
+      "patterns": [
+        {
+          "regex": "(?:^|[^A-Za-z0-9+])(0[1-9]([ ./-]{0,2})[0-9]{2}\\2[0-9]{2}\\2[0-9]{2}\\2[0-9]{2})(?![A-Za-z0-9])",
+          "group": 1,
+          "prefilter": [
+            "#digit"
+          ]
+        },
+        {
+          "regex": "(?:^|[^A-Za-z0-9+])(\\(?(?:\\+|00)33\\)?[ .-]{0,2}(?:\\(0\\)[ .-]{0,2})?[1-9](?:[ .-]{0,2}[0-9]{2}){4})(?![A-Za-z0-9]|[ ]{0,2}(?:\u20ac|\\$|\u00a3|EUR|USD|GBP|CHF|[Ee]uros?|[Dd]ollars?))",
+          "group": 1,
+          "prefilter": [
+            "33"
+          ]
+        },
+        {
+          "regex": "(?:^|[^A-Za-z0-9+])(\\+[1-9][0-9]{6,14})(?![A-Za-z0-9]|[ ]{0,2}(?:\u20ac|\\$|\u00a3|EUR|USD|GBP|CHF|[Ee]uros?|[Dd]ollars?))",
+          "group": 1,
+          "prefilter": [
+            "+"
+          ]
+        },
+        {
+          "regex": "(?:^|[^A-Za-z0-9+])(\\+[1-9][0-9]{0,3}(?:[ .-]{1,2}\\(?[0-9]{1,5}\\)?){1,6})(?![A-Za-z0-9]|[ ]{0,2}(?:\u20ac|\\$|\u00a3|EUR|USD|GBP|CHF|[Ee]uros?|[Dd]ollars?))",
+          "group": 1,
+          "prefilter": [
+            "+"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ip_address",
+      "group": "contact",
+      "label": "IP_ADDRESS",
+      "title": "IP address",
+      "description": "An IPv4 address (four numbers of 0 to 255, optional /prefix) or an IPv6 address, except four numbers right after a version word (version, ver., release, build, firmware, fw, rev, revision, v) or followed by a fifth, and a compressed IPv6 address with neither a group of three or more hexadecimal digits nor an IPv4 tail (::1).",
+      "default_enabled": true,
+      "validator": "ip",
+      "patterns": [
+        {
+          "regex": "(?:^|[^A-Za-z0-9])(?:version|ver|release|build|firmware|fw|revision|rev|v)[.:]{0,2}[ ]{0,3}[0-9]{1,3}(?:\\.[0-9]{1,3}){3}|(?:^|[^A-Za-z0-9.])((?:[0-9]{1,3}\\.){3}[0-9]{1,3}(?:/[0-9]{1,2})?)(?![A-Za-z0-9]|\\.[0-9])",
+          "group": 1,
+          "ignore_case": true,
+          "prefilter": [
+            "."
+          ]
+        },
+        {
+          "regex": "(?:^|[^A-Za-z0-9:.])((?:[0-9A-Fa-f]{0,4}:){2,7}(?:(?:[0-9]{1,3}\\.){3}[0-9]{1,3}|[0-9A-Fa-f]{1,4})?)(?![A-Za-z0-9:]|\\.[0-9])",
+          "group": 1,
+          "prefilter": [
+            ":"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mac_address",
+      "group": "contact",
+      "label": "MAC_ADDRESS",
+      "title": "MAC address",
+      "description": "Six pairs of hexadecimal digits separated by colons or by dashes (the same throughout), or three groups of four separated by dots (xxxx.xxxx.xxxx), but not without a separator.",
+      "default_enabled": true,
+      "patterns": [
+        {
+          "regex": "(?:^|[^A-Za-z0-9:-])([0-9A-Fa-f]{2}([:-])[0-9A-Fa-f]{2}(?:\\2[0-9A-Fa-f]{2}){4})(?![A-Za-z0-9:-])",
+          "group": 1,
+          "prefilter": [
+            ":",
+            "-"
+          ]
+        },
+        {
+          "regex": "(?:^|[^A-Za-z0-9.])([0-9A-Fa-f]{4}\\.[0-9A-Fa-f]{4}\\.[0-9A-Fa-f]{4})(?![A-Za-z0-9.])",
+          "group": 1,
+          "prefilter": [
+            "."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "credit_card",
+      "group": "banking",
+      "label": "CARD",
+      "title": "Payment card number",
+      "description": "13 to 19 digits of a known card network passing the Luhn check, written together or grouped 4-4-4-4, 4-4-4-4-3 or 4-6-5 with one or two spaces, dashes or dots (the same throughout).",
+      "default_enabled": true,
+      "validator": "card",
+      "patterns": [
+        {
+          "regex": "(?:^|[^A-Za-z0-9])([0-9]{4}([ .-]{1,2})[0-9]{4}\\2[0-9]{4}\\2[0-9]{4})(?![A-Za-z0-9])",
+          "group": 1,
+          "prefilter": [
+            "#digit"
+          ]
+        },
+        {
+          "regex": "(?:^|[^A-Za-z0-9])([0-9]{4}([ .-]{1,2})[0-9]{4}\\2[0-9]{4}\\2[0-9]{4}\\2[0-9]{3})(?![A-Za-z0-9])",
+          "group": 1,
+          "prefilter": [
+            "#digit"
+          ]
+        },
+        {
+          "regex": "(?:^|[^A-Za-z0-9])([0-9]{4}([ .-]{1,2})[0-9]{6}\\2[0-9]{5})(?![A-Za-z0-9])",
+          "group": 1,
+          "prefilter": [
+            "#digit"
+          ]
+        },
+        {
+          "regex": "(?:^|[^A-Za-z0-9])([0-9]{13,19})(?![A-Za-z0-9])",
+          "group": 1,
+          "prefilter": [
+            "#digit"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "iban",
+      "group": "banking",
+      "label": "IBAN",
+      "title": "IBAN",
+      "description": "An IBAN of its country's registered length passing the mod-97 check, written together or in groups separated by spaces or dashes (a space allowed between the country and its check digits), but not a French RIB written as bank, branch, account and key.",
+      "default_enabled": true,
+      "validator": "iban",
+      "patterns": [
+        {
+          "regex": "(?:^|[^A-Za-z0-9])([A-Z]{2}[ ]?[0-9]{2}(?:[ -]{0,2}[A-Z0-9]{4}){2,7}(?:[ -]{0,2}[A-Z0-9]{1,4})?)(?![A-Za-z0-9])",
+          "group": 1,
+          "ignore_case": true,
+          "prefilter": [
+            "#digit"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "bic",
+      "group": "banking",
+      "label": "BIC",
+      "title": "BIC / SWIFT code",
+      "description": "An 8- or 11-character code in capitals with a valid country code, only within 64 characters of the word BIC (or B.I.C.) or SWIFT.",
+      "default_enabled": true,
+      "validator": "bic",
+      "patterns": [
+        {
+          "regex": "(?:^|[^A-Za-z0-9])([A-Z]{4}[A-Z]{2}[A-Z0-9]{2}(?:[A-Z0-9]{3})?)(?![A-Za-z0-9])",
+          "group": 1,
+          "keywords": [
+            "bic",
+            "b.i.c",
+            "swift"
+          ],
+          "prefilter": []
+        }
+      ]
+    },
+    {
+      "id": "fr_nir",
+      "group": "french_ids",
+      "label": "NIR",
+      "title": "French social security number (NIR)",
+      "description": "15 characters (Corsica 2A and 2B included) passing the key check, written together or grouped by spaces, dots or dashes.",
+      "default_enabled": true,
+      "validator": "nir",
+      "patterns": [
+        {
+          "regex": "(?:^|[^A-Za-z0-9])([1-8]([ .-]?)[0-9]{2}\\2(?:0[1-9]|1[0-2]|[2-9][0-9])\\2(?:[0-9]{2}|2[ABab])\\2[0-9]{3}\\2[0-9]{3}[ .-]?[0-9]{2})(?![A-Za-z0-9])",
+          "group": 1,
+          "prefilter": [
+            "#digit"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fr_siren",
+      "group": "french_ids",
+      "label": "SIREN",
+      "title": "SIREN number",
+      "description": "9 digits passing the Luhn check, grouped or not by spaces, dots or dashes, only within 64 characters of the word SIREN, SIRENE or RCS (or R.C.S.).",
+      "default_enabled": true,
+      "validator": "siren",
+      "patterns": [
+        {
+          "regex": "(?:^|[^A-Za-z0-9])([0-9]{3}([ .-]?)[0-9]{3}\\2[0-9]{3})(?![A-Za-z0-9])",
+          "group": 1,
+          "keywords": [
+            "siren",
+            "sirene",
+            "rcs",
+            "r.c.s",
+            "s.i.r.e.n"
+          ],
+          "prefilter": []
+        }
+      ]
+    },
+    {
+      "id": "fr_siret",
+      "group": "french_ids",
+      "label": "SIRET",
+      "title": "SIRET number",
+      "description": "14 digits passing the Luhn check (or the La Poste rule), grouped 3-3-3-5, 3-3-3-3-2 or not at all, only within 64 characters of the word SIRET (or S.I.R.E.T.).",
+      "default_enabled": true,
+      "validator": "siret",
+      "patterns": [
+        {
+          "regex": "(?:^|[^A-Za-z0-9])([0-9]{3}([ .-]?)[0-9]{3}\\2[0-9]{3}(?:[ .-]?[0-9]{5}|\\2[0-9]{3}\\2[0-9]{2}))(?![A-Za-z0-9])",
+          "group": 1,
+          "keywords": [
+            "siret",
+            "s.i.r.e.t"
+          ],
+          "prefilter": []
+        }
+      ]
+    },
+    {
+      "id": "fr_vat",
+      "group": "french_ids",
+      "label": "VAT_NUMBER",
+      "title": "French VAT number",
+      "description": "FR followed by a two-character key and a SIREN, spaces allowed, passing the key check.",
+      "default_enabled": true,
+      "validator": "fr_vat",
+      "patterns": [
+        {
+          "regex": "(?:^|[^A-Za-z0-9])(FR[ ]?[0-9A-HJ-NP-Z]{2}[ ]?[0-9]{3}[ ]?[0-9]{3}[ ]?[0-9]{3})(?![A-Za-z0-9])",
+          "group": 1,
+          "ignore_case": true,
+          "prefilter": [
+            "fr"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fr_plate",
+      "group": "french_ids",
+      "label": "PLATE",
+      "title": "French licence plate",
+      "description": "A plate of the current AA-123-AA format in capitals, with dashes, spaces, dots or nothing between the parts and an optional department (-69, -2A), but not the pre-2009 format, a lowercase plate or 000.",
+      "default_enabled": true,
+      "validator": "plate",
+      "patterns": [
+        {
+          "regex": "(?:^|[^A-Za-z0-9-])([A-HJ-NP-TV-Z]{2}[ .-]?[0-9]{3}[ .-]?[A-HJ-NP-TV-Z]{2}(?:-(?:[0-9]{2,3}|2[AB]))?)(?![A-Za-z0-9-])",
+          "group": 1,
+          "prefilter": [
+            "#digit"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "key_openai",
+      "group": "ai_keys",
+      "label": "API_KEY",
+      "title": "OpenAI API key",
+      "description": "A key starting sk-, sk-proj-, sk-svcacct- or sk-admin- followed by at least 40 characters.",
+      "default_enabled": true,
+      "patterns": [
+        {
+          "regex": "(?:^|[^A-Za-z0-9_-])(sk-(?!ant-)(?:proj-|svcacct-|admin-)?[A-Za-z0-9_-]{40,512})(?![A-Za-z0-9_-])",
+          "group": 1,
+          "prefilter": [
+            "sk-"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "key_anthropic",
+      "group": "ai_keys",
+      "label": "API_KEY",
+      "title": "Anthropic API key",
+      "description": "A key starting sk-ant- followed by at least 32 characters.",
+      "default_enabled": true,
+      "patterns": [
+        {
+          "regex": "(?:^|[^A-Za-z0-9_-])(sk-ant-[A-Za-z0-9_-]{32,512})(?![A-Za-z0-9_-])",
+          "group": 1,
+          "prefilter": [
+            "sk-ant-"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "key_google",
+      "group": "ai_keys",
+      "label": "API_KEY",
+      "title": "Google API key",
+      "description": "A key starting AIza followed by 35 characters (Gemini and other Google APIs).",
+      "default_enabled": true,
+      "patterns": [
+        {
+          "regex": "(?:^|[^A-Za-z0-9_-])(AIza[0-9A-Za-z_-]{35})(?![A-Za-z0-9_-])",
+          "group": 1,
+          "prefilter": [
+            "aiza"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "key_mistral",
+      "group": "ai_keys",
+      "label": "API_KEY",
+      "title": "Mistral API key",
+      "description": "32 letters and digits within 64 characters of the word Mistral, MistralAI, MistralClient or Codestral, since the key has no prefix of its own.",
+      "default_enabled": true,
+      "patterns": [
+        {
+          "regex": "(?:^|[^A-Za-z0-9])([A-Za-z0-9]{32})(?![A-Za-z0-9])",
+          "group": 1,
+          "keywords": [
+            "mistral",
+            "mistralai",
+            "mistralclient",
+            "codestral"
+          ],
+          "prefilter": []
+        }
+      ]
+    },
+    {
+      "id": "key_deepseek",
+      "group": "ai_keys",
+      "label": "API_KEY",
+      "title": "DeepSeek API key",
+      "description": "sk- followed by exactly 32 lowercase hexadecimal characters.",
+      "default_enabled": true,
+      "patterns": [
+        {
+          "regex": "(?:^|[^A-Za-z0-9_-])(sk-[0-9a-f]{32})(?![A-Za-z0-9_-])",
+          "group": 1,
+          "prefilter": [
+            "sk-"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "key_idside",
+      "group": "ai_keys",
+      "label": "API_KEY",
+      "title": "ID Side secret key",
+      "description": "sk_live_ or sk_test_ followed by exactly 32 letters and digits, the format of this SDK's keys.",
+      "default_enabled": true,
+      "patterns": [
+        {
+          "regex": "(?:^|[^A-Za-z0-9_])(sk_(?:live|test)_[A-Za-z0-9]{32})(?![A-Za-z0-9_])",
+          "group": 1,
+          "prefilter": [
+            "sk_"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "key_aws",
+      "group": "tech_keys",
+      "label": "API_KEY",
+      "title": "AWS access key id",
+      "description": "An access key id starting AKIA, ASIA or another AWS key id prefix followed by 16 capitals and digits, but not the 40-character secret access key, which has no prefix.",
+      "default_enabled": true,
+      "patterns": [
+        {
+          "regex": "(?:^|[^A-Za-z0-9])((?:AKIA|ASIA|ABIA|ACCA|AGPA|AIDA|AIPA|ANPA|ANVA|APKA|AROA)[0-9A-Z]{16})(?![A-Za-z0-9])",
+          "group": 1,
+          "prefilter": [
+            "akia",
+            "asia",
+            "abia",
+            "acca",
+            "agpa",
+            "aida",
+            "aipa",
+            "anpa",
+            "anva",
+            "apka",
+            "aroa"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "key_github",
+      "group": "tech_keys",
+      "label": "API_KEY",
+      "title": "GitHub token",
+      "description": "A token starting ghp_, gho_, ghu_, ghs_, ghr_ or github_pat_.",
+      "default_enabled": true,
+      "patterns": [
+        {
+          "regex": "(?:^|[^A-Za-z0-9_])((?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36,255})(?![A-Za-z0-9_])",
+          "group": 1,
+          "prefilter": [
+            "gh"
+          ]
+        },
+        {
+          "regex": "(?:^|[^A-Za-z0-9_])(github_pat_[A-Za-z0-9_]{22,255})(?![A-Za-z0-9_])",
+          "group": 1,
+          "prefilter": [
+            "github_pat_"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "key_gitlab",
+      "group": "tech_keys",
+      "label": "API_KEY",
+      "title": "GitLab token",
+      "description": "A token with a documented GitLab prefix (glpat-, gldt-, glrt-, glcbt-, glptt-, glft-, glffct-, glimt-, glagent-, glsoat-, gloas-, glwt-), any suffix attached to it by dots included.",
+      "default_enabled": true,
+      "patterns": [
+        {
+          "regex": "(?:^|[^A-Za-z0-9_-])(gl(?:pat|dt|rtr|rt|ptt|ffct|ft|soat|cbt|imt|agent|oas|wt)-[A-Za-z0-9_-]{20,255}(?:\\.[A-Za-z0-9_-]{1,64}){0,4})(?![A-Za-z0-9_-])",
+          "group": 1,
+          "prefilter": [
+            "gl"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "key_slack",
+      "group": "tech_keys",
+      "label": "API_KEY",
+      "title": "Slack token or webhook",
+      "description": "A token starting xoxb-, xoxp-, another xox prefix or xapp- (rotating app-level tokens included), and a hooks.slack.com webhook URL with or without its scheme.",
+      "default_enabled": true,
+      "patterns": [
+        {
+          "regex": "(?:^|[^A-Za-z0-9_-])((?:xoxe\\.)?(?:xapp|xox[abeoprs])-[A-Za-z0-9-]{10,255})(?![A-Za-z0-9_-])",
+          "group": 1,
+          "prefilter": [
+            "xox",
+            "xapp-"
+          ]
+        },
+        {
+          "regex": "(?:^|[^A-Za-z0-9.])((?:https?://)?hooks\\.slack\\.com/(?:services|workflows|triggers)/[A-Za-z0-9/_-]{20,255})",
+          "group": 1,
+          "prefilter": [
+            "hooks.slack.com"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "key_stripe",
+      "group": "tech_keys",
+      "label": "API_KEY",
+      "title": "Stripe secret key",
+      "description": "A secret starting sk_live_, sk_test_, rk_live_, rk_test_ or whsec_ (publishable pk_ keys are public by design), an sk_ key of exactly 32 characters after its prefix being counted as an ID Side key.",
+      "default_enabled": true,
+      "patterns": [
+        {
+          "regex": "(?:^|[^A-Za-z0-9_])((?:sk|rk)_(?:live|test)_[A-Za-z0-9]{20,247})(?![A-Za-z0-9_])",
+          "group": 1,
+          "prefilter": [
+            "k_live_",
+            "k_test_"
+          ]
+        },
+        {
+          "regex": "(?:^|[^A-Za-z0-9_])(whsec_[A-Za-z0-9]{24,128})(?![A-Za-z0-9_])",
+          "group": 1,
+          "prefilter": [
+            "whsec_"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "key_twilio",
+      "group": "tech_keys",
+      "label": "API_KEY",
+      "title": "Twilio API key",
+      "description": "SK followed by 32 hexadecimal characters.",
+      "default_enabled": true,
+      "patterns": [
+        {
+          "regex": "(?:^|[^A-Za-z0-9])(SK[0-9a-fA-F]{32})(?![A-Za-z0-9])",
+          "group": 1,
+          "prefilter": [
+            "sk"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "key_sendgrid",
+      "group": "tech_keys",
+      "label": "API_KEY",
+      "title": "SendGrid API key",
+      "description": "SG. followed by two parts of 22 and 43 characters.",
+      "default_enabled": true,
+      "patterns": [
+        {
+          "regex": "(?:^|[^A-Za-z0-9_-])(SG\\.[A-Za-z0-9_-]{22}\\.[A-Za-z0-9_-]{43})(?![A-Za-z0-9_-])",
+          "group": 1,
+          "prefilter": [
+            "sg."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "key_npm",
+      "group": "tech_keys",
+      "label": "API_KEY",
+      "title": "npm token",
+      "description": "npm_ followed by 36 letters and digits.",
+      "default_enabled": true,
+      "patterns": [
+        {
+          "regex": "(?:^|[^A-Za-z0-9_])(npm_[A-Za-z0-9]{36})(?![A-Za-z0-9_])",
+          "group": 1,
+          "prefilter": [
+            "npm_"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "key_pypi",
+      "group": "tech_keys",
+      "label": "API_KEY",
+      "title": "PyPI token",
+      "description": "A pypi- upload token for pypi.org or test.pypi.org.",
+      "default_enabled": true,
+      "patterns": [
+        {
+          "regex": "(?:^|[^A-Za-z0-9_-])(pypi-(?:AgEIcHlwaS5vcmc|AgENdGVzdC5weXBpLm9yZw)[A-Za-z0-9_-]{50,2048})(?![A-Za-z0-9_-])",
+          "group": 1,
+          "prefilter": [
+            "pypi-"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "key_azure",
+      "group": "tech_keys",
+      "label": "API_KEY",
+      "title": "Azure key",
+      "description": "The AccountKey= (88 characters) or SharedAccessKey= (44 characters) value of a connection string, spaces allowed around =, and 32 hexadecimal characters within 64 characters of the word Azure.",
+      "default_enabled": true,
+      "patterns": [
+        {
+          "regex": "(?:^|[^A-Za-z0-9])AccountKey[ ]{0,4}=[ ]{0,4}([A-Za-z0-9+/]{86}==)",
+          "group": 1,
+          "prefilter": [
+            "accountkey"
+          ]
+        },
+        {
+          "regex": "(?:^|[^A-Za-z0-9])SharedAccessKey[ ]{0,4}=[ ]{0,4}([A-Za-z0-9+/]{43}=)",
+          "group": 1,
+          "prefilter": [
+            "sharedaccesskey"
+          ]
+        },
+        {
+          "regex": "(?:^|[^A-Za-z0-9])([0-9a-f]{32})(?![A-Za-z0-9])",
+          "group": 1,
+          "keywords": [
+            "azure"
+          ],
+          "prefilter": []
+        }
+      ]
+    },
+    {
+      "id": "jwt",
+      "group": "tech_keys",
+      "label": "TOKEN",
+      "title": "JSON Web Token",
+      "description": "Three base64url parts separated by dots, the first starting eyJ, without the full stop or other punctuation that follows it.",
+      "default_enabled": true,
+      "patterns": [
+        {
+          "regex": "(?:^|[^A-Za-z0-9_.-])(eyJ[A-Za-z0-9_-]{4,8192}\\.[A-Za-z0-9_-]{4,8192}\\.[A-Za-z0-9_-]{0,8192})(?![A-Za-z0-9_-]|\\.[A-Za-z0-9_-])",
+          "group": 1,
+          "prefilter": [
+            "eyj"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "bearer_token",
+      "group": "tech_keys",
+      "label": "TOKEN",
+      "title": "Authorization header value",
+      "description": "The credential after Authorization: Bearer or Proxy-Authorization: Bearer (in a header, JSON or code), after Bearer elsewhere when it holds a digit or a punctuation mark, and after Authorization: Basic.",
+      "default_enabled": true,
+      "patterns": [
+        {
+          "regex": "(?:^|[^A-Za-z0-9-])(?:proxy-)?authorization[\\\"']?[ ]{0,4}:[ ]{0,4}[\\\"']?bearer[ ]{1,4}([A-Za-z0-9._~+/-]{16,4096}={0,2})(?![A-Za-z0-9._~+/=-])",
+          "group": 1,
+          "ignore_case": true,
+          "prefilter": [
+            "bearer"
+          ]
+        },
+        {
+          "regex": "(?:^|[^A-Za-z0-9])bearer[ ]{1,4}(?=[A-Za-z]{0,4096}[0-9._~+/-])([A-Za-z0-9._~+/-]{16,4096}={0,2})(?![A-Za-z0-9._~+/=-])",
+          "group": 1,
+          "ignore_case": true,
+          "prefilter": [
+            "bearer"
+          ]
+        },
+        {
+          "regex": "(?:^|[^A-Za-z0-9-])(?:proxy-)?authorization[\\\"']?[ ]{0,4}:[ ]{0,4}[\\\"']?basic[ ]{1,4}([A-Za-z0-9+/]{8,4096}={0,2})(?![A-Za-z0-9+/=])",
+          "group": 1,
+          "ignore_case": true,
+          "prefilter": [
+            "basic"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "private_key",
+      "group": "secrets",
+      "label": "PRIVATE_KEY",
+      "title": "Private key",
+      "description": "A PEM, OpenSSH or PGP private key block from its BEGIN line to its END line however its lines are written (escaped newlines in JSON, quoted e-mail, indented YAML, code), and without its END line the base64 lines and parts that follow its BEGIN line.",
+      "default_enabled": true,
+      "patterns": [
+        {
+          "regex": "(-----BEGIN[ A-Z0-9]{0,40}PRIVATE KEY[ A-Z0-9]{0,16}-----(?:(?:[^-]|-(?!----(?:BEGIN|END))){0,65536}-----END[ A-Z0-9]{0,40}PRIVATE KEY[ A-Z0-9]{0,16}-----|(?:(?:\\r\\n|\\n|\\r)[ \\t]{0,16}(?:[>|+][ \\t]{0,4}){0,4}[A-Za-z][A-Za-z0-9-]{0,30}:[ ]{0,4}[A-Za-z0-9 ,.:/+=_-]{0,256}(?![^\\r\\n\\\\\\\"'])){0,8}(?:(?:\\r\\n|\\n|\\r)(?=(?:\\r\\n|\\n|\\r)))?(?:[A-Za-z0-9+/=]{1,65536}(?![^\\r\\n\\\\\\\"']))?(?:(?:\\r\\n|\\n|\\r)[ \\t]{0,16}(?:[>|+][ \\t]{0,4}){0,4}[A-Za-z0-9+/=]{1,65536}(?![^\\r\\n\\\\\\\"'])|(?:\\\\[nrt]|[ ]\\+|<[A-Za-z/][A-Za-z0-9 /]{0,8}>|[^A-Za-z0-9+/=\\\\-]){1,16}(?:[A-Za-z0-9+/]{16,65536}={0,2}|[A-Za-z0-9+/]{1,65536}={1,2}|[A-Za-z0-9+/]{1,15}(?![^<'\\\"\\\\]))(?![A-Za-z0-9+/=])){0,4096}))",
+          "group": 1,
+          "prefilter": [
+            "-----begin"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "connection_string_password",
+      "group": "secrets",
+      "label": "PASSWORD",
+      "title": "Password in a connection string",
+      "description": "The user and password before the @ of a database or messaging URL (postgres, mysql, mongodb, redis, amqp...) or of an Oracle thin URL, the quoted or unquoted value of Password= or Pwd= within 64 characters of a word such as Server, Host or Database, and the value of PGPASSWORD, POSTGRES_PASSWORD, MYSQL_PASSWORD and their kin or of spring.datasource.password, unless that value is read from the environment (os.environ, process.env, ${...}).",
+      "default_enabled": true,
+      "patterns": [
+        {
+          "regex": "(?:^|[^A-Za-z0-9+.-])(?:postgres|postgresql|mysql|mariadb|mongodb|mongodb\\+srv|redis|rediss|amqp|amqps|mssql|sqlserver|oracle|clickhouse|cockroachdb|couchdb|neo4j|neo4j\\+s|bolt|ldap|ldaps|smtp|smtps|ftp|ftps|sftp)(?:\\+[A-Za-z0-9]{1,20})?://([^:/@ \\t\\r\\n\\\"'<>]{0,256}:[^ \\t\\r\\n/\\\"'<>]{1,256})@",
+          "group": 1,
+          "ignore_case": true,
+          "prefilter": [
+            "://"
+          ]
+        },
+        {
+          "regex": "(?:^|[^A-Za-z0-9])jdbc:oracle:thin:([A-Za-z0-9_$#.-]{1,128}/[^@ \\t\\r\\n\\\"'<>]{1,256})@",
+          "group": 1,
+          "ignore_case": true,
+          "prefilter": [
+            "jdbc:oracle:thin:"
+          ]
+        },
+        {
+          "regex": "(?:^|[^A-Za-z0-9])(?:password|pwd)[ ]{0,4}=[ ]{0,4}(?!(?:os\\.environ|os\\.getenv|getenv\\(|process\\.env|ENV\\[|env\\(|\\$\\{|\\$[A-Za-z_]|%[A-Za-z_][A-Za-z0-9_]{0,63}%))([^; \\t\\r\\n\\\"'<>]{1,256})",
+          "group": 1,
+          "ignore_case": true,
+          "keywords": [
+            "server",
+            "data source",
+            "database",
+            "initial catalog",
+            "user id",
+            "uid",
+            "host",
+            "dsn",
+            "jdbc"
+          ],
+          "prefilter": [
+            "password",
+            "pwd"
+          ]
+        },
+        {
+          "regex": "(?:^|[^A-Za-z0-9])(?:password|pwd)[ ]{0,4}=[ ]{0,4}'([^'\\r\\n]{1,256})'",
+          "group": 1,
+          "ignore_case": true,
+          "keywords": [
+            "server",
+            "data source",
+            "database",
+            "initial catalog",
+            "user id",
+            "uid",
+            "host",
+            "dsn",
+            "jdbc"
+          ],
+          "prefilter": [
+            "password",
+            "pwd"
+          ]
+        },
+        {
+          "regex": "(?:^|[^A-Za-z0-9])(?:password|pwd)[ ]{0,4}=[ ]{0,4}\\\"([^\\\"\\r\\n]{1,256})\\\"",
+          "group": 1,
+          "ignore_case": true,
+          "keywords": [
+            "server",
+            "data source",
+            "database",
+            "initial catalog",
+            "user id",
+            "uid",
+            "host",
+            "dsn",
+            "jdbc"
+          ],
+          "prefilter": [
+            "password",
+            "pwd"
+          ]
+        },
+        {
+          "regex": "(?:^|[^A-Za-z0-9_.])(?:(?:PG|POSTGRES_|MYSQL_|MYSQL_ROOT_|MARIADB_|MARIADB_ROOT_|MONGO_INITDB_ROOT_)PASSWORD|spring\\.datasource\\.password)[ ]{0,4}[=:][ ]{0,4}(?!(?:os\\.environ|os\\.getenv|getenv\\(|process\\.env|ENV\\[|env\\(|\\$\\{|\\$[A-Za-z_]|%[A-Za-z_][A-Za-z0-9_]{0,63}%))([^; \\t\\r\\n\\\"'<>]{1,256})",
+          "group": 1,
+          "prefilter": [
+            "password"
+          ]
+        },
+        {
+          "regex": "(?:^|[^A-Za-z0-9_.])(?:(?:PG|POSTGRES_|MYSQL_|MYSQL_ROOT_|MARIADB_|MARIADB_ROOT_|MONGO_INITDB_ROOT_)PASSWORD|spring\\.datasource\\.password)[ ]{0,4}[=:][ ]{0,4}'([^'\\r\\n]{1,256})'",
+          "group": 1,
+          "prefilter": [
+            "password"
+          ]
+        },
+        {
+          "regex": "(?:^|[^A-Za-z0-9_.])(?:(?:PG|POSTGRES_|MYSQL_|MYSQL_ROOT_|MARIADB_|MARIADB_ROOT_|MONGO_INITDB_ROOT_)PASSWORD|spring\\.datasource\\.password)[ ]{0,4}[=:][ ]{0,4}\\\"([^\\\"\\r\\n]{1,256})\\\"",
+          "group": 1,
+          "prefilter": [
+            "password"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "url_credentials",
+      "group": "secrets",
+      "label": "CREDENTIALS",
+      "title": "Credentials in a URL",
+      "description": "The user and password (or a token) before the @ of any other URL with a scheme, such as an https:// address.",
+      "default_enabled": true,
+      "patterns": [
+        {
+          "regex": "(?:^|[^A-Za-z0-9+.-])[A-Za-z][A-Za-z0-9+.-]{1,30}://([^:/@ \\t\\r\\n\\\"'<>]{1,256}(?::[^ \\t\\r\\n/\\\"'<>]{0,256})?)@",
+          "group": 1,
+          "prefilter": [
+            "://"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "generic_secret",
+      "group": "generic_secrets",
+      "label": "SECRET",
+      "title": "Generic secret assignment",
+      "description": "A value of 6 characters or more, taken whole when quoted, assigned to a name containing password, passwd, pwd, pass, secret, token, api_key, access_key, credentials, mot de passe or mdp, or to a capitalised name ending _KEY, except a type name, true, false, null or a value read from the environment; off by default, since it also finds values that are not secrets.",
+      "default_enabled": false,
+      "patterns": [
+        {
+          "regex": "(?:^|[^A-Za-z0-9_.-])(?:[A-Za-z0-9]{1,24}[_.-]){0,3}(?:password|passwd|passphrase|pwd|secret|api[_-]?key|apikey|access[_-]?key|auth[_-]?token|access[_-]?token|token|credentials?|mot[ ]de[ ]passe|mdp|pass)(?:[_.-][A-Za-z0-9]{1,24}){0,3}[\\\"']?[ \\t]{0,4}(?:=>|[:=])[ \\t]{0,4}(?!(?:[Ss][Tt][Rr][Ii][Nn][Gg]|[Nn][Uu][Mm][Bb][Ee][Rr]|[Bb][Oo][Oo][Ll][Ee][Aa][Nn]|[Bb][Oo][Oo][Ll]|[Ss][Tt][Rr]|[Ii][Nn][Tt]|[Ii][Nn][Tt][Ee][Gg][Ee][Rr]|[Ff][Ll][Oo][Aa][Tt]|[Bb][Yy][Tt][Ee][Ss]|[Oo][Bb][Jj][Ee][Cc][Tt]|[Aa][Nn][Yy]|[Uu][Nn][Kk][Nn][Oo][Ww][Nn]|[Uu][Nn][Dd][Ee][Ff][Ii][Nn][Ee][Dd]|[Nn][Uu][Ll][Ll]|[Nn][Oo][Nn][Ee]|[Nn][Ii][Ll]|[Tt][Rr][Uu][Ee]|[Ff][Aa][Ll][Ss][Ee]|[Ii][Nn][Cc][Ll][Uu][Dd][Ee]|[Oo][Mm][Ii][Tt]|[Ss][Aa][Mm][Ee]\\-[Oo][Rr][Ii][Gg][Ii][Nn])(?![A-Za-z0-9_-])|(?:os\\.environ|os\\.getenv|getenv\\(|process\\.env|ENV\\[|env\\(|\\$\\{|\\$[A-Za-z_]|%[A-Za-z_][A-Za-z0-9_]{0,63}%))([^ \\t\\r\\n\\\"'`,;]{6,256})",
+          "group": 1,
+          "ignore_case": true,
+          "prefilter": [
+            "=",
+            ":"
+          ]
+        },
+        {
+          "regex": "(?:^|[^A-Za-z0-9_.-])(?:[A-Za-z0-9]{1,24}[_.-]){0,3}(?:password|passwd|passphrase|pwd|secret|api[_-]?key|apikey|access[_-]?key|auth[_-]?token|access[_-]?token|token|credentials?|mot[ ]de[ ]passe|mdp|pass)(?:[_.-][A-Za-z0-9]{1,24}){0,3}[\\\"']?[ \\t]{0,4}(?:=>|[:=])[ \\t]{0,4}\\\"(?!(?:[Ss][Tt][Rr][Ii][Nn][Gg]|[Nn][Uu][Mm][Bb][Ee][Rr]|[Bb][Oo][Oo][Ll][Ee][Aa][Nn]|[Bb][Oo][Oo][Ll]|[Ss][Tt][Rr]|[Ii][Nn][Tt]|[Ii][Nn][Tt][Ee][Gg][Ee][Rr]|[Ff][Ll][Oo][Aa][Tt]|[Bb][Yy][Tt][Ee][Ss]|[Oo][Bb][Jj][Ee][Cc][Tt]|[Aa][Nn][Yy]|[Uu][Nn][Kk][Nn][Oo][Ww][Nn]|[Uu][Nn][Dd][Ee][Ff][Ii][Nn][Ee][Dd]|[Nn][Uu][Ll][Ll]|[Nn][Oo][Nn][Ee]|[Nn][Ii][Ll]|[Tt][Rr][Uu][Ee]|[Ff][Aa][Ll][Ss][Ee]|[Ii][Nn][Cc][Ll][Uu][Dd][Ee]|[Oo][Mm][Ii][Tt]|[Ss][Aa][Mm][Ee]\\-[Oo][Rr][Ii][Gg][Ii][Nn])(?![A-Za-z0-9_-])|(?:os\\.environ|os\\.getenv|getenv\\(|process\\.env|ENV\\[|env\\(|\\$\\{|\\$[A-Za-z_]|%[A-Za-z_][A-Za-z0-9_]{0,63}%))((?:[^\\\"\\\\\\r\\n]|\\\\[^\\r\\n]){6,1024})\\\"",
+          "group": 1,
+          "ignore_case": true,
+          "prefilter": [
+            "=",
+            ":"
+          ]
+        },
+        {
+          "regex": "(?:^|[^A-Za-z0-9_.-])(?:[A-Za-z0-9]{1,24}[_.-]){0,3}(?:password|passwd|passphrase|pwd|secret|api[_-]?key|apikey|access[_-]?key|auth[_-]?token|access[_-]?token|token|credentials?|mot[ ]de[ ]passe|mdp|pass)(?:[_.-][A-Za-z0-9]{1,24}){0,3}[\\\"']?[ \\t]{0,4}(?:=>|[:=])[ \\t]{0,4}'(?!(?:[Ss][Tt][Rr][Ii][Nn][Gg]|[Nn][Uu][Mm][Bb][Ee][Rr]|[Bb][Oo][Oo][Ll][Ee][Aa][Nn]|[Bb][Oo][Oo][Ll]|[Ss][Tt][Rr]|[Ii][Nn][Tt]|[Ii][Nn][Tt][Ee][Gg][Ee][Rr]|[Ff][Ll][Oo][Aa][Tt]|[Bb][Yy][Tt][Ee][Ss]|[Oo][Bb][Jj][Ee][Cc][Tt]|[Aa][Nn][Yy]|[Uu][Nn][Kk][Nn][Oo][Ww][Nn]|[Uu][Nn][Dd][Ee][Ff][Ii][Nn][Ee][Dd]|[Nn][Uu][Ll][Ll]|[Nn][Oo][Nn][Ee]|[Nn][Ii][Ll]|[Tt][Rr][Uu][Ee]|[Ff][Aa][Ll][Ss][Ee]|[Ii][Nn][Cc][Ll][Uu][Dd][Ee]|[Oo][Mm][Ii][Tt]|[Ss][Aa][Mm][Ee]\\-[Oo][Rr][Ii][Gg][Ii][Nn])(?![A-Za-z0-9_-])|(?:os\\.environ|os\\.getenv|getenv\\(|process\\.env|ENV\\[|env\\(|\\$\\{|\\$[A-Za-z_]|%[A-Za-z_][A-Za-z0-9_]{0,63}%))((?:[^'\\\\\\r\\n]|\\\\[^\\r\\n]){6,1024})'",
+          "group": 1,
+          "ignore_case": true,
+          "prefilter": [
+            "=",
+            ":"
+          ]
+        },
+        {
+          "regex": "(?:^|[^A-Za-z0-9_.-])(?:[A-Z0-9]{1,24}_){1,3}KEY[\\\"']?[ \\t]{0,4}(?:=>|[:=])[ \\t]{0,4}(?!(?:[Ss][Tt][Rr][Ii][Nn][Gg]|[Nn][Uu][Mm][Bb][Ee][Rr]|[Bb][Oo][Oo][Ll][Ee][Aa][Nn]|[Bb][Oo][Oo][Ll]|[Ss][Tt][Rr]|[Ii][Nn][Tt]|[Ii][Nn][Tt][Ee][Gg][Ee][Rr]|[Ff][Ll][Oo][Aa][Tt]|[Bb][Yy][Tt][Ee][Ss]|[Oo][Bb][Jj][Ee][Cc][Tt]|[Aa][Nn][Yy]|[Uu][Nn][Kk][Nn][Oo][Ww][Nn]|[Uu][Nn][Dd][Ee][Ff][Ii][Nn][Ee][Dd]|[Nn][Uu][Ll][Ll]|[Nn][Oo][Nn][Ee]|[Nn][Ii][Ll]|[Tt][Rr][Uu][Ee]|[Ff][Aa][Ll][Ss][Ee]|[Ii][Nn][Cc][Ll][Uu][Dd][Ee]|[Oo][Mm][Ii][Tt]|[Ss][Aa][Mm][Ee]\\-[Oo][Rr][Ii][Gg][Ii][Nn])(?![A-Za-z0-9_-])|(?:os\\.environ|os\\.getenv|getenv\\(|process\\.env|ENV\\[|env\\(|\\$\\{|\\$[A-Za-z_]|%[A-Za-z_][A-Za-z0-9_]{0,63}%))([^ \\t\\r\\n\\\"'`,;]{6,256})",
+          "group": 1,
+          "prefilter": [
+            "_key"
+          ]
+        },
+        {
+          "regex": "(?:^|[^A-Za-z0-9_.-])(?:[A-Z0-9]{1,24}_){1,3}KEY[\\\"']?[ \\t]{0,4}(?:=>|[:=])[ \\t]{0,4}\\\"(?!(?:[Ss][Tt][Rr][Ii][Nn][Gg]|[Nn][Uu][Mm][Bb][Ee][Rr]|[Bb][Oo][Oo][Ll][Ee][Aa][Nn]|[Bb][Oo][Oo][Ll]|[Ss][Tt][Rr]|[Ii][Nn][Tt]|[Ii][Nn][Tt][Ee][Gg][Ee][Rr]|[Ff][Ll][Oo][Aa][Tt]|[Bb][Yy][Tt][Ee][Ss]|[Oo][Bb][Jj][Ee][Cc][Tt]|[Aa][Nn][Yy]|[Uu][Nn][Kk][Nn][Oo][Ww][Nn]|[Uu][Nn][Dd][Ee][Ff][Ii][Nn][Ee][Dd]|[Nn][Uu][Ll][Ll]|[Nn][Oo][Nn][Ee]|[Nn][Ii][Ll]|[Tt][Rr][Uu][Ee]|[Ff][Aa][Ll][Ss][Ee]|[Ii][Nn][Cc][Ll][Uu][Dd][Ee]|[Oo][Mm][Ii][Tt]|[Ss][Aa][Mm][Ee]\\-[Oo][Rr][Ii][Gg][Ii][Nn])(?![A-Za-z0-9_-])|(?:os\\.environ|os\\.getenv|getenv\\(|process\\.env|ENV\\[|env\\(|\\$\\{|\\$[A-Za-z_]|%[A-Za-z_][A-Za-z0-9_]{0,63}%))((?:[^\\\"\\\\\\r\\n]|\\\\[^\\r\\n]){6,1024})\\\"",
+          "group": 1,
+          "prefilter": [
+            "_key"
+          ]
+        },
+        {
+          "regex": "(?:^|[^A-Za-z0-9_.-])(?:[A-Z0-9]{1,24}_){1,3}KEY[\\\"']?[ \\t]{0,4}(?:=>|[:=])[ \\t]{0,4}'(?!(?:[Ss][Tt][Rr][Ii][Nn][Gg]|[Nn][Uu][Mm][Bb][Ee][Rr]|[Bb][Oo][Oo][Ll][Ee][Aa][Nn]|[Bb][Oo][Oo][Ll]|[Ss][Tt][Rr]|[Ii][Nn][Tt]|[Ii][Nn][Tt][Ee][Gg][Ee][Rr]|[Ff][Ll][Oo][Aa][Tt]|[Bb][Yy][Tt][Ee][Ss]|[Oo][Bb][Jj][Ee][Cc][Tt]|[Aa][Nn][Yy]|[Uu][Nn][Kk][Nn][Oo][Ww][Nn]|[Uu][Nn][Dd][Ee][Ff][Ii][Nn][Ee][Dd]|[Nn][Uu][Ll][Ll]|[Nn][Oo][Nn][Ee]|[Nn][Ii][Ll]|[Tt][Rr][Uu][Ee]|[Ff][Aa][Ll][Ss][Ee]|[Ii][Nn][Cc][Ll][Uu][Dd][Ee]|[Oo][Mm][Ii][Tt]|[Ss][Aa][Mm][Ee]\\-[Oo][Rr][Ii][Gg][Ii][Nn])(?![A-Za-z0-9_-])|(?:os\\.environ|os\\.getenv|getenv\\(|process\\.env|ENV\\[|env\\(|\\$\\{|\\$[A-Za-z_]|%[A-Za-z_][A-Za-z0-9_]{0,63}%))((?:[^'\\\\\\r\\n]|\\\\[^\\r\\n]){6,1024})'",
+          "group": 1,
+          "prefilter": [
+            "_key"
+          ]
+        }
+      ]
+    }
+  ],
+  "tables": {
+    "iban_lengths": {
+      "AD": 24,
+      "AE": 23,
+      "AL": 28,
+      "AT": 20,
+      "AZ": 28,
+      "BA": 20,
+      "BE": 16,
+      "BG": 22,
+      "BH": 22,
+      "BI": 27,
+      "BR": 29,
+      "BY": 28,
+      "CH": 21,
+      "CR": 22,
+      "CY": 28,
+      "CZ": 24,
+      "DE": 22,
+      "DJ": 27,
+      "DK": 18,
+      "DO": 28,
+      "EE": 20,
+      "EG": 29,
+      "ES": 24,
+      "FI": 18,
+      "FK": 18,
+      "FO": 18,
+      "FR": 27,
+      "GB": 22,
+      "GE": 22,
+      "GI": 23,
+      "GL": 18,
+      "GR": 27,
+      "GT": 28,
+      "HN": 28,
+      "HR": 21,
+      "HU": 28,
+      "IE": 22,
+      "IL": 23,
+      "IQ": 23,
+      "IS": 26,
+      "IT": 27,
+      "JO": 30,
+      "KW": 30,
+      "KZ": 20,
+      "LB": 28,
+      "LC": 32,
+      "LI": 21,
+      "LT": 20,
+      "LU": 20,
+      "LV": 21,
+      "LY": 25,
+      "MC": 27,
+      "MD": 24,
+      "ME": 22,
+      "MK": 19,
+      "MN": 20,
+      "MR": 27,
+      "MT": 31,
+      "MU": 30,
+      "NI": 28,
+      "NL": 18,
+      "NO": 15,
+      "OM": 23,
+      "PK": 24,
+      "PL": 28,
+      "PS": 29,
+      "PT": 25,
+      "QA": 29,
+      "RO": 24,
+      "RS": 22,
+      "RU": 33,
+      "SA": 24,
+      "SC": 31,
+      "SD": 18,
+      "SE": 24,
+      "SI": 19,
+      "SK": 24,
+      "SM": 27,
+      "SO": 23,
+      "ST": 25,
+      "SV": 28,
+      "TL": 23,
+      "TN": 24,
+      "TR": 26,
+      "UA": 29,
+      "VA": 22,
+      "VG": 24,
+      "XK": 20,
+      "YE": 30
+    },
+    "country_codes": [
+      "AD",
+      "AE",
+      "AF",
+      "AG",
+      "AI",
+      "AL",
+      "AM",
+      "AO",
+      "AQ",
+      "AR",
+      "AS",
+      "AT",
+      "AU",
+      "AW",
+      "AX",
+      "AZ",
+      "BA",
+      "BB",
+      "BD",
+      "BE",
+      "BF",
+      "BG",
+      "BH",
+      "BI",
+      "BJ",
+      "BL",
+      "BM",
+      "BN",
+      "BO",
+      "BQ",
+      "BR",
+      "BS",
+      "BT",
+      "BV",
+      "BW",
+      "BY",
+      "BZ",
+      "CA",
+      "CC",
+      "CD",
+      "CF",
+      "CG",
+      "CH",
+      "CI",
+      "CK",
+      "CL",
+      "CM",
+      "CN",
+      "CO",
+      "CR",
+      "CU",
+      "CV",
+      "CW",
+      "CX",
+      "CY",
+      "CZ",
+      "DE",
+      "DJ",
+      "DK",
+      "DM",
+      "DO",
+      "DZ",
+      "EC",
+      "EE",
+      "EG",
+      "EH",
+      "ER",
+      "ES",
+      "ET",
+      "FI",
+      "FJ",
+      "FK",
+      "FM",
+      "FO",
+      "FR",
+      "GA",
+      "GB",
+      "GD",
+      "GE",
+      "GF",
+      "GG",
+      "GH",
+      "GI",
+      "GL",
+      "GM",
+      "GN",
+      "GP",
+      "GQ",
+      "GR",
+      "GS",
+      "GT",
+      "GU",
+      "GW",
+      "GY",
+      "HK",
+      "HM",
+      "HN",
+      "HR",
+      "HT",
+      "HU",
+      "ID",
+      "IE",
+      "IL",
+      "IM",
+      "IN",
+      "IO",
+      "IQ",
+      "IR",
+      "IS",
+      "IT",
+      "JE",
+      "JM",
+      "JO",
+      "JP",
+      "KE",
+      "KG",
+      "KH",
+      "KI",
+      "KM",
+      "KN",
+      "KP",
+      "KR",
+      "KW",
+      "KY",
+      "KZ",
+      "LA",
+      "LB",
+      "LC",
+      "LI",
+      "LK",
+      "LR",
+      "LS",
+      "LT",
+      "LU",
+      "LV",
+      "LY",
+      "MA",
+      "MC",
+      "MD",
+      "ME",
+      "MF",
+      "MG",
+      "MH",
+      "MK",
+      "ML",
+      "MM",
+      "MN",
+      "MO",
+      "MP",
+      "MQ",
+      "MR",
+      "MS",
+      "MT",
+      "MU",
+      "MV",
+      "MW",
+      "MX",
+      "MY",
+      "MZ",
+      "NA",
+      "NC",
+      "NE",
+      "NF",
+      "NG",
+      "NI",
+      "NL",
+      "NO",
+      "NP",
+      "NR",
+      "NU",
+      "NZ",
+      "OM",
+      "PA",
+      "PE",
+      "PF",
+      "PG",
+      "PH",
+      "PK",
+      "PL",
+      "PM",
+      "PN",
+      "PR",
+      "PS",
+      "PT",
+      "PW",
+      "PY",
+      "QA",
+      "RE",
+      "RO",
+      "RS",
+      "RU",
+      "RW",
+      "SA",
+      "SB",
+      "SC",
+      "SD",
+      "SE",
+      "SG",
+      "SH",
+      "SI",
+      "SJ",
+      "SK",
+      "SL",
+      "SM",
+      "SN",
+      "SO",
+      "SR",
+      "SS",
+      "ST",
+      "SV",
+      "SX",
+      "SY",
+      "SZ",
+      "TC",
+      "TD",
+      "TF",
+      "TG",
+      "TH",
+      "TJ",
+      "TK",
+      "TL",
+      "TM",
+      "TN",
+      "TO",
+      "TR",
+      "TT",
+      "TV",
+      "TW",
+      "TZ",
+      "UA",
+      "UG",
+      "UM",
+      "US",
+      "UY",
+      "UZ",
+      "VA",
+      "VC",
+      "VE",
+      "VG",
+      "VI",
+      "VN",
+      "VU",
+      "WF",
+      "WS",
+      "XK",
+      "YE",
+      "YT",
+      "ZA",
+      "ZM",
+      "ZW"
+    ],
+    "card_networks": [
+      {
+        "network": "visa",
+        "from": "4",
+        "to": "4",
+        "lengths": [
+          13,
+          16,
+          19
+        ]
+      },
+      {
+        "network": "mastercard",
+        "from": "51",
+        "to": "55",
+        "lengths": [
+          16
+        ]
+      },
+      {
+        "network": "mastercard",
+        "from": "2221",
+        "to": "2720",
+        "lengths": [
+          16
+        ]
+      },
+      {
+        "network": "amex",
+        "from": "34",
+        "to": "34",
+        "lengths": [
+          15
+        ]
+      },
+      {
+        "network": "amex",
+        "from": "37",
+        "to": "37",
+        "lengths": [
+          15
+        ]
+      },
+      {
+        "network": "discover",
+        "from": "6011",
+        "to": "6011",
+        "lengths": [
+          16,
+          17,
+          18,
+          19
+        ]
+      },
+      {
+        "network": "discover",
+        "from": "644",
+        "to": "649",
+        "lengths": [
+          16,
+          17,
+          18,
+          19
+        ]
+      },
+      {
+        "network": "discover",
+        "from": "65",
+        "to": "65",
+        "lengths": [
+          16,
+          17,
+          18,
+          19
+        ]
+      },
+      {
+        "network": "jcb",
+        "from": "3528",
+        "to": "3589",
+        "lengths": [
+          16,
+          17,
+          18,
+          19
+        ]
+      },
+      {
+        "network": "diners",
+        "from": "300",
+        "to": "305",
+        "lengths": [
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ]
+      },
+      {
+        "network": "diners",
+        "from": "3095",
+        "to": "3095",
+        "lengths": [
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ]
+      },
+      {
+        "network": "diners",
+        "from": "36",
+        "to": "36",
+        "lengths": [
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ]
+      },
+      {
+        "network": "diners",
+        "from": "38",
+        "to": "39",
+        "lengths": [
+          16,
+          17,
+          18,
+          19
+        ]
+      },
+      {
+        "network": "unionpay",
+        "from": "62",
+        "to": "62",
+        "lengths": [
+          16,
+          17,
+          18,
+          19
+        ]
+      },
+      {
+        "network": "maestro",
+        "from": "5018",
+        "to": "5018",
+        "lengths": [
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ]
+      },
+      {
+        "network": "maestro",
+        "from": "5020",
+        "to": "5020",
+        "lengths": [
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ]
+      },
+      {
+        "network": "maestro",
+        "from": "5038",
+        "to": "5038",
+        "lengths": [
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ]
+      },
+      {
+        "network": "maestro",
+        "from": "5893",
+        "to": "5893",
+        "lengths": [
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ]
+      },
+      {
+        "network": "maestro",
+        "from": "6304",
+        "to": "6304",
+        "lengths": [
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ]
+      },
+      {
+        "network": "maestro",
+        "from": "6759",
+        "to": "6759",
+        "lengths": [
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ]
+      },
+      {
+        "network": "maestro",
+        "from": "6761",
+        "to": "6763",
+        "lengths": [
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ]
+      },
+      {
+        "network": "mir",
+        "from": "2200",
+        "to": "2204",
+        "lengths": [
+          16,
+          17,
+          18,
+          19
+        ]
+      }
+    ]
+  }
+}

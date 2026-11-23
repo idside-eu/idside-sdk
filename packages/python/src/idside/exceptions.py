@@ -288,6 +288,41 @@ class ConsentTokenError(IDSideError):
     """
 
 
+class ContentPolicyError(IDSideError):
+    """The organization's prompt-cleaning policy cannot be applied.
+
+    Raised when a policy document is malformed (a field of the wrong type, a
+    custom entry whose label or value breaks the rules), is of a schema this
+    SDK does not read, or — once the SDK fetches it from the cloud — when its
+    signature, type, application, expiry or digest does not check out. The SDK
+    is fail-closed: a policy it cannot apply is never replaced by no policy,
+    so the AI call is not made. The message names the field or the entry's
+    position, never a value. What to do: if it persists, upgrade the
+    ``idside`` package and contact the organization's administrator.
+    """
+
+
+class ContentBlockedError(IDSideError):
+    """The organization's prompt-cleaning policy blocks this call.
+
+    One of its rules set to *block* found something in the request — a payment
+    card, an attachment, a term the organization listed. Nothing was sent: not
+    to the AI provider, not to ID Side (which receives only the rule ids and
+    counts in :attr:`blocked`, never a value). The message names the same rule
+    ids and counts. What to do: show the person that this content cannot be
+    sent, and let them remove it; never retry the same call.
+    """
+
+    def __init__(self, blocked: dict[str, int]) -> None:
+        self.blocked: dict[str, int] = dict(sorted(blocked.items()))
+        named = ", ".join(f"{rule} ({count})" for rule, count in self.blocked.items())
+        super().__init__(
+            "The organization's prompt-cleaning policy blocks this call: it "
+            f"found {named}. The AI call was not made and nothing of it was "
+            "sent; remove that content and try again."
+        )
+
+
 class ActVerificationError(ConsentTokenError):
     """Base class for failures of local ACT verification (:func:`idside.verify_act`).
 

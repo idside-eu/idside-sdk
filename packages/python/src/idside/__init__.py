@@ -31,6 +31,7 @@ from __future__ import annotations
 
 from idside import consent, verify
 from idside.__about__ import __version__
+from idside._cleaning import content_policy_digest, verify_clean
 from idside._request_hash import request_hash
 from idside._transport import (
     DEFAULT_BASE_URL,
@@ -62,6 +63,8 @@ from idside.exceptions import (
     ConsentRefreshRequiredError,
     ConsentTokenError,
     ConsentUnreachableError,
+    ContentBlockedError,
+    ContentPolicyError,
     ContractError,
     CredentialRoutingError,
     IDSideError,
@@ -133,6 +136,8 @@ __all__ = [
     "ConsentRefreshRequiredError",
     "ConsentTokenError",
     "ConsentUnreachableError",
+    "ContentBlockedError",
+    "ContentPolicyError",
     "ContractError",
     "CredentialRoutingError",
     "Disclosure",
@@ -152,6 +157,7 @@ __all__ = [
     "__version__",
     "catalogue",
     "consent",
+    "content_policy_digest",
     "decidable_options",
     "disclosures",
     # The request-hash formula, so a verifier can compute the `request_hash=`
@@ -159,4 +165,5 @@ __all__ = [
     "request_hash",
     "verify",
     "verify_act",
+    "verify_clean",
 ]

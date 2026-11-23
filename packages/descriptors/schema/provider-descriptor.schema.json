@@ -9,7 +9,8 @@
     "descriptor_version",
     "name",
     "client_module",
-    "call_sites"
+    "call_sites",
+    "content"
   ],
   "properties": {
     "descriptor_version": {
@@ -474,6 +475,71 @@
           "description": "What the credential selects at the provider - `project`, `workspace`, `organisation`. Quoted back to the developer in errors, because 'provision one credential per posture' means a different thing at each provider.",
           "type": "string",
           "minLength": 1
+        },
+        "note": {
+          "type": "string"
+        }
+      }
+    },
+    "content": {
+      "type": "object",
+      "description": "What prompt cleaning reads on this provider. Every string value of a call is text, except the values under `structural_keys` (never scanned, never changed) and the attachments: a value under `attachment_keys`, an object under a key of `attachment_objects` whose `type` is listed there, and any string that is a base64 data: URI. Under a key of `free_form_keys` (data the developer or the model wrote), neither the structural nor the attachment keys apply: every string there is text, and only a base64 data: URI is an attachment. An attachment is never scanned; it is counted, and an organization's policy may block a call carrying one. Required: a descriptor without it would leave both SDKs guessing which strings are identifiers.",
+      "additionalProperties": false,
+      "required": [
+        "structural_keys",
+        "free_form_keys",
+        "attachment_keys",
+        "attachment_objects"
+      ],
+      "properties": {
+        "structural_keys": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true,
+          "description": "Keys whose values are identifiers, roles, model names or enum-like settings. Changing one would break the call, so it is neither scanned nor changed, wherever it appears in the body."
+        },
+        "free_form_keys": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true,
+          "description": "Keys whose value is free-form data (a tool call's arguments, a function response, metadata): every string under them is text, whatever its key."
+        },
+        "caller_keyed_keys": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true,
+          "description": "Keys whose object value maps names the caller chose to values (a JSON Schema's `properties`, a prompt's `variables`): its own keys are names, never structural nor attachment keys, and each value under them is read with the rules above, from the next level down."
+        },
+        "attachment_keys": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true,
+          "description": "Keys whose value, when present and not empty, is an image, audio, document or file reference the SDK cannot read."
+        },
+        "attachment_objects": {
+          "type": "object",
+          "description": "Keys whose object value is an attachment when its `type` is one of those listed (Anthropic's `source`).",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "uniqueItems": true,
+            "minItems": 1
+          }
         },
         "note": {
           "type": "string"

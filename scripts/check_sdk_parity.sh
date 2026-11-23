@@ -246,6 +246,8 @@ allow = json.loads(sys.argv[2])
 for identity in json.loads(sys.argv[1]):
     sent, calls = [], []
     def answer(request):
+        if request.url.path == '/v1/content-policy':
+            return httpx.Response(200, json={'enabled': False})  # cleaning off
         body = json.loads(request.content)
         value = body.get('user_id')
         sent.append(json.dumps(value, separators=(',', ':')) if 'user_id' in body else '-')
@@ -284,6 +286,9 @@ for (const identity of JSON.parse(process.argv[1])) {
   const sent = [], calls = [];
   const cloud = new HttpConsentClient('https://cloud.parity.test', {
     fetch: async (url, init) => {
+      if (new URL(url).pathname === '/v1/content-policy') {
+        return new Response(JSON.stringify({enabled: false}), {status: 200}); // cleaning off
+      }
       const body = JSON.parse(init.body);
       const value = body.user_id;
       sent.push('user_id' in body ? JSON.stringify(value) : '-');
@@ -558,6 +563,304 @@ await client.chat.completions.create({
 
 if [ "$py" = "$nd" ]; then
   echo "$py" | sed 's/^/  ✅ /'
+else
+  echo "  ❌ DIVERGENCE"
+  diff <(echo "$py") <(echo "$nd") | sed 's/^/     /'
+  status=1
+fi
+
+echo
+echo "Prompt cleaning (both engines on the same seeded texts, and the digests they declare):"
+# The shared vectors pin what each test suite expects; this runs both engines
+# side by side on text neither suite has seen — seeded token soup mixing every
+# detector's shapes, separators, accents, invisible and astral characters —
+# under the reference policy and under custom entries, and diffs every output,
+# count and block, each written in RFC 8785 form (one canonicaliser, the one the
+# request hash uses, so the two lines can only differ if the results do). Then
+# the digests that cross to the cloud: the rules file and each policy's digest.
+corpus=$(mktemp)
+trap 'rm -f "$corpus"' EXIT
+python3 -c '
+import json, random
+rng = random.Random(20261116)
+tokens = ["a", "Z", "1", "0", "@", ".", "-", ":", "/", "+", " ", "[", "]", "_", "=",
+          "\x27", "\"", "\n", "é", "​", " ", "ﬁ", "\U0001f600", "–",
+          "sk-", "sk_" + "live_", "-----BEGIN " + "PRIVATE KEY-----", "x@y.zz",
+          "4111111111111111", "4111 ", "FR76", "3000 ", "06 12 34 56 78", "+33", "siren",
+          "123 456 782", "https://", "postgres://u:p@h", "Bearer ", "password=", "eyJ",
+          "[EMAIL_1]", "10.0.0.1", "::", "AB-123-CD", "AKIA", "mistral", "bic", "TESTDEFF",
+          "acme.example", "projet atlas", "PRJ-1234", "fe80::1", "00:1a:2b:3c:4d:5e",
+          "version ", "v", "4.2.1.3", "\\n", "> ", "-----END " + "PRIVATE KEY-----",
+          "Authorization: ", "Basic ", "(+33) ", "06/12/", "  ", "\u20ac", "\u043c@\u0440\u0444",
+          "\u044f", "git@github.com:", "@2x.png", "xapp-1-", "glffct-", "PGPASS" + "WORD=",
+          "Password=\x27", "os.environ", "mot de passe : ", "_KEY=", "R.C.S.", "FR 76-"]
+print(json.dumps(["".join(rng.choice(tokens) for _ in range(rng.randint(1, 30))) for _ in range(1500)]))
+' > "$corpus"
+policies='[
+  {"schema": 1, "detectors": "ALL"},
+  {"schema": 1, "detectors": {"email": "mask", "credit_card": "block"}, "attachments": "block",
+   "custom": [{"kind": "term", "value": "Projet Atlas", "action": "mask", "label": "PROJECT"},
+              {"kind": "domain", "value": "acme.example", "action": "mask", "label": "DOMAIN"},
+              {"kind": "pattern", "value": "PRJ-####", "action": "mask", "label": "REF"}]}
+]'
+py=$(cd packages/python && uv run python -c "
+import json, sys
+from idside._jcs import canonicalize
+from idside._cleaning import CATALOGUE_IDS, clean, content_policy_digest, rules_digest
+texts, policies = json.load(open(sys.argv[1], encoding='utf-8')), json.loads(sys.argv[2])
+for policy in policies:
+    if policy['detectors'] == 'ALL':
+        policy['detectors'] = dict.fromkeys(CATALOGUE_IDS, 'mask')
+jcs = lambda value: canonicalize(value).decode()
+print('rules', rules_digest())
+for p, policy in enumerate(policies):
+    print('policy', p, content_policy_digest(policy))
+    for t, text in enumerate(texts):
+        r = clean({'messages': [{'role': 'user', 'content': text}]}, policy, provider='openai')
+        print(p, t, jcs(r.payload), jcs(dict(r.counts)), jcs(dict(r.blocked)), r.attachments)
+" "$corpus" "$policies")
+nd=$(cd packages/node && node --experimental-strip-types -e "
+import {readFileSync} from 'node:fs';
+import {canonicalizeToString as jcs} from './src/jcs.ts';
+import {CATALOGUE_IDS, clean, contentPolicyDigest, rulesDigest} from './src/cleaning/index.ts';
+const texts = JSON.parse(readFileSync(process.argv[1], 'utf8'));
+const policies = JSON.parse(process.argv[2]);
+for (const policy of policies) {
+  if (policy.detectors === 'ALL') policy.detectors = Object.fromEntries(CATALOGUE_IDS.map((id) => [id, 'mask']));
+}
+console.log('rules', rulesDigest());
+policies.forEach((policy, p) => {
+  console.log('policy', p, contentPolicyDigest(policy));
+  texts.forEach((text, t) => {
+    const r = clean({messages: [{role: 'user', content: text}]}, policy, 'openai');
+    console.log(p, t, jcs(r.payload), jcs(r.counts), jcs(r.blocked), r.attachments);
+  });
+});" "$corpus" "$policies")
+if [ "$py" = "$nd" ]; then
+  echo "$py" | grep -E '^(rules|policy) ' | sed 's/^/  ✅ /'
+  echo "  ✅ $(echo "$py" | grep -cvE '^(rules|policy) ') cleaned bodies identical, counts and blocks included"
+else
+  echo "  ❌ DIVERGENCE"
+  diff <(echo "$py") <(echo "$nd") | head -20 | sed 's/^/     /'
+  status=1
+fi
+
+echo
+echo "Prompt cleaning on a call (the same journal, the same request, the same refusal):"
+# What a developer reads when a call is cleaned or blocked, and what the cloud
+# is sent: the journal lines (counts, never values), the authorize request's
+# hash and declaration, and the refusal's class, rule ids and message, each
+# structure written in RFC 8785 form. The policy is handed over already
+# verified, as each SDK's cache holds it, so only the enforcement path is
+# compared here; fetching and checking it is held by each package's tests.
+# The `wrap` line is left out: Python wraps a blocking client here, Node has
+# only the async kind, and the journal section above compares that line.
+policy_json='{"schema": 1, "app_id": "app_medhelp", "revision": 7, "detectors": {"email": "mask", "credit_card": "block"}, "attachments": "allow", "custom": [{"kind": "term", "value": "Projet Atlas", "action": "mask", "label": "PROJECT"}]}'
+py=$(cd packages/python && uv run python -c "
+import json, logging, sys
+from types import SimpleNamespace
+from idside import consent
+from idside._jcs import canonicalize
+from idside._cleaning import content_policy_digest
+from idside._content_policy import PolicyState
+from idside._transport import ConsentDecision
+from idside.adapters import ProviderAdapter
+from idside.exceptions import ContentBlockedError
+from idside.providers import load_descriptors
+
+jcs = lambda value: canonicalize(value).decode()
+handler = logging.StreamHandler(sys.stdout)
+handler.setFormatter(logging.Formatter('%(message)s'))
+log = logging.getLogger('idside')
+log.addHandler(handler)
+log.setLevel(logging.DEBUG)
+policy = json.loads(sys.argv[1])
+digest = content_policy_digest(policy)
+state = PolicyState(policy=policy, declaration={'digest': digest, 'engine': '1'},
+                    digest=digest, refresh_at=0, valid_until=0)
+
+class Cloud:
+    def content_policy(self): return state
+    def content_events(self, **report): print('event', jcs(report))
+    def authorize(self, **request):
+        print('authorize', request['request_hash'], jcs(request['content_policy']))
+        return ConsentDecision({}, {}, 'act.jwt.token', 'default_policy', 'legitimate_interest', 'user_id')
+
+class Completions:
+    def create(self, **kwargs): print('sent', jcs(kwargs['messages'])); return {}
+
+client = consent.wrap(SimpleNamespace(chat=SimpleNamespace(completions=Completions())),
+                      adapter=ProviderAdapter(load_descriptors()['openai']), consent_client=Cloud())
+client.chat.completions.create(model='gpt-4o-mini', user_id='usr_marie_456', messages=[
+    {'role': 'system', 'content': 'About Projet Atlas.'}, {'role': 'user', 'content': 'Write to marie@example.com'}])
+try:
+    client.chat.completions.create(model='gpt-4o-mini', user_id='usr_marie_456',
+                                   messages=[{'role': 'user', 'content': 'card 4111 1111 1111 1111'}])
+except ContentBlockedError as error:
+    print(type(error).__name__, jcs(error.blocked), error)
+" "$policy_json" | grep -v '^wrap ' | mask)
+nd=$(cd packages/node && NODE_DEBUG=idside node --experimental-strip-types -e "
+import {wrap} from './src/consent.ts';
+import {GenericAdapter} from './src/adapters/index.ts';
+import {loadDescriptors} from './src/descriptors.ts';
+import {canonicalizeToString as jcs} from './src/jcs.ts';
+import {contentPolicyDigest} from './src/cleaning/index.ts';
+import {PolicyState} from './src/contentPolicy.ts';
+import {ContentBlockedError} from './src/exceptions.ts';
+
+const policy = JSON.parse(process.argv[1]);
+const digest = contentPolicyDigest(policy);
+const state = new PolicyState(policy, {digest, engine: '1'}, digest, 0, 0);
+// Written on the journal's own channel, so the lines interleave as Python's do.
+const out = (line) => process.stderr.write('IDSIDE 0: ' + line + String.fromCharCode(10));
+const cloud = {
+  contentPolicy: async () => state,
+  contentEvents: async (report) => out('event ' + jcs(report)),
+  authorize: async (request) => {
+    out('authorize ' + request.requestHash + ' ' + jcs(request.contentPolicy));
+    return {consentState: {}, paramsForced: {}, actToken: 'act.jwt.token', source: 'default_policy',
+            legalBasis: 'legitimate_interest', binding: 'user_id', constraints: {}};
+  },
+};
+const client = wrap(
+  {chat: {completions: {create: async (body) => { out('sent ' + jcs(body.messages)); return {}; }}}},
+  {adapter: new GenericAdapter(loadDescriptors().get('openai')), consentClient: cloud},
+);
+await client.chat.completions.create({model: 'gpt-4o-mini', user_id: 'usr_marie_456', messages: [
+  {role: 'system', content: 'About Projet Atlas.'}, {role: 'user', content: 'Write to marie@example.com'}]});
+try {
+  await client.chat.completions.create({model: 'gpt-4o-mini', user_id: 'usr_marie_456',
+    messages: [{role: 'user', content: 'card 4111 1111 1111 1111'}]});
+} catch (error) {
+  if (!(error instanceof ContentBlockedError)) throw error;
+  out(error.name + ' ' + jcs(error.blocked) + ' ' + error.message);
+}" "$policy_json" 2>&1 >/dev/null | sed -n -E 's/^IDSIDE [0-9]+: //p' | grep -v '^wrap ' | mask)
+if [ "$py" = "$nd" ]; then
+  echo "$py" | sed 's/^/  ✅ /'
+else
+  echo "  ❌ DIVERGENCE"
+  diff <(echo "$py") <(echo "$nd") | sed 's/^/     /'
+  status=1
+fi
+
+echo
+echo "A signed cleaning policy (the same answers, the same verdict, whichever SDK reads them):"
+# Each SDK checks the policy before it applies anything: key purpose, signature
+# (high s accepted, as ECDSA does), type, algorithm, issuer, digest, application
+# and, last, dates — a policy out of step with this machine's clock is told in
+# the same words by both, compared below. A case one accepts and the other refuses is a call cleaned in one
+# language and stopped, or sent uncleaned, in the other. The answers are signed
+# here, by Python's test dependency, with keys that live only in that process's
+# memory; only tokens and public keys reach the file both SDKs then read.
+cases_file="$(mktemp)"
+# One trap per signal: this one replaces the corpus's, so it removes both.
+trap 'rm -f "$corpus" "$cases_file"' EXIT
+(cd packages/python && uv run python - "$cases_file" <<'SIGN'
+import base64, json, sys
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
+from idside._cleaning import content_policy_digest
+
+NOW, N = 1_800_000_000, 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551
+b64 = lambda data: base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+keys = {kid: ec.generate_private_key(ec.SECP256R1()) for kid in ("content-policy-g1", "act-g1")}
+def jwk(kid, key):
+    numbers = key.public_key().public_numbers()
+    return {"kty": "EC", "crv": "P-256", "kid": kid, "use": "sig", "alg": "ES256",
+            "x": b64(numbers.x.to_bytes(32, "big")), "y": b64(numbers.y.to_bytes(32, "big"))}
+jwks = {"keys": [jwk(kid, key) for kid, key in keys.items()]}
+policy = {"schema": 1, "app_id": "app_medhelp", "revision": 7, "detectors": {"email": "mask"},
+          "attachments": "allow", "custom": [{"kind": "term", "value": "Projet Atlas", "action": "mask", "label": "PROJECT"}]}
+def claims(**overrides):
+    return {"iss": "idside.eu", "app_id": "app_medhelp", "iat": NOW - 10, "exp": NOW + 890,
+            "digest": content_policy_digest(policy), "policy": policy, **overrides}
+def token(claims_, kid="content-policy-g1", signer=None, header=None, high_s=False, flip=False, raw_claims=None,
+          shape=None):
+    head = header or {"alg": "ES256", "typ": "content-policy+jwt", "kid": kid}
+    body = raw_claims if raw_claims is not None else json.dumps(claims_)
+    signing_input = b64(json.dumps(head).encode()) + "." + b64(body.encode())
+    der = keys[signer or kid].sign(signing_input.encode(), ec.ECDSA(hashes.SHA256()))
+    r, s = decode_dss_signature(der)
+    if high_s:
+        s = N - s
+    raw = bytearray(r.to_bytes(32, "big") + s.to_bytes(32, "big"))
+    if flip:
+        raw[-1] ^= 1
+    # The signature itself malformed: r‖s is 64 bytes, each value in [1, n-1].
+    raw = {None: bytes(raw), "der": der, "s padded": bytes(raw[:32]) + b"\0" + bytes(raw[32:]),
+           "truncated": bytes(raw[:63]), "s = n": bytes(raw[:32]) + N.to_bytes(32, "big"),
+           "r zero": bytes(32) + bytes(raw[32:])}[shape]
+    return signing_input + "." + b64(raw)
+off_curve = json.loads(json.dumps(jwks))
+y = int.from_bytes(base64.urlsafe_b64decode(off_curve["keys"][0]["y"] + "=="), "big")
+off_curve["keys"][0]["y"] = b64(((y + 1) % (2**256 - 2**224 + 2**192 + 2**96 - 1)).to_bytes(32, "big"))
+cases = {
+    "valid": token(claims()),
+    "high s": token(claims(), high_s=True),
+    "test issuer": token(claims(iss="test.idside.eu")),
+    "exp written 1800000890.0": token(None, raw_claims=json.dumps(claims()).replace(f'"exp": {NOW + 890}', f'"exp": {NOW + 890}.0')),
+    "tampered signature": token(claims(), flip=True),
+    "signature in DER": token(claims(), shape="der"),
+    "s padded to 33 bytes": token(claims(), shape="s padded"),
+    "signature truncated": token(claims(), shape="truncated"),
+    "s = n": token(claims(), shape="s = n"),
+    "r zero": token(claims(), shape="r zero"),
+    "ACT key": token(claims(), kid="act-g1"),
+    "policy kid, ACT key's signature": token(claims(), signer="act-g1"),
+    "unknown policy key": token(claims(), kid="content-policy-g9", signer="content-policy-g1"),
+    "typ act+jwt": token(claims(), header={"alg": "ES256", "typ": "act+jwt", "kid": "content-policy-g1"}),
+    "alg none": token(claims(), header={"alg": "none", "typ": "content-policy+jwt", "kid": "content-policy-g1"}),
+    "crit": token(claims(), header={"alg": "ES256", "typ": "content-policy+jwt", "kid": "content-policy-g1", "crit": ["x"]}),
+    "other issuer": token(claims(iss="evil.example")),
+    "clock ahead (expired on arrival)": token(claims(exp=NOW)),
+    "clock behind (issued in the future)": token(claims(iat=NOW + 301)),
+    "expires before it was issued": token(claims(iat=NOW + 10, exp=NOW + 5)),
+    "wrong digest": token(claims(digest="sha256:" + "0" * 64)),
+    "another application": token(claims(app_id="app_other")),
+    "schema 2": token(claims(policy={**policy, "schema": 2}, digest=content_policy_digest({**policy, "schema": 2}))),
+}
+json.dump({"now": NOW, "jwks": jwks, "off_curve": off_curve,
+           "cases": [{"name": name, "token": tok, "jwks": "jwks"} for name, tok in cases.items()]
+                    + [{"name": "key off the curve", "token": cases["valid"], "jwks": "off_curve"}]},
+          open(sys.argv[1], "w"))
+SIGN
+)
+py=$(cd packages/python && uv run python - "$cases_file" <<'READ'
+import json, sys
+from idside._content_policy import read_answer, verify_pending
+from idside.exceptions import IDSideError
+data = json.load(open(sys.argv[1]))
+for case in data["cases"]:
+    answer = {"enabled": True, "policy": case["token"], "refresh_after": 300,
+              "challenge": {"token": "chl_parity", "inputs": ["marie@example.com"]}}
+    try:
+        state = verify_pending(read_answer(answer), data[case["jwks"]], data["now"])
+        print(case["name"], "->", "applied", state.digest, state.declaration["challenge"]["response"])
+    except IDSideError as error:
+        # A clock out of step is told in the same words by both: compared too.
+        said = f" {error}" if case["name"].startswith("clock") else ""
+        print(case["name"], "->", type(error).__name__ + said)
+READ
+)
+nd=$(cd packages/node && node --experimental-strip-types -e "
+import {readFileSync} from 'node:fs';
+import {readAnswer, verifyPending} from './src/contentPolicy.ts';
+import {IDSideError} from './src/exceptions.ts';
+const data = JSON.parse(readFileSync(process.argv[1], 'utf8'));
+for (const c of data.cases) {
+  const answer = {enabled: true, policy: c.token, refresh_after: 300, challenge: {token: 'chl_parity', inputs: ['marie@example.com']}};
+  try {
+    const state = verifyPending(readAnswer(answer), data[c.jwks], data.now);
+    console.log(c.name, '->', 'applied', state.digest, state.declaration.challenge.response);
+  } catch (error) {
+    if (!(error instanceof IDSideError)) throw error;
+    const said = c.name.startsWith('clock') ? ' ' + error.message : '';
+    console.log(c.name, '->', error.constructor.name + said);
+  }
+}" "$cases_file")
+if [ "$py" = "$nd" ]; then
+  echo "$py" | sed -E 's/ (sha256:[0-9a-f]{12})[0-9a-f]+/ \1…/g; s/^/  ✅ /'
 else
   echo "  ❌ DIVERGENCE"
   diff <(echo "$py") <(echo "$nd") | sed 's/^/     /'

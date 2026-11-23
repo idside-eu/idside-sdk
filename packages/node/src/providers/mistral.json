@@ -191,5 +191,48 @@
   "credential_routing": {
     "unit": "organisation",
     "note": "The training toggle is an organisation setting in the console. Routing means selecting the key."
+  },
+  "content": {
+    "structural_keys": [
+      "agent_id",
+      "conversation_id",
+      "detail",
+      "format",
+      "id",
+      "model",
+      "name",
+      "prompt_mode",
+      "role",
+      "tool_call_id",
+      "tool_choice",
+      "type"
+    ],
+    "free_form_keys": [
+      "arguments",
+      "const",
+      "default",
+      "enum",
+      "examples",
+      "metadata"
+    ],
+    "caller_keyed_keys": [
+      "$defs",
+      "definitions",
+      "dependencies",
+      "dependentRequired",
+      "dependentSchemas",
+      "patternProperties",
+      "properties"
+    ],
+    "attachment_keys": [
+      "audio_url",
+      "document_url",
+      "file_id",
+      "file_url",
+      "image_url",
+      "input_audio"
+    ],
+    "attachment_objects": {},
+    "note": "Images, documents and audio travel by URL or as base64 under the keys listed in `attachment_keys`. Tool-call `arguments` may be an object here, and are free-form. The maps whose keys are names the caller chose (a JSON Schema's `properties`, `$defs`, `definitions`, `patternProperties`) are `caller_keyed_keys`: a key there spelled `name`, `id` or `type` is the caller's word, and the value it holds is read with the usual rules — a schema's `description` is read, its `type` stays structural."
   }
 }

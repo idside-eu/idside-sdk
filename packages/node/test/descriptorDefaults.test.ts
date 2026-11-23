@@ -261,3 +261,24 @@ test("every bundled descriptor still loads exactly as it did", () => {
   assert.equal(all.get("deepseek")!.descriptorVersion, "2");
   assert.deepEqual(all.get("deepseek")!.clientBaseUrlHosts, ["api.deepseek.com"]);
 });
+
+test("a descriptor without a content block reads every string as text", () => {
+  const descriptor = without(openai as Raw, "content", () => loadDescriptors().get("openai"));
+  assert.equal(descriptor?.content.structuralKeys.size, 0);
+  assert.equal(descriptor?.content.attachmentObjects.size, 0);
+});
+
+test("a content block may leave each of its lists out", () => {
+  const raw = openai as Raw;
+  const saved = raw.content;
+  raw.content = {};
+  try {
+    const content = loadDescriptors().get("openai")?.content;
+    assert.equal(content?.structuralKeys.size, 0);
+    assert.equal(content?.freeFormKeys.size, 0);
+    assert.equal(content?.attachmentKeys.size, 0);
+    assert.equal(content?.attachmentObjects.size, 0);
+  } finally {
+    raw.content = saved;
+  }
+});

@@ -213,5 +213,60 @@
     "header_value_pattern": "^proj_[A-Za-z0-9_-]{1,120}$",
     "unit": "project",
     "note": "Retention regime (default / ZDR / Modified Abuse Monitoring / None) is set per PROJECT, and `OpenAI-Project` is a per-request header the API validates. A developer who provisions one project per posture lets the SDK route each call to the one matching that user's answer. The pattern is a guard, not decoration: the value is written into an outgoing HTTP header, so it must not be able to carry CR/LF, and a project id is `proj_...` while an API key is `sk-...` — a developer who pastes the wrong one is stopped before their secret leaves the process."
+  },
+  "content": {
+    "structural_keys": [
+      "call_id",
+      "conversation",
+      "detail",
+      "effort",
+      "id",
+      "include",
+      "media_type",
+      "mime_type",
+      "modalities",
+      "model",
+      "name",
+      "previous_response_id",
+      "prompt_cache_key",
+      "reasoning_effort",
+      "role",
+      "service_tier",
+      "status",
+      "tool_call_id",
+      "tool_choice",
+      "truncation",
+      "type",
+      "verbosity",
+      "voice"
+    ],
+    "free_form_keys": [
+      "const",
+      "default",
+      "enum",
+      "examples",
+      "metadata"
+    ],
+    "caller_keyed_keys": [
+      "$defs",
+      "definitions",
+      "dependencies",
+      "dependentRequired",
+      "dependentSchemas",
+      "headers",
+      "patternProperties",
+      "properties",
+      "variables"
+    ],
+    "attachment_keys": [
+      "file",
+      "file_data",
+      "file_id",
+      "file_url",
+      "image_url",
+      "input_audio"
+    ],
+    "attachment_objects": {},
+    "note": "What prompt cleaning reads on this provider. Every string value of a call is text, except those under `structural_keys` (identifiers, roles, enum-like settings: never scanned, never changed) and the attachments under `attachment_keys` (images, audio and files by URL, id or base64: opaque, counted, never scanned). Under a `free_form_keys` key (data the developer or the model wrote, such as `metadata`) neither list applies: every string there is text. The maps whose keys are names the caller chose (a prompt's `variables`, an MCP tool's `headers`, and a JSON Schema's `properties`, `$defs`, `definitions`, `patternProperties`, `dependentRequired`) are `caller_keyed_keys`: a key there spelled `name`, `id` or `type` is the caller's word, and the value it holds is read with the usual rules — a schema's `description` is read, its `type` stays structural, and an image passed as a variable is still an attachment. `format` is not structural: a Responses `text.format` carries a description and a schema, both read. A string that is a base64 data: URI is an attachment wherever it appears."
   }
 }

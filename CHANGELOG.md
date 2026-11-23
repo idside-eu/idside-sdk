@@ -14,7 +14,152 @@ version number promises — and what it deliberately does not — is
 
 ## [Unreleased]
 
-Nothing yet.
+**Prompt cleaning.** An organization can now decide, on the ID Side dashboard,
+what must not leave its applications in a prompt, and both SDKs apply it inside
+your process before a call is hashed and sent. An application that has enabled
+nothing sends what it sent before — same request, same request hash, no new
+field — after asking, every few minutes, whether there is a policy. The prompt
+never reaches ID Side; only digests and counts do.
+
+### Added
+
+- **Prompt cleaning on every enforced call.** On its first call, and every few
+  minutes after, the SDK fetches the application's policy
+  (`GET /v1/content-policy`), signed by ID Side under a key of its own; it
+  checks that the key is a policy key (`content-policy-…`: a key that signs
+  proofs is refused), the signature against the key set ACT tokens are
+  verified with (in Python with `cryptography` when the `[verify]` extra is
+  installed, and with verification code built into the package otherwise), the
+  type, issuer, expiry, application and digest, and never applies a policy that
+  does not check out. Every wrapped client asks for the policy, whether or not
+  the organization cleans anything, and a cloud that cannot answer stops the
+  call once no policy held is still valid; while one is held, a failed refresh
+  is retried at most once every ten seconds, not on every call. Then each call's
+  body is walked: e-mail addresses, phone numbers, payment cards, IBANs, French
+  identifiers, provider API keys, tokens, private keys and credentials — 34
+  detectors — and the organization's own terms, domains and patterns are
+  replaced by stable placeholders (`[EMAIL_1]`) or block the call. The request
+  hash is computed on what leaves. A value is masked whole or not at all, and
+  never counted otherwise: a property test in both SDKs puts every value the
+  shared vectors name in generated contexts and holds that none leaves a
+  fragment, and that one in a neutral context is counted at all. What follows
+  a value never makes it rejected: after a separator it is not part of it,
+  glued to it it is masked with it, and a value that runs on (a token, a
+  password to its delimiter) is followed to its end by the engine, in linear
+  time up to the engine's limit. A value right after an escape written in two
+  characters (`\n` in JSON pasted as text) is read as after a line break;
+  findings that overlap are masked as one, grouped in one sort however many
+  there are; a token keeps its URL escapes
+  (`%2F`). Both suites also check, on a corpus of over 700,000 generated texts,
+  that the engine masks everything an earlier version kept frozen in the
+  repository masked, a named list of exclusions aside. A private key is masked
+  from its BEGIN line to its END line however its lines are written, and
+  without its END line, when key material comes right after its BEGIN line, to
+  the end of the text; a BEGIN line merely quoted in prose is left as it is
+  under Mask and blocks the call under Block (a catalogue pattern may be
+  `block_only`). Whether key material follows the BEGIN line is read by the
+  engine in one pass, in linear time however many header lines stand before it
+  (a catalogue pattern may name such a check, `followed_by`). Four numbers after `version`, `ver.`, `release`, `firmware` or
+  `revision`, or after `v` and a space, are not an IP address; a reference to a
+  variable in braces (`${NAME}`) is no password, in a URL too; an e-mail
+  address glued to a password (`marie@example.com:S3cret`) is masked with it;
+  an international number of
+  9 to 15 digits is a phone number whatever follows it, round thousands
+  (`+150 000 000`) aside. What a JSON Schema holds for the caller (`default`,
+  `const`, `examples`, `enum`) is read whole. Each detector's
+  description in `content-rules.json` says what it reads. It reduces what
+  reaches a provider; it does not find everything, and
+  [the documentation](./docs/prompt-cleaning.md) lists what it does not catch
+  and what it may take wrongly. No new `wrap()` option, and no way to turn it
+  off per call.
+- A custom pattern in which `*` is followed by a letter, a digit, `#`, `@` or
+  another `*` is refused, as `**` was: a run takes every letter and digit, so
+  such a pattern could never match. A text already holding the last
+  placeholder number (`[EMAIL_999999999]`) is blocked (`size_limit`) rather
+  than numbered past nine digits. `idside-verify-clean` exits 2 in both SDKs
+  when its answer cannot be written (a closed pipe, a full disk): never 0 or 1
+  for an answer nobody received.
+- **`content_policy` on `/v1/authorize`**, sent only when cleaning is on: the
+  policy's digest, the engine's version, rules and build digests, the answer to
+  the cloud's challenge, and how many values each rule masked — never a value.
+  The answer's optional `content_policy` field (`applied`, `outdated`,
+  `anomaly`, `not_applied`) is read on `ConsentDecision.content_policy` /
+  `decision.contentPolicy`; `outdated` (a newer policy exists, or the
+  challenge was answered right more than a minute after the policy expired,
+  within the hour after it expired) makes the SDK fetch the policy at once; a
+  right answer later than that is an `anomaly`.
+- **`ContentBlockedError`**: a *block* rule matched. Nothing was sent; the
+  rule ids and counts are on `.blocked`, and reported to the cloud best effort
+  (`POST /v1/content-events`).
+- **`ContentPolicyError`**: the policy did not check out, or cannot be applied.
+  Fail-closed. A policy that is signed and intact but out of step with this
+  machine's clock says so, and which way the clock looks wrong: set it (NTP);
+  one already expired on arrival also names a cache that served an old answer.
+- **One policy fetch in flight per wrapped client**, key set included: calls
+  that need the policy at once wait for that fetch and share its result, a
+  failure included, which is never kept. A 429 on that route while no valid
+  policy is held is retried once, after its `Retry-After` (two seconds at most).
+  A policy held is never applied past its signed lifetime: it stops at the
+  earlier of its `exp` on this machine's clock and `exp - iat` after its
+  reception on the monotonic clock. An error there names the policy route, and
+  the status, not consent.
+- **`verify_clean(payload, policy, provider=…)`** / **`verifyClean()`**, and the
+  `idside-verify-clean` command in both packages: the replay check. A request
+  the SDK cleaned is a fixed point of the policy it applied; anyone holding it
+  and the policy can check it, offline.
+  **`content_policy_digest()`** / **`contentPolicyDigest()`** gives the digest a
+  proof names a policy by (RFC 8785, as the request hash).
+- A cleaned call hands the provider library the arguments you passed, with the
+  masked strings written into a copy of each one that held a value: an argument
+  with nothing to mask is the same object, and a typed one stays typed (a reply
+  object passed back into `messages`, a Pydantic config naming a class, a
+  Gemini `config` carrying an abort signal). What cannot be written into — a
+  class standing for its schema, an object that writes itself with `toJSON()`
+  — leaves as its cleaned JSON. A provider adapter of your own that
+  leaves something out of its hash implements `request_payload()` /
+  `requestPayload()`, the object the hash is computed over, which cleaning
+  reads; in Node the method is optional, and the descriptor's generic reading
+  is used without it.
+- A policy is compiled once per digest: a refresh that brings the same policy
+  is checked and timed afresh, and keeps the cleaners already compiled.
+- Python's blocking client applies an authorize answer that asks for a fresh
+  policy under the lock its refreshes write under: a policy fetched on another
+  thread meanwhile is never replaced by the older one.
+- `idside-verify-clean` exits 2, never 1, on an error it did not foresee (an
+  output that fails; in Node, a policy holding a lone surrogate), and on a
+  request nested deeper than the engine reads (128 levels), in both commands:
+  1 means "not clean", 2 that nothing was checked.
+- Where the caller names the keys, a key is a name: provider descriptors gain
+  an optional `caller_keyed_keys` list (OpenAI's prompt `variables` and an MCP
+  tool's `headers`, a JSON Schema's `properties`, `$defs`, `definitions`,
+  `patternProperties`, `dependencies`, `dependentSchemas` and
+  `dependentRequired`, google-genai's `defs` and `labels`). Under one, what a key named `name`, `id`
+  or `type` holds is read by the usual rules: a value is cleaned, an image is
+  still an attachment, a schema's `type` is still no text. Anthropic's
+  `input_examples` are free-form. OpenAI's `format` is no longer an identifier:
+  a Responses `text.format` schema and description are read.
+- The catalogue is one shared file, `packages/descriptors/content-rules.json`,
+  bundled byte-identical in both SDKs and held to the same output by
+  cross-language vectors. Provider descriptors gain a required `content` block
+  naming the fields that are identifiers (never read) and the attachments
+  (counted, never read).
+- A new example, `examples/python/replay_cleaning.py`.
+
+### Changed
+
+- **`HttpConsentClient` asks `GET /v1/content-policy` before its first
+  authorize** (and again every few minutes). A stand-in cloud of your own built
+  on the real client — an `httpx.MockTransport` or a `fetch` stub that answers
+  every request with an authorize decision — must now answer that route too:
+  `{"enabled": false}` keeps everything as it was. A cloud that cannot be
+  reached on that route stops the call with `ConsentUnreachableError`, as an
+  unreachable authorize does. A `consent_client=` / `consentClient` of your own
+  without `content_policy()` / `contentPolicy()` is unaffected: it cleans
+  nothing and declares nothing. It replaces the ID Side cloud, for tests only:
+  its calls carry no cleaning proof.
+- The request hash is computed after cleaning when the application cleans
+  prompts — the function is unchanged, and so is every hash of an application
+  that cleans nothing ([spec §3.1](./docs/spec/act-token.md#31-request_hash--canonicalization)).
 
 ## [0.1.0.dev3] — 2026-11-14
 
