@@ -486,6 +486,7 @@ def test_gemini_output_written_to_a_bucket_is_refused(config: Any) -> None:
         )
 
     assert "config.generation_output_config" in str(caught.value)
+    assert "the certificate never names" in str(caught.value)
     assert "collector" not in str(caught.value)
 
 

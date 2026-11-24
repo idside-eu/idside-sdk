@@ -565,7 +565,7 @@ def _refusal(method: str, path: str) -> str:
         "than the one the client was wrapped with, so it was NOT sent. "
         "Only the endpoints the provider descriptor declares are enforced; this "
         "one is not, and letting it through would mean an AI call reaching the "
-        "provider with no proof of consent and no ledger entry. Non-inference "
+        "provider with no certificate and no ledger entry. Non-inference "
         "traffic (uploads, batches, management endpoints) belongs on a second, "
         "UNWRAPPED client — there is no bypass option on a wrapped one. If this "
         "endpoint does carry inference, it needs a call site in the descriptor: "

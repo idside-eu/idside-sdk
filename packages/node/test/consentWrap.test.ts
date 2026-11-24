@@ -1,3 +1,4 @@
+import { cleaningOff } from "./cleaningOff.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { wrap } from "../src/consent.ts";
@@ -219,7 +220,7 @@ test("is fail-closed: an unreachable cloud stops the provider call", async () =>
 test("a 200 deny response never reaches the provider", async () => {
   const { client, calls } = fakeOpenAI();
   const cloud = new HttpConsentClient("https://cloud.test", {
-    fetch: async () =>
+    fetch: cleaningOff(async () =>
       new Response(
         JSON.stringify({
           decision: "deny",
@@ -234,7 +235,7 @@ test("a 200 deny response never reaches the provider", async () => {
           binding: "user_id",
         }),
         { status: 200, headers: { "content-type": "application/json" } },
-      ),
+      )),
   });
   const wrapped = wrap(client, { consentClient: cloud, provider: "openai" });
 
@@ -273,11 +274,11 @@ test("a qualified refusal never reaches the provider", async () => {
   for (const [label, status, problem, ErrorType, reason] of REFUSALS) {
     const { client, calls } = fakeOpenAI();
     const cloud = new HttpConsentClient("https://cloud.test", {
-      fetch: async () =>
+      fetch: cleaningOff(async () =>
         new Response(JSON.stringify(problem), {
           status,
           headers: { "content-type": "application/problem+json" },
-        }),
+        })),
     });
     const wrapped = wrap(client, { consentClient: cloud, provider: "openai" });
 
@@ -851,7 +852,7 @@ const ALLOW = {
 function judgingCloud(): { cloud: HttpConsentClient; bodies: string[] } {
   const bodies: string[] = [];
   const cloud = new HttpConsentClient("https://cloud.test", {
-    fetch: async (_url, init) => {
+    fetch: cleaningOff(async (_url, init) => {
       const body = String(init?.body);
       bodies.push(body);
       const { user_id: identity } = JSON.parse(body) as { user_id?: unknown };
@@ -868,7 +869,7 @@ function judgingCloud(): { cloud: HttpConsentClient; bodies: string[] } {
             }),
             { status: 422, headers: { "content-type": "application/problem+json" } },
           );
-    },
+    }),
   });
   return { cloud, bodies };
 }

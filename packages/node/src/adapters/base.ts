@@ -26,6 +26,15 @@ export interface ProviderAdapter {
   readonly name: string;
   extractRequestMetadata(params: Record<string, unknown>): RequestMetadata;
   /**
+   * The object `extractRequestMetadata` hashes, as JSON values. Optional, so
+   * that an adapter written against the three methods above keeps working:
+   * without it the descriptor's generic reading is used. An adapter that
+   * leaves something out of the hash (Gemini's `config.abortSignal`) must
+   * implement it: prompt cleaning reads this, and a value the hash cannot
+   * write would otherwise stop every cleaned call.
+   */
+  requestPayload?(params: Record<string, unknown>): Record<string, unknown>;
+  /**
    * Honour the cloud's non-parameter constraints on this call, returning the
    * request body to send — or throwing if the call must not happen at all.
    *
@@ -178,6 +187,18 @@ function withOptionHeaders(options: unknown, headers: Record<string, unknown>): 
 const JSON_SCALAR = new Set(["boolean", "number", "string"]);
 
 /**
+ * Write `key` on `target` as a property of its own, whatever its name.
+ *
+ * `target[key] = value` does not do that for `__proto__`: it sets the object's
+ * prototype (or does nothing, for a string), so a key `JSON.parse` reads and
+ * `JSON.stringify` writes would vanish from the copy — sent, and neither
+ * hashed nor cleaned.
+ */
+export function setOwn(target: Record<string, unknown>, key: string, value: unknown): void {
+  Object.defineProperty(target, key, { value, enumerable: true, writable: true, configurable: true });
+}
+
+/**
  * Return a JSON-compatible copy of `value`, or throw `ConsentTokenError`.
  *
  * Strict by design: primitives pass, arrays and plain objects recurse, objects
@@ -206,7 +227,7 @@ function normalize(value: unknown, path: string): unknown {
       const out: Record<string, unknown> = {};
       for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
         if (item === undefined) continue; // JSON drops undefined-valued keys
-        out[key] = normalize(item, `${path}.${key}`);
+        setOwn(out, key, normalize(item, `${path}.${key}`));
       }
       return out;
     }
@@ -236,21 +257,44 @@ function filterProtected(
   return safe;
 }
 
+/**
+ * The object the request hash is computed over, as JSON values: the call's
+ * params minus the identity parameters and the per-request headers, each
+ * normalized to JSON. Prompt cleaning reads and rewrites exactly this, so the
+ * hash is always of what leaves. Python's twin is `request_payload()`.
+ */
+export function requestPayload(descriptor: ProviderDescriptor, params: Record<string, unknown>): Record<string, unknown> {
+  const ignored = new Set([descriptor.identityParam, descriptor.ubtParam, descriptor.headersKwarg]);
+  const payload: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(params)) {
+    if (ignored.has(key) || value === undefined) continue;
+    setOwn(payload, key, normalize(value, key));
+  }
+  return payload;
+}
+
 /** Generic engine that enforces consent on a provider call, driven by a descriptor. */
 export class GenericAdapter implements ProviderAdapter {
   readonly descriptor: ProviderDescriptor;
   // Derived once from the immutable descriptor, not per call.
   protected readonly protectedParams: ReadonlySet<string>;
-  readonly #ignored: ReadonlySet<string>;
 
   constructor(descriptor: ProviderDescriptor) {
     this.descriptor = descriptor;
     this.protectedParams = new Set(descriptor.protectedParams);
-    this.#ignored = new Set([descriptor.identityParam, descriptor.ubtParam, descriptor.headersKwarg]);
   }
 
   get name(): string {
     return this.descriptor.name;
+  }
+
+  /**
+   * The object the request hash is computed over: what prompt cleaning reads
+   * and rewrites too. Override it, not the hash, to leave out what never
+   * leaves the process.
+   */
+  requestPayload(params: Record<string, unknown>): Record<string, unknown> {
+    return requestPayload(this.descriptor, params);
   }
 
   /**
@@ -262,11 +306,7 @@ export class GenericAdapter implements ProviderAdapter {
    * SDK languages.
    */
   extractRequestMetadata(params: Record<string, unknown>): RequestMetadata {
-    const payload: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(params)) {
-      if (this.#ignored.has(key) || value === undefined) continue;
-      payload[key] = normalize(value, key);
-    }
+    const payload = this.requestPayload(params);
 
     let hash: string;
     try {

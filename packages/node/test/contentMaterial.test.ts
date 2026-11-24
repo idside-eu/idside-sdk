@@ -184,32 +184,81 @@ const SLOW_SHAPES: Record<string, string> = {
   "four comment lines then blanks": BEGIN + ("\nComment: x" + " ".repeat(512)).repeat(4) + "\n!!\n",
 };
 
+// Every duration below is the CPU time of this thread (`process.threadCpuUsage`,
+// the whole process's before Node 23.9), never the wall clock: another process
+// on the machine would otherwise be counted as the engine's. A reading that is
+// too slow is slow in CPU time too. Each measure warms the cleaner first — the
+// first clean of a process pays what is not the engine's reading — and keeps
+// the best of several passes, a pass that meets the bound ending it early: a
+// reading superlinear by nature misses it on every pass. As in Python.
+
+/** What one block may take, in ms: milliseconds are expected, seconds were measured. */
+const ONE_BLOCK_MS = 500;
+/** A short text of the same kinds, cleaned once before anything is timed. */
+const WARM_UP = BEGIN + "\nComment: a@b.fr <br>[A_1]\n!!\n";
+/** Passes at most per measure. */
+const PASSES = 5;
+/** Four times the text may take at most this many times as long: linear is about 4, quadratic 16. */
+const SLOPE = 8;
+
+type Cleaned = ReturnType<ContentCleaner["clean"]>;
+const threadCpu: () => { user: number; system: number } =
+  typeof (process as { threadCpuUsage?: unknown }).threadCpuUsage === "function"
+    ? () => (process as unknown as { threadCpuUsage(): { user: number; system: number } }).threadCpuUsage()
+    : () => process.cpuUsage();
+
+/** The CPU time of one clean, in ms, and its result. */
+function cpu(cleaner: ContentCleaner, text: string): { took: number; result: Cleaned } {
+  const began = threadCpu();
+  const result = cleaner.clean(text);
+  const ended = threadCpu();
+  return { took: (ended.user - began.user + ended.system - began.system) / 1000, result };
+}
+
+/** The best CPU time of one clean, after a warm-up, and its result. */
+function oneBlock(text: string): { took: number; result: Cleaned } {
+  const cleaner = new ContentCleaner(BOTH);
+  let result = cleaner.clean(WARM_UP); // the warm-up
+  let took = Infinity;
+  for (let pass = 0; pass < PASSES && took >= ONE_BLOCK_MS; pass++) {
+    const measured = cpu(cleaner, text);
+    took = Math.min(took, measured.took);
+    result = measured.result;
+  }
+  return { took, result };
+}
+
+/**
+ * The best CPU times of a text and of one four times as long, in ms. Measured
+ * in turn, pass after pass, so that whatever slows one pass down weighs on both
+ * sizes alike, and compared as a ratio: the slope, not a duration, is what says
+ * linear.
+ */
+function slope(cleaner: ContentCleaner, small: string, large: string): { small: number; large: number } {
+  assert.equal(large.length, 4 * small.length);
+  cleaner.clean(small.slice(0, 4096));
+  let best = { small: Infinity, large: Infinity };
+  for (let pass = 0; pass < PASSES; pass++) {
+    best = { small: Math.min(best.small, cpu(cleaner, small).took), large: Math.min(best.large, cpu(cleaner, large).took) };
+    if (best.large <= SLOPE * Math.max(best.small, 2)) break;
+  }
+  return best;
+}
+
 for (const shape of Object.keys(SLOW_SHAPES).sort()) {
   test(`one block of a slow shape takes milliseconds: ${shape}`, () => {
     // One block took up to 6 s with the look-ahead (four lines of <br>); the
     // addresses, masked first, become placeholders the second pass reads.
-    const cleaner = new ContentCleaner(BOTH);
-    const began = performance.now();
-    const result = cleaner.clean(SLOW_SHAPES[shape]);
-    assert.ok(performance.now() - began < 500);
+    const { took, result } = oneBlock(SLOW_SHAPES[shape]);
+    assert.ok(took < ONE_BLOCK_MS, `${took.toFixed(0)} ms`);
     assert.equal(result.counts.private_key, undefined);
   });
 
   test(`a megabyte of a slow shape grows linearly: ${shape}`, () => {
-    const cleaner = new ContentCleaner(BOTH);
-    const best = (size: number): number => {
-      const text = blocks(SLOW_SHAPES[shape], size);
-      let least = Infinity;
-      for (let run = 0; run < 2; run++) {
-        const began = performance.now();
-        cleaner.clean(text);
-        least = Math.min(least, performance.now() - began);
-      }
-      return least;
-    };
-    const small = best(262_144);
-    const large = best(1_048_576);
-    assert.ok(large <= 8 * Math.max(small, 2), `${small.toFixed(0)} ms, then ${large.toFixed(0)} ms`);
+    const text = blocks(SLOW_SHAPES[shape], 262_144);
+    const { small, large } = slope(new ContentCleaner(BOTH), text, text.repeat(4));
+    assert.ok(large <= SLOPE * Math.max(small, 2), `${small.toFixed(0)} ms, then ${large.toFixed(0)} ms`);
+    // A ceiling as well, far above what a megabyte takes (under a second).
     assert.ok(large < 5_000);
   });
 }
@@ -217,10 +266,8 @@ for (const shape of Object.keys(SLOW_SHAPES).sort()) {
 for (const lines of [1, 2, 3, 4, 5, 8, 16, 32, 64]) {
   test(`one block of ${lines} header lines of <br> takes milliseconds`, () => {
     // Only four header lines are read; the look-ahead's time grew with each.
-    const block = BEGIN + ("\nComment: " + "<br>".repeat(63)).repeat(lines) + "\n!!\n";
-    const began = performance.now();
-    const result = new ContentCleaner(BOTH).clean(block);
-    assert.ok(performance.now() - began < 500);
+    const { took, result } = oneBlock(BEGIN + ("\nComment: " + "<br>".repeat(63)).repeat(lines) + "\n!!\n");
+    assert.ok(took < ONE_BLOCK_MS, `${took.toFixed(0)} ms`);
     assert.equal(result.counts.private_key, undefined);
   });
 }
@@ -234,19 +281,8 @@ test("many findings of two lengths resolve in linear time", () => {
   // Splicing each kept finding into a sorted list took quadratic time: 11.5 s
   // for 8 MiB of alternating addresses.
   const cleaner = new ContentCleaner({ schema: 1, detectors: { ip_address: "mask" } });
-  const best = (size: number): number => {
-    const text = alternating(size);
-    let least = Infinity;
-    for (let run = 0; run < 2; run++) {
-      const began = performance.now();
-      cleaner.clean(text);
-      least = Math.min(least, performance.now() - began);
-    }
-    return least;
-  };
-  const small = best(1_048_576);
-  const large = best(4_194_304);
-  assert.ok(large <= 8 * small, `${small.toFixed(0)} ms, then ${large.toFixed(0)} ms`);
+  const { small, large } = slope(cleaner, alternating(1_048_576), alternating(4_194_304));
+  assert.ok(large <= SLOPE * small, `${small.toFixed(0)} ms, then ${large.toFixed(0)} ms`);
 });
 
 test("resolving keeps each group of overlapping findings under its first", () => {

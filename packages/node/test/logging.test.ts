@@ -26,6 +26,7 @@
  * diffs the lines.
  */
 
+import { cleaningOff } from "./cleaningOff.ts";
 import { spawnSync } from "node:child_process";
 import { debuglog } from "node:util";
 
@@ -627,10 +628,10 @@ for (const [label, answer] of [
     process.env.IDSIDE_API_KEY = API_KEY;
     process.env.IDSIDE_BASE_URL = "https://cloud.test";
     const sent: (string | null)[] = [];
-    globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+    globalThis.fetch = cleaningOff((async (_url: unknown, init?: RequestInit) => {
       sent.push(new Headers(init?.headers).get("authorization"));
       return answer();
-    }) as typeof fetch;
+    }) as typeof fetch);
     try {
       const { client } = fakeOpenAI();
       const written = await journal(async () => {

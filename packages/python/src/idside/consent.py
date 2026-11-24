@@ -14,11 +14,11 @@ import functools
 import inspect
 import weakref
 from collections.abc import Callable, Mapping
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from contextvars import ContextVar
 from typing import Any, NamedTuple, cast
 
-from idside import _destination, _guard, _log
+from idside import _content_policy, _destination, _guard, _log
 from idside._destination import Origin
 from idside._routing import NO_ROUTE, CredentialRouter, Route, missing_message
 from idside._transport import (
@@ -38,6 +38,7 @@ from idside.adapters._call_options import (
 )
 from idside.adapters.base import ProviderAdapter
 from idside.exceptions import (
+    ContentBlockedError,
     CredentialRoutingError,
     MissingCredentialError,
     MissingIdentityError,
@@ -136,9 +137,9 @@ _NESTED_UNNAMED = (
     "A consent-enforced AI call was made from inside another one still in "
     "progress (a provider helper reaching an enforced method again), and it "
     "names nobody. A nested call is not authorized on its own: the identity of "
-    "the outer call was consumed by it, and a proof made now would be about the "
-    "API key, not about whoever the outer call named. The AI call was not made "
-    "and ID Side was not asked."
+    "the outer call was consumed by it, and a certificate made now would be about "
+    "the API key, not about whoever the outer call named. The AI call was not "
+    "made and ID Side was not asked."
 )
 
 
@@ -522,7 +523,7 @@ def _wrap(
             "nothing sees the second hop, and it carries the prompt, the ACT token "
             "and the provider key to whatever host the redirect names. Sending "
             "without the keyword is that risk; sending with it would fail the call "
-            "after ID Side had authorized it and recorded the proof. The client "
+            "after ID Side had authorized it and signed its certificate. The client "
             "was not wrapped: give it an HTTP client of a supported kind "
             "(http_client=, client=, or http_options.httpx_client=), or report "
             "its transport shape."
@@ -1061,6 +1062,88 @@ def _journal_binding(authorize_kwargs: dict[str, Any]) -> str:
     return "user_id" if authorize_kwargs["user_id"] is not None else "api_key"
 
 
+def _report_blocked(
+    consent_client: AnyConsentClient,
+    state: Any,
+    blocked: dict[str, int],
+    authorize_kwargs: Mapping[str, Any],
+) -> Any:
+    """Tell the cloud a call was blocked: rule ids and counts, best effort.
+
+    With them, which provider and model the call was for — the descriptor's
+    name and the model the caller wrote — each only when the service keeps
+    it as it is (:func:`idside._content_policy.event_labels`). Never a value
+    of the prompt, never the identity.
+
+    Returns what the client returned (a coroutine on an async client, for the
+    caller to await). Never raises: the call is already refused locally.
+    """
+    report = getattr(consent_client, "content_events", None)
+    if not callable(report):
+        return None
+    try:
+        labels = _content_policy.event_labels(
+            authorize_kwargs["provider"], authorize_kwargs["model"]
+        )
+        return report(
+            digest=state.digest,
+            engine=state.declaration["engine"],
+            blocked=blocked,
+            **labels,
+        )
+    except Exception:
+        return None
+
+
+def _summary(counts: Mapping[str, int]) -> list[str]:
+    return [f"{key}:{counts[key]}" for key in sorted(counts)]
+
+
+def _written_back(original: Any, normalized: Any, cleaned: Any) -> Any:
+    """``original`` with the strings cleaning replaced written into it.
+
+    ``normalized`` is its JSON form as cleaning read it, ``cleaned`` that form
+    once cleaned — which shares every branch cleaning left alone. Such a branch
+    comes back as the caller's own object, so what the provider library is
+    handed differs from what the caller passed by the masked strings and
+    nothing else. A typed argument stays one: a reply passed back as the object
+    the library returned is still written by the library, its unset fields left
+    out (its ``model_dump()`` spells every one of them ``null``, which a
+    provider may refuse), and a config naming a class still names it. An object
+    that holds a masked string is copied with that field replaced
+    (``model_copy(update=…)``, as Pydantic v2 models have it).
+
+    What cannot be written into comes back as its cleaned JSON form: a class
+    standing for its schema, an object whose dump does not name its own
+    attributes or does not have their shape, one that cannot be copied.
+    """
+    if cleaned is normalized:
+        return original
+    if isinstance(original, dict) and isinstance(cleaned, dict):
+        return {
+            key: _written_back(value, normalized[key], cleaned[key])
+            for key, value in original.items()
+        }
+    if isinstance(original, (list, tuple)) and isinstance(cleaned, list):
+        return [
+            _written_back(item, normalized[index], cleaned[index])
+            for index, item in enumerate(original)
+        ]
+    if isinstance(cleaned, dict):
+        # Whatever goes wrong here, at any depth — no such method, a class and
+        # not an instance, a name that is not an attribute — says this object
+        # cannot be copied field by field: it leaves as its cleaned JSON.
+        with suppress(Exception):
+            return original.model_copy(
+                update={
+                    name: _written_back(getattr(original, name), normalized[name], item)
+                    for name, item in cleaned.items()
+                    if item is not normalized[name]
+                }
+            )
+    return cleaned
+
+
 class _Enforcer:
     """Everything a patched method does around the one question put to the cloud.
 
@@ -1282,6 +1365,135 @@ class _Enforcer:
         }
         return authorize_kwargs, remaining
 
+    def prepare(
+        self,
+        consent_client: AnyConsentClient,
+        authorize_kwargs: dict[str, Any],
+        call_kwargs: dict[str, Any],
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Fetch the cleaning policy and clean the call: the blocking half.
+
+        A consent client without ``content_policy()`` (a stand-in written for
+        a test, or one built before cleaning existed) cleans nothing, exactly
+        as an SDK without cleaning: no ``content_policy`` field is sent, and
+        the cloud sees that no cleaning was declared.
+        """
+        fetch = getattr(consent_client, "content_policy", None)
+        state = self._fetched(fetch) if callable(fetch) else None
+        authorize_kwargs, call_kwargs, blocked = self.clean(
+            authorize_kwargs, call_kwargs, state
+        )
+        if blocked:
+            _report_blocked(consent_client, state, blocked, authorize_kwargs)
+            raise ContentBlockedError(blocked)
+        return authorize_kwargs, call_kwargs
+
+    async def prepare_async(
+        self,
+        consent_client: AnyConsentClient,
+        authorize_kwargs: dict[str, Any],
+        call_kwargs: dict[str, Any],
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """:meth:`prepare`, awaiting the cloud instead of blocking on it."""
+        fetch = getattr(consent_client, "content_policy", None)
+        state = None
+        if callable(fetch):
+            try:
+                state = await _awaited(fetch())
+            except BaseException as exc:
+                self.journal_policy_failed(exc)
+                raise
+        authorize_kwargs, call_kwargs, blocked = self.clean(
+            authorize_kwargs, call_kwargs, state
+        )
+        if blocked:
+            # Best effort here too: a report that fails once awaited must not
+            # stand in for the refusal it reports.
+            with suppress(Exception):
+                await _awaited(
+                    _report_blocked(consent_client, state, blocked, authorize_kwargs)
+                )
+            raise ContentBlockedError(blocked)
+        return authorize_kwargs, call_kwargs
+
+    def _fetched(self, fetch: Callable[[], Any]) -> Any:
+        try:
+            return fetch()
+        except BaseException as exc:
+            self.journal_policy_failed(exc)
+            raise
+
+    def journal_policy_failed(self, exc: BaseException) -> None:
+        """The class of what stopped the policy fetch, never its message."""
+        _log.event(
+            "content_policy_failed", call_site=self.call_site, error=type(exc).__name__
+        )
+
+    def clean(
+        self,
+        authorize_kwargs: dict[str, Any],
+        call_kwargs: dict[str, Any],
+        state: Any,
+    ) -> tuple[dict[str, Any], dict[str, Any], dict[str, int]]:
+        """Apply the organization's prompt-cleaning policy, before the hash.
+
+        Returns the authorize arguments (the request hash of what will leave,
+        and the ``content_policy`` declaration), the call kwargs with the
+        values that were masked, and — when a *block* rule matched — the rule
+        ids and counts that block it, in which case nothing else is used.
+        With no policy, or one that cleans nothing, both come back untouched:
+        the call is the one an SDK without cleaning would make.
+
+        An argument that held nothing to mask keeps the object the caller
+        passed; one that did is a copy of it with the masked strings written in
+        (:func:`_written_back`), so a typed argument stays typed.
+        """
+        if state is None or not state.enabled:
+            return authorize_kwargs, call_kwargs, {}
+        descriptor = self.adapter.descriptor
+        payload = self.adapter.request_payload(**call_kwargs)
+        result = state.cleaner_for(descriptor.name, descriptor.content).clean(payload)
+        digest = _log.short_hash(state.digest)
+        if result.blocked:
+            _log.event(
+                "content_blocked",
+                call_site=self.call_site,
+                policy=digest,
+                blocked=_summary(result.blocked),
+            )
+            return authorize_kwargs, call_kwargs, dict(result.blocked)
+        cleaned = dict(call_kwargs)
+        if result.counts:
+            for key, value in result.payload.items():
+                if value is not payload[key]:
+                    cleaned[key] = _written_back(call_kwargs[key], payload[key], value)
+            # What leaves must be what was cleaned. Read once more, the
+            # caller's objects give the cleaned payload — unless one of them
+            # writes itself differently each time it is read, or its copy
+            # cannot be read at all: every argument then leaves as the JSON
+            # that was cleaned, and none as the object that would write again.
+            read_back = None
+            with suppress(Exception):
+                read_back = self.adapter.request_payload(**cleaned)
+            if read_back != result.payload:
+                cleaned.update(result.payload)
+            meta = self.adapter.extract_request_metadata(**cleaned)
+            authorize_kwargs = {
+                **authorize_kwargs,
+                "request_hash": meta["request_hash"],
+            }
+        authorize_kwargs = {
+            **authorize_kwargs,
+            "content_policy": {**state.declaration, "counts": dict(result.counts)},
+        }
+        _log.event(
+            "cleaned",
+            call_site=self.call_site,
+            policy=digest,
+            masked=_summary(result.counts) or None,
+        )
+        return authorize_kwargs, cleaned, {}
+
     def journal_authorized(
         self, authorize_kwargs: dict[str, Any], decision: ConsentDecision, ms: int
     ) -> None:
@@ -1442,7 +1654,9 @@ def _make_enforced(
         resumed = enforcer.resumes(kwargs)
         if resumed is not None:
             return original(**resumed)
-        authorize_kwargs, call_kwargs = enforcer.begin(kwargs)
+        authorize_kwargs, call_kwargs = enforcer.prepare(
+            consent_client, *enforcer.begin(kwargs)
+        )
         try:
             with _log.timer() as elapsed:
                 decision = consent_client.authorize(**authorize_kwargs)
@@ -1477,7 +1691,9 @@ def _make_async_enforced(
         resumed = enforcer.resumes(kwargs)
         if resumed is not None:
             return await original(**resumed)
-        authorize_kwargs, call_kwargs = enforcer.begin(kwargs)
+        authorize_kwargs, call_kwargs = await enforcer.prepare_async(
+            consent_client, *enforcer.begin(kwargs)
+        )
         try:
             with _log.timer() as elapsed:
                 decision = await _awaited(consent_client.authorize(**authorize_kwargs))
@@ -1590,6 +1806,9 @@ class _EnforcedSyncContext(_DeferredEnforcement):
     def __enter__(self) -> Any:
         enforcer = self._enforcer
         client = cast(ConsentClient, self._consent_client)
+        self._authorize_kwargs, self._call_kwargs = enforcer.prepare(
+            client, self._authorize_kwargs, self._call_kwargs
+        )
         try:
             with _log.timer() as elapsed:
                 decision = client.authorize(**self._authorize_kwargs)
@@ -1615,6 +1834,9 @@ class _EnforcedAsyncContext(_DeferredEnforcement):
 
     async def __aenter__(self) -> Any:
         enforcer = self._enforcer
+        self._authorize_kwargs, self._call_kwargs = await enforcer.prepare_async(
+            self._consent_client, self._authorize_kwargs, self._call_kwargs
+        )
         try:
             with _log.timer() as elapsed:
                 decision = await _awaited(

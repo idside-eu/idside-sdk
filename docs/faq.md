@@ -28,7 +28,7 @@ timeout, an HTTP 5xx, or a 200 whose body the SDK cannot fully parse.
 
 This is [fail-closed](./concepts.md#9-fail-closed), and it is the right default
 for one reason: the alternative fails *silently*. A fail-open SDK would keep
-serving traffic during an outage while quietly producing AI calls with no proof
+serving traffic during an outage while quietly producing AI calls with no certificate
 attached — and you would discover the hole months later, in an audit, on exactly
 the calls you can no longer reconstruct. A visible outage is a worse afternoon
 and a better year.
@@ -69,6 +69,13 @@ numbers would mean one network incident cutting your Python service and sparing
 its Node.js equivalent. `scripts/check_sdk_parity.sh` runs both and compares the
 deadline each one actually arms.
 
+Prompt cleaning adds two costs. Every wrapped client asks for the
+strainer's cleaning policy on its first call and again every few minutes
+(`GET /v1/content-policy`, cached), whether or not the organization cleans
+anything; when it does, the key set is fetched once and each call is cleaned in
+your process — a few milliseconds for an ordinary prompt, measured in
+[prompt cleaning](./prompt-cleaning.md#cost).
+
 Both SDKs keep a client alive across calls (`httpx.Client` / `fetch` keep-alive),
 so the TLS handshake is paid once per connection, not once per call. In practice
 the authorize hop is small next to the AI call it precedes — a model generating
@@ -97,7 +104,7 @@ request wait longer on an outage. Neither ever lets an unauthorized AI call out.
 **No. Today every enforced AI call performs one `authorize` round trip.** No
 decision is cached, in either SDK.
 
-A short-TTL cache of signed proofs is a designed-for future option — it has to be
+A short-TTL cache of signed certificates is a designed-for future option — it has to be
 signed, short-lived and bound to a consent-state version, otherwise it would let
 a stale "opt-in" outlive the user's opt-out, which is precisely the failure the
 product exists to prevent. When it ships it will be documented here with its
@@ -128,7 +135,10 @@ The SDK is *structurally* unable to send your prompt: the payload is built field
 by field in
 [`_transport.py`](../packages/python/src/idside/_transport.py) /
 [`transport.ts`](../packages/node/src/transport.ts) — read them, they are short —
-and the only thing derived from the request body is a one-way hash.
+and the only thing derived from the request body is a one-way hash — plus, when
+the organization cleans prompts, how many values each of its rules masked
+(`{"email": 2}`), never which ([prompt cleaning](./prompt-cleaning.md)). The
+cleaning itself runs in your process.
 
 Two consequences worth being explicit about:
 
@@ -236,15 +246,15 @@ const proof = await verifyAct(token, {
 
 Anything short of a full pass raises — there is no boolean to misread, and a
 token from a deployment of the cloud that is not the production service
-(`iss: test.idside.eu`) is refused unless you ask for it explicitly. Proofs
+(`iss: test.idside.eu`) is refused unless you ask for it explicitly. Certificates
 without `mode` are also refused unless a verifier explicitly enables the legacy
 option for a known historical archive. One thing a pass does not say is that the
-proof is production evidence: a call made with an `sk_test_` key on the
+certificate is production evidence: a call made with an `sk_test_` key on the
 production service carries `iss: idside.eu` and verifies, and only
 `proof.mode` reads `"test"`. Require `proof.mode == "live"` yourself before you
-count a proof. Full signatures in the quickstarts
-([Python](./quickstart-python.md#7-verify-a-proof-yourself) ·
-[Node.js](./quickstart-node.md#7-verify-a-proof-yourself)) and the failure modes
+count a certificate. Full signatures in the quickstarts
+([Python](./quickstart-python.md#7-verify-a-certificate-yourself) ·
+[Node.js](./quickstart-node.md#7-verify-a-certificate-yourself)) and the failure modes
 in the [verification errors](./errors.md#verification-errors).
 
 Step 4 is where canonicalization matters, and where the SDKs help: both export
@@ -280,7 +290,7 @@ The model is **deterrent and evidentiary**, not coercive:
 
 - a bypassed call produces **no ACT token and no ledger entry**;
 - so the developer has nothing to show an authority for that call;
-- and the gap is visible as a discontinuity between traffic and proof.
+- and the gap is visible as a discontinuity between traffic and certificates.
 
 Two mechanisms narrow the gap for the honest-but-imperfect case, which is the
 common one. First, in-place patching: `wrap()` patches methods on the client's
@@ -302,7 +312,7 @@ one.
 
 ## Why can't I set a user's preferences from my backend?
 
-Because if you could, the proof would be worth nothing.
+Because if you could, the certificate would be worth nothing.
 
 A signed token attests to what the signer verified. If the SDK accepted
 preferences from the caller, an ACT token would only ever certify *what the
@@ -335,14 +345,14 @@ what basis.
 ## Does anyone have to see a popup?
 
 No — not when an organization decides. A policy applies to every call made with
-its keys, and nobody is asked: the proof records `source: "default_policy"` and
+its keys, and nobody is asked: the certificate records `source: "default_policy"` and
 the basis the organization declared
 ([Concepts §4](./concepts.md#4-the-policy-what-applies-to-a-call-and-who-decided)).
 The SDK is identical whether anyone is asked or not.
 
 An application can choose to ask its users instead. The
 [Preference Center](./widget.md) puts the question to the person; their answer
-is theirs, and the proof records `legal_basis: "consent"`. That is the one way
+is theirs, and the certificate records `legal_basis: "consent"`. That is the one way
 the system collects consent from someone, and it costs a `<script>` tag.
 
 What is worth pricing rather than passing over is an application set up to ask
@@ -355,12 +365,12 @@ rewriting a parameter: an agentic integration with no widget fails on every
 request. A refusal that names a credential posture you have not provisioned —
 a training refusal on Mistral, for one — fails the same way, with
 [`MissingCredentialError`](./errors.md#missingcredentialerror). The rest is
-quieter and worse — a year of proofs reading `not_established`, over
+quieter and worse — a year of certificates reading `not_established`, over
 capabilities you are paying a provider for and nobody ever agreed to.
 
 The failure worth naming on the other side is a policy that declares a basis
 the organization would not defend. Nothing stops you, and nothing breaks — the
-proofs simply carry what was declared, signed and unalterable, in the exact
+certificates simply carry what was declared, signed and unalterable, in the exact
 document they were built to be read from.
 [Concepts §4](./concepts.md#the-mistake-worth-naming) works it through.
 
@@ -373,7 +383,7 @@ Enforcement therefore happens on two tracks
 ([Concepts §11](./concepts.md#11-where-the-enforcement-actually-happens)):
 **Type 1**, the provider parameters the cloud forces (`store: false` and friends),
 which providers do read and apply today; and **Type 2**, the token, which is
-audit proof today and an interoperability bet for tomorrow. If providers adopt
+audit certificate today and an interoperability bet for tomorrow. If providers adopt
 the [ACT specification](./spec/act-token.md) — its stated goal is to become a
 standard — Type 2 absorbs Type 1 and the provider enforces consent directly.
 
@@ -389,17 +399,36 @@ Gemini's `generate_content_stream`. Authorization happens before the stream
 opens, so a denial stops the call before a single token is generated.
 
 **Async: yes, in both SDKs.** The Node SDK is async throughout. In Python,
-`consent.wrap(AsyncOpenAI())` gives you the same guarantees as the blocking
-client — same forced parameters, same ACT token, same `request_hash`, same
+`consent.wrap(AsyncOpenAI())` is enforced exactly as the blocking client is —
+same forced parameters, same ACT token, same `request_hash`, same
 errors — with no separate entry point and nothing to configure. The wait for
 `/v1/authorize` is awaited rather than blocked, which is what makes the SDK
 usable from FastAPI or any other ASGI application: your event loop keeps serving
 every other request in flight.
 
-One exception, and it fails loudly rather than quietly: `google-genai` exposes
-its async methods at `client.aio.*`, which no descriptor declares. Those calls
-are **refused** with `UnenforcedCallError`, not enforced. The async clients of
-`openai` and `anthropic` are fully enforced.
+**Python's async path runs on asyncio, and on asyncio only.** Under trio, or any
+event loop that is not asyncio's, a wrapped async call raises `RuntimeError: no
+running event loop` before anything is sent: no policy fetched, no consent
+asked, no AI call. Run the wrapped async client under asyncio, or call the
+blocking client from a worker thread (`trio.to_thread.run_sync`).
+
+Two exceptions in Python, and both fail loudly rather than quietly: no
+descriptor declares `google-genai`'s async methods at `client.aio.*`, nor
+`mistralai`'s `_async` twins (`chat.complete_async`, `chat.stream_async`, and the
+same on `fim`, `agents` and `beta.conversations`). Those calls are **refused**
+with `UnenforcedCallError`, not enforced; call the blocking method instead
+(through `asyncio.to_thread` in async code). What is declared, and enforced:
+
+- `openai` and DeepSeek: `chat.completions.create`, plus `responses.create` for
+  OpenAI — on `AsyncOpenAI` as on `OpenAI`;
+- `anthropic`: `messages.create` — on `AsyncAnthropic` as on `Anthropic`;
+- `google-genai`: `models.generate_content` and `models.generate_content_stream`,
+  blocking only in Python;
+- `mistralai`: `chat.complete`, `chat.stream`, `fim.complete`, `fim.stream`,
+  `agents.complete`, `agents.stream` and `beta.conversations.start`, blocking
+  only in Python.
+
+In Node every one of these call sites returns a promise: nothing is left out.
 
 **Frameworks (LangChain, LlamaIndex, agent runtimes):** the SDK patches methods
 on the client instance you hand it. So a framework that you *give* a wrapped
@@ -413,7 +442,7 @@ which shows you exactly what reaches the wire.
 
 Five provider descriptors ship today: OpenAI, Anthropic, Google Gemini, Mistral
 and DeepSeek. DeepSeek is reached through the `openai` client pointed at
-`api.deepseek.com`, and its proofs record `provider: "deepseek"`. Every other
+`api.deepseek.com`, and its certificates record `provider: "deepseek"`. Every other
 OpenAI-compatible API (Groq, Together, xAI, vLLM…) works through the `openai`
 client and descriptor at no extra cost, recorded as `provider: "openai"`
 ([providers §2](./providers.md#openai-compatible-providers)).
@@ -465,7 +494,7 @@ immutable ledger, the dashboard, the policy and fraud-detection engines. The
 reasons, but because it is served by ID Side and framed cross-origin so that
 neither your page nor your backend can read or write what is inside it. A widget
 you could vendor into your own page would be a widget your code sits behind, and
-the proof at the other end would attest to nothing. Its interface is documented
+the certificate at the other end would attest to nothing. Its interface is documented
 in the open regardless. That boundary is drawn in
 [`ARCHITECTURE.md` §4](./ARCHITECTURE.md#4-source-available--proprietary-boundary).
 

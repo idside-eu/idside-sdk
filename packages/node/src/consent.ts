@@ -18,6 +18,7 @@
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
+import { isDeepStrictEqual } from "node:util";
 
 import { getAdapterFor } from "./adapters/index.ts";
 import {
@@ -28,7 +29,8 @@ import {
   forwardableOptions,
 } from "./adapters/callOptions.ts";
 import type { ProviderAdapter } from "./adapters/base.ts";
-import { headersToObject, isPlainObject } from "./adapters/base.ts";
+import { headersToObject, isPlainObject, requestPayload, setOwn } from "./adapters/base.ts";
+import { eventLabels, type PolicyState } from "./contentPolicy.ts";
 import type { CallSite as DescriptorCallSite } from "./descriptors.ts";
 import { originOf } from "./destination.ts";
 import {
@@ -47,6 +49,7 @@ import { installTransportGuard, type NetState } from "./guard.ts";
 import type { Enforced } from "./enforced.ts";
 import * as log from "./log.ts";
 import {
+  ContentBlockedError,
   CredentialRoutingError,
   MissingCredentialError,
   MissingIdentityError,
@@ -80,7 +83,7 @@ const NESTED_UNNAMED =
   "A consent-enforced AI call was made from inside another one still in " +
   "progress (a provider helper reaching an enforced method again), and it " +
   "names nobody. A nested call is not authorized on its own: the identity of " +
-  "the outer call was consumed by it, and a proof made now would be about the " +
+  "the outer call was consumed by it, and a certificate made now would be about the " +
   "API key, not about whoever the outer call named. The AI call was not made " +
   "and ID Side was not asked.";
 
@@ -975,7 +978,13 @@ function makeEnforced(
     // call is refused while nothing has happened yet.
     assertEnforceableOptions(adapter.descriptor, params, rest);
 
-    const meta = adapter.extractRequestMetadata(params);
+    // Hashed first: a value that cannot be hashed fails before any I/O, as in
+    // Python. Then cleaned, and hashed again if anything was masked, so the
+    // hash is always of what leaves.
+    let meta = adapter.extractRequestMetadata(params);
+    const cleaned = await cleanCall(consentClient, adapter, callSite, params);
+    if (cleaned.changed) meta = adapter.extractRequestMetadata(cleaned.params);
+    const callParams = cleaned.params;
     // Every journalled field below is either a fact about the developer's own
     // request or already a digest: a salted pseudonym instead of the identity,
     // a truncated request hash instead of the ACT token, the names of the
@@ -999,6 +1008,7 @@ function makeEnforced(
         userId,
         ubt,
         credentialPostures: router?.postures ?? [],
+        ...(cleaned.declaration !== undefined ? { contentPolicy: cleaned.declaration } : {}),
       });
     } catch (error) {
       // The class of what went wrong and how long it took, never the message:
@@ -1038,7 +1048,7 @@ function makeEnforced(
       // Constraints first: a refused call must not be dressed with a token and
       // forced parameters on its way to being rejected.
       allowed = adapter.applyConstraints(
-        params,
+        callParams,
         decision.constraints,
         callSite,
       );
@@ -1099,6 +1109,132 @@ function makeEnforced(
     enumerable: false,
   });
   return enforced;
+}
+
+interface CleanedCall {
+  readonly params: Record<string, unknown>;
+  readonly changed: boolean;
+  readonly declaration?: Record<string, unknown>;
+}
+
+function summary(counts: Readonly<Record<string, number>>): string[] {
+  return Object.keys(counts)
+    .sort()
+    .map((key) => `${key}:${counts[key]}`);
+}
+
+/**
+ * The object an adapter hashes, and cleaning reads: the adapter's own reading
+ * when it has one (Gemini leaves `config.abortSignal` out), the descriptor's
+ * generic one otherwise.
+ */
+function payloadOf(adapter: ProviderAdapter, params: Record<string, unknown>): Record<string, unknown> {
+  return typeof adapter.requestPayload === "function"
+    ? adapter.requestPayload(params)
+    : requestPayload(adapter.descriptor, params);
+}
+
+/**
+ * `original` with the strings cleaning replaced written into it.
+ *
+ * `normalized` is its JSON form as cleaning read it, `cleaned` that form once
+ * cleaned — which shares every branch cleaning left alone. Such a branch comes
+ * back as the caller's own object, so what the provider library is handed
+ * differs from what the caller passed by the masked strings and nothing else:
+ * a value the payload does not carry (an abort signal), a property JSON does
+ * not write (a helper's parser) and an object's own class all stay. An object
+ * that wrote itself with `toJSON()` and holds a masked string cannot be
+ * written into: it comes back as its cleaned JSON form.
+ */
+function writtenBack(original: unknown, normalized: unknown, cleaned: unknown): unknown {
+  if (cleaned === normalized) return original;
+  if (Array.isArray(cleaned) && Array.isArray(normalized) && Array.isArray(original)) {
+    return cleaned.map((item, index) => writtenBack(original[index], normalized[index], item));
+  }
+  if (isPlainObject(cleaned) && isPlainObject(normalized) && isPlainObject(original)) {
+    // Every property the original has, as it has it, and the changed ones as
+    // plain values: decided before the copy exists, since a frozen original's
+    // properties could not be rewritten on it afterwards.
+    const properties: Record<string, unknown> = Object.getOwnPropertyDescriptors(original);
+    for (const key of Object.keys(cleaned)) {
+      if (cleaned[key] === normalized[key]) continue;
+      const value = writtenBack(original[key], normalized[key], cleaned[key]);
+      setOwn(properties, key, { value, enumerable: true, writable: true, configurable: true });
+    }
+    return Object.create(Object.getPrototypeOf(original), properties as PropertyDescriptorMap);
+  }
+  return cleaned;
+}
+
+/**
+ * Apply the organization's prompt-cleaning policy to one call, before the hash.
+ *
+ * Returns the params to send — the caller's own, with the masked strings
+ * written into a copy of each argument that held one (`writtenBack`) — and the
+ * `content_policy` declaration. With no policy, or a consent client that
+ * cannot fetch one, both come back untouched and no declaration is made: the
+ * call is the one an SDK without cleaning would make. A *block* rule reports
+ * the rule ids and counts to the cloud (best effort) and throws
+ * `ContentBlockedError`: nothing else is sent. Python's twin is
+ * `_Enforcer.prepare()`.
+ */
+async function cleanCall(
+  consentClient: ConsentClient,
+  adapter: ProviderAdapter,
+  callSite: string,
+  params: Record<string, unknown>,
+): Promise<CleanedCall> {
+  if (typeof consentClient.contentPolicy !== "function") return { params, changed: false };
+  let state: PolicyState;
+  try {
+    state = await consentClient.contentPolicy();
+  } catch (error) {
+    // The class of what stopped the fetch, never its message.
+    log.event("content_policy_failed", {
+      call_site: callSite,
+      error: error instanceof Error ? error.constructor.name : "unknown",
+    });
+    throw error;
+  }
+  if (!state.enabled) return { params, changed: false };
+  const descriptor = adapter.descriptor;
+  const payload = payloadOf(adapter, params);
+  const result = state.cleanerFor(descriptor.name, descriptor.content).clean(payload);
+  const policy = log.shortHash(state.digest);
+  if (Object.keys(result.blocked).length > 0) {
+    log.event("content_blocked", { call_site: callSite, policy, blocked: summary(result.blocked) });
+    if (typeof consentClient.contentEvents === "function") {
+      try {
+        await consentClient.contentEvents({
+          digest: state.digest as string,
+          engine: (state.declaration as Record<string, unknown>).engine as string,
+          blocked: result.blocked,
+          // The descriptor's name and the model as the caller wrote it — read
+          // off `params`, not `String()`-ed as the request metadata's is — each
+          // only when the service keeps it. Never a value of the prompt.
+          ...eventLabels(adapter.name, params.model),
+        });
+      } catch {
+        // best effort, by contract: the call is already refused
+      }
+    }
+    throw new ContentBlockedError({ ...result.blocked });
+  }
+  const masked = Object.keys(result.counts).length > 0;
+  let cleaned: Record<string, unknown> = { ...params };
+  if (masked) {
+    const out = result.payload as Record<string, unknown>;
+    for (const key of Object.keys(out)) {
+      if (out[key] !== payload[key]) setOwn(cleaned, key, writtenBack(params[key], payload[key], out[key]));
+    }
+    // What leaves must be what was cleaned. Read once more, the caller's
+    // objects give the cleaned payload — unless one of them writes itself
+    // differently each time it is read: every argument then leaves as the
+    // JSON that was cleaned, and none as the object that would write again.
+    if (!isDeepStrictEqual(payloadOf(adapter, cleaned), out)) cleaned = { ...params, ...out };
+  }
+  log.event("cleaned", { call_site: callSite, policy, masked: masked ? summary(result.counts) : undefined });
+  return { params: cleaned, changed: masked, declaration: { ...state.declaration, counts: { ...result.counts } } };
 }
 
 /** What the provider method returned, kept out of promise adoption. */

@@ -9,6 +9,7 @@ examples/
   python/  wrapped_call.py           a consent-enforced OpenAI call, end to end
            async_wrapped_call.py     the same, on an async client, two users at once
            unnamed_call.py           a call that names nobody: the API key is the subject
+           replay_cleaning.py        replaying prompt cleaning on a request that left
   node/    wrapped-call.ts           the same call in TypeScript, with no cast
   .env.example                       what the SDK reads from the environment
 ```
@@ -18,7 +19,7 @@ examples/
 **What runs is the SDK.** Resolving the provider from its
 [descriptor](../packages/descriptors/), patching the declared call sites,
 canonicalising the request and hashing it, consuming the identity, applying the
-parameters the decision forces, attaching the proof to the outgoing request,
+parameters the decision forces, attaching the certificate to the outgoing request,
 deciding blocking-versus-async from the shape of the client you wrapped, and the
 transport guard that refuses any body-bearing request that did not go through
 enforcement. None of that is simulated.
@@ -37,7 +38,7 @@ output.**
   the headers and the body, exactly as they left. No provider key, no bill, no
   network. Every key and identifier in these files is fictitious.
 
-**What therefore cannot be shown here:** a real signed proof, and so a real
+**What therefore cannot be shown here:** a real signed certificate, and so a real
 `verify_act()` / `verifyAct()` round trip. An example that signed one would need
 a private key, and this repository holds none by design — verification is
 checked instead against fixed cross-language vectors in both test suites.
@@ -158,7 +159,38 @@ $ uv run unnamed_call.py
 Two things to read twice:
    - no identity left this process, and none was needed: the policy
      applies to every call made with the key;
-   - the proof still carries the basis the organization declared.
+   - the certificate still carries the basis the organization declared.
+```
+
+### Replaying prompt cleaning
+
+When an organization cleans prompts, the SDK masks what its policy names before
+a call is hashed and sent, and the certificate names the policy by its digest. A
+request the SDK cleaned is a fixed point of that policy, so whoever holds it can
+check it offline — this program does, with `verify_clean()` and
+`content_policy_digest()`, on a request that was cleaned and on one that was
+not. No cloud and no provider are involved. See
+[prompt cleaning](../docs/prompt-cleaning.md).
+
+```console
+$ uv run replay_cleaning.py
+1. The policy the certificate names
+   digest: sha256:12ff6a3379afd390146b21f3bbc33f032c4410ca9d279aee56ce7e670e248159
+   (compare it with the certificate's before trusting the replay)
+
+2. The request that left
+   "Reply to [EMAIL_1], or call [PHONE_1]."
+   verify_clean: True
+   ...nothing left to mask or block: what left was cleaned.
+
+3. A request with an address left in it
+   "Reply to marie.dupont@example.com."
+   verify_clean: False
+   ...this policy would still mask something: it was not applied.
+
+True says this policy finds nothing more to do, not that the request
+held nothing sensitive: cleaning reduces what leaves, it does not find
+everything.
 ```
 
 ## Node.js
@@ -231,7 +263,7 @@ The request *bodies* they print are ordered differently, because each provider
 SDK serialises its own way. The hash is not, because ID Side canonicalises the
 request ([JCS, RFC 8785](https://www.rfc-editor.org/rfc/rfc8785)) before hashing
 it. That is what lets an auditor recompute the hash from your request, in
-whatever language they like, and check it against the proof.
+whatever language they like, and check it against the certificate.
 
 ## Going live
 

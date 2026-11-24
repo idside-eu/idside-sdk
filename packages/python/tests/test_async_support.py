@@ -591,6 +591,8 @@ class _SlowCloud(httpx.AsyncBaseTransport):
         self._gate = gate
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/content-policy":
+            return httpx.Response(200, json={"enabled": False})
         await self._gate.wait()
         return httpx.Response(
             200,

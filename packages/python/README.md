@@ -1,6 +1,6 @@
 # idside — AI Consent Infrastructure (Python SDK)
 
-A signed proof of the AI policy each call was authorized against — for every AI
+A signed certificate of the AI policy each call was authorized against — for every AI
 call your backend makes.
 
 > ⚠️ **Pre-release (`0.1.0.dev3`).** Install with `pip install idside`. The SDK
@@ -30,7 +30,7 @@ client.chat.completions.create(          # 2. call it as usual
 On every call, the SDK asks the ID Side cloud to authorize the request, applies
 the provider parameters the cloud decided (e.g. OpenAI `store=false`), attaches
 a signed **ACT token** (an ECDSA JWT bound to this exact request — the audit
-proof), and only then calls the provider. The cloud has already appended the
+certificate), and only then calls the provider. The cloud has already appended the
 matching entry to an immutable ledger. You never see, store or relay the user's
 consent preferences — that is the point.
 
@@ -49,7 +49,7 @@ answer — the AI call **does not happen**. The SDK never guesses a decision.
 
 OpenAI-compatible providers (Groq, Together, xAI…) work through the `openai`
 client and its descriptor. DeepSeek has its own: an `OpenAI` client pointed
-at `api.deepseek.com` gets the `deepseek` descriptor, so its proofs say
+at `api.deepseek.com` gets the `deepseek` descriptor, so its certificates say
 `provider: "deepseek"` and it takes no `credentials=` (see `docs/providers.md`). Provider libraries are optional extras:
 `pip install 'idside[openai]'`, `[anthropic]`, `[gemini]`, `[mistral]` or `[all]`.
 
@@ -74,11 +74,11 @@ whose `send` will not take `follow_redirects` — is not wrapped at all: `wrap()
 raises `UnsupportedProviderError` and says what to pass instead. That last one
 is checked at `wrap()` rather than discovered later on purpose: refusing the
 keyword mid-call would fail the request *after* ID Side had authorized it and
-recorded the proof, while every bodyless call kept working.
+recorded the certificate, while every bodyless call kept working.
 
 ## What a single call may not do
 
-The proof describes the request the SDK authorized, so an option that would
+The certificate describes the request the SDK authorized, so an option that would
 change that request *after* authorization is refused with
 `UnenforceableOptionError` — before ID Side is asked, with nothing sent:
 
@@ -93,7 +93,7 @@ change that request *after* authorization is refused with
   session): automatic function calling would send several requests under one
   token. Declare the function and run the loop yourself.
 
-The list is closed: only options known to change nothing a proof covers pass —
+The list is closed: only options known to change nothing a certificate covers pass —
 `timeout`, `timeout_ms`, `retries`, `http_options.timeout` and `retry_options`,
 the `parse`/`stream` helper arguments, and header maps holding no reserved
 header (`X-Request-Id`, `anthropic-beta`…). An option a newer library adds is
@@ -126,26 +126,26 @@ and ordinary headers, reserved headers) are still refused per call.
 The boundary is the client you hand to `wrap()`: a transport you build yourself
 (`http_client=` with request hooks, a custom `httpx` transport, Mistral SDK
 hooks) runs after the guard and can rewrite what it sends. That is your code,
-outside what a library in your process can police — and the proof records what
+outside what a library in your process can police — and the certificate records what
 was authorized.
 
 ## `user_id` vs `ubt`
 
 Naming the end user is **optional**. A call that names nobody is authorized with
-your API key as the proof's subject — the proof records `binding="api_key"` —
-and your organization's policy applies to it as to any other. To make the proof
+your API key as the certificate's subject — the certificate records `binding="api_key"` —
+and your organization's policy applies to it as to any other. To make the certificate
 say whom a call was for, pass **at most one** of two kwargs. Both are consumed
 by the SDK and never forwarded to the AI provider:
 
 - **`user_id="usr_..."`** — your own identifier for the person, or for a team
-  (`"team-marketing"`). You assert it yourself; the proof records
+  (`"team-marketing"`). You assert it yourself; the certificate records
   `binding="user_id"`.
 - **`ubt="eyJ..."`** — use this when your frontend runs the ID Side Preference
   Center widget, on an application that asks its users. The widget hands your frontend a **User Binding Token**: a JWT
   signed by ID Side that binds the user, your app, the session and the consent
   state. Forward it to your backend and pass it as-is — the SDK treats it as
   opaque; the cloud verifies it. This defeats identity spoofing (collecting an
-  opt-out for one user, then calling the SDK with another), and the proof
+  opt-out for one user, then calling the SDK with another), and the certificate
   records `binding="ubt"` — the strong link.
 
 Passing both raises `ConflictingIdentityError`; passing one that names nobody
@@ -220,9 +220,11 @@ anyway" — when authorization did not succeed, the AI call simply did not happe
 | `ToolUseRefusedError` | The call can hand the model tools — `tools`, `functions`, `web_search_options`, a stored conversation or prompt, a Mistral agent, a Gemini cache — and agentic tools are not accepted for this user: refused, never asked, or refused by a policy | Retry without them, or route the user to a non-agentic path; never retry the same call |
 | `CredentialRoutingError` | The `credentials=` mapping cannot route; the client already sets the routing header in its default headers; or a derivation changes the credential or a reserved header | Fix the mapping — the message says which entry and why; route with `credentials=` |
 | `MissingCredentialError` | This user's answer needs a posture you did not provision (`.posture`, `.provider`, `.provisioned`) | Provision that credential and label it; never retry |
-| `ActVerificationError` | A proof did not check out during `verify_act()` (see below) | Reject the proof; the subclass says why |
+| `ContentBlockedError` | The organization's [prompt-cleaning policy](https://github.com/idside-eu/idside-sdk/blob/main/docs/prompt-cleaning.md) blocks this call (`.blocked`: rule ids and counts, never a value). Nothing was sent | Let the person remove that content; never retry the same call |
+| `ContentPolicyError` | The prompt-cleaning policy did not check out, or cannot be applied — or this machine's clock is out of step with it, which the message says | Set the clock (NTP) when the message names it; otherwise upgrade `idside`, and report it if it persists |
+| `ActVerificationError` | A certificate did not check out during `verify_act()` (see below) | Reject the certificate; the subclass says why |
 
-## Verifying a proof — `verify_act()`
+## Verifying a certificate — `verify_act()`
 
 Anyone holding an ACT token can check it **offline**, with no call to ID Side and
 no account: an auditor, a customer's compliance team, a provider, a supervisory
@@ -238,10 +240,10 @@ proof = verify_act(
     # extra_headers, hashed exactly as the SDK hashed them
     request_hash=request_hash({"model": "gpt-4o", "messages": messages}),
 )
-if proof.mode != "live":                      # a test key's proof verifies too
+if proof.mode != "live":                      # a test key's certificate verifies too
     raise ValueError("not production evidence: minted with a test key")
 
-proof.binding        # "ubt": the widget bound the identity — the strong proof
+proof.binding        # "ubt": the widget bound the identity — the strongest binding
 proof.consent_state  # {"training": False}
 proof.app_id, proof.provider, proof.model, proof.token_id, proof.mode
 ```
@@ -251,7 +253,7 @@ What is checked, and never negotiated:
 | Check | Rule |
 | ----- | ---- |
 | `alg` | pinned to `ES256`; `none`, `HS256` or anything else is a forgery attempt |
-| `typ` | must be `act+jwt` — a User Binding Token (`ubt+jwt`) is not a proof |
+| `typ` | must be `act+jwt` — a User Binding Token (`ubt+jwt`) is not a certificate |
 | Signature | ES256 over `header.payload`, with the key named by `kid` |
 | `kid` | must be in the JWKS; an unknown one is never worked around |
 | Key set | must be public — a JWK carrying `d` or `k` is an incident, see below |
@@ -260,11 +262,11 @@ What is checked, and never negotiated:
 | Lifetime | `exp - iat` must not exceed 3600 seconds |
 | Verification time | the real clock, or an epoch you pass as `now=` (see below) |
 | `iss` | `idside.eu` only; `test.idside.eu`, the issuer of a non-production deployment of the cloud, requires `allow_test_issuer=True` |
-| `mode` | `test` or `live`; missing mode requires explicit `allow_legacy_without_mode=True`. **Not** checked against anything: an `sk_test_` key's proof carries `iss: idside.eu` and passes — read `proof.mode` yourself |
+| `mode` | `test` or `live`; missing mode requires explicit `allow_legacy_without_mode=True`. **Not** checked against anything: an `sk_test_` key's certificate carries `iss: idside.eu` and passes — read `proof.mode` yourself |
 | Bindings | `request_hash=`, `nonce=`, `subject=`, `app_id=`, when you pass them |
 
 Pass `jwks=` (a JWKS or a single JWK) instead of `jwks_url=` to verify without
-any network access at all — that is the whole point of a local proof.
+any network access at all — that is the whole point of a certificate anyone can check.
 
 `proof.mode` is typed as `"test" | "live"`. When reading a known archive minted
 before this claim existed, opt in with `allow_legacy_without_mode=True`; only
@@ -272,9 +274,9 @@ that compatibility path returns `proof.mode is None`.
 
 ### Auditing a past call
 
-ACT tokens live one hour, so an archived proof is always expired against the
+ACT tokens live one hour, so an archived certificate is always expired against the
 wall clock. `now=` is the verification time, as an epoch in seconds — set it to
-ask *"was this proof valid when the call was made?"*:
+ask *"was this certificate valid when the call was made?"*:
 
 ```python
 proof = verify_act(token, jwks=jwks, now=ledger_entry["issued_at"])
@@ -282,7 +284,7 @@ proof = verify_act(token, jwks=jwks, now=ledger_entry["issued_at"])
 
 It moves **only** the time window. The signature, `alg`, `typ`, the issuer and
 every binding are checked exactly as before, so a generous `now` can never turn
-a forgery into a proof.
+a forgery into a valid certificate.
 
 ### If your JWKS contains a private key
 
@@ -337,7 +339,7 @@ Two things worth knowing:
   the token, so it cannot be pinned.
 - Replay of the *same* token on the *same* request is not detectable offline (a
   verifier holds no history); that is the ledger's job. What a local check
-  proves is that this signed proof belongs to this exact request.
+  proves is that this signed certificate belongs to this exact request.
 
 ## How enforcement is extensible
 

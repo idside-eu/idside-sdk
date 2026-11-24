@@ -13,14 +13,19 @@ This module is internal (``_transport``). The public entry point is
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import os
 import re
-from collections.abc import Sequence
+import threading
+from collections.abc import Mapping, Sequence
+from concurrent.futures import Future
 from dataclasses import dataclass, field
 from typing import Any, Final, Protocol
 
 import httpx
 
+from idside import _content_policy as _policy
 from idside.__about__ import __version__
 from idside.exceptions import (
     AuthenticationError,
@@ -351,6 +356,18 @@ def _constraints(data: dict[str, Any]) -> dict[str, Any]:
     return constraints
 
 
+def _content_policy_answer(value: Any) -> dict[str, Any] | None:
+    """Read the optional ``content_policy`` answer; anything unexpected is ignored.
+
+    Advisory, so read leniently: it never changes what this call does, only
+    when the SDK next fetches the policy. A shape this SDK does not know is
+    read as no answer, as an older SDK reads the field at all.
+    """
+    if not isinstance(value, dict) or not isinstance(value.get("status"), str):
+        return None
+    return {key: item for key, item in value.items() if key in ("status", "digest")}
+
+
 def _with_problem_details(message: str, problem: dict[str, Any]) -> str:
     """Append the problem+json ``title``/``detail`` to ``message`` if present.
 
@@ -410,6 +427,12 @@ class ConsentDecision:
     #: call (``MissingCredentialError``): the cloud must name what the answer
     #: requires, never the best of what happens to be available.
     credential_posture: str | None = None
+    #: What the cloud made of this call's prompt-cleaning declaration —
+    #: ``{"status": "applied" | "outdated" | "anomaly" | "not_applied",
+    #: "digest": "<the current policy's>"}`` — or ``None`` when the application
+    #: cleans nothing. Advisory: it never changes the call; the SDK fetches a
+    #: fresh policy when it says the one applied is not current.
+    content_policy: dict[str, Any] | None = None
 
 
 class ConsentClient(Protocol):
@@ -513,6 +536,7 @@ def _authorize_payload(
     ubt: str | None,
     call_site: str | None,
     credential_postures: Sequence[str],
+    content_policy: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the ``/v1/authorize`` body, refusing an identity that is not one.
 
@@ -544,6 +568,10 @@ def _authorize_payload(
     }
     if call_site:
         payload["call_site"] = call_site
+    # Only when the application cleans prompts: an application that cleans
+    # nothing sends exactly what an SDK without cleaning sends.
+    if content_policy is not None:
+        payload["content_policy"] = dict(content_policy)
     return payload
 
 
@@ -614,6 +642,7 @@ def _decision_from(
             binding=binding,
             constraints=_constraints(data),
             credential_posture=_credential_posture(data.get("credential_posture")),
+            content_policy=_content_policy_answer(data.get("content_policy")),
         )
     except KeyError as exc:
         raise ConsentUnreachableError(
@@ -622,43 +651,54 @@ def _decision_from(
         ) from exc
 
 
-def _raise_for_status(status: int, response: httpx.Response, origin_hint: str) -> None:
+def _raise_for_status(
+    status: int,
+    response: httpx.Response,
+    origin_hint: str,
+    *,
+    undetermined: str | None = None,
+    route: str = "",
+) -> None:
     """Map an error response to the typed exception hierarchy.
 
     A configuration problem (401/402/422/429) must be distinguishable from
     an outage; everything genuinely undetermined stays fail-closed
-    (``ConsentUnreachableError``). No AI call goes out in any of these cases.
+    (``ConsentUnreachableError``), and says ``undetermined`` when the route
+    has words of its own; ``route`` leads every other message when the route
+    is not ``/v1/authorize``, so the class stays and the message names it. No AI
+    call goes out in any of these cases.
     """
     problem = _problem_body(response)
+
+    def said(message: str) -> str:
+        return _with_problem_details(route + message, problem)
+
     if status == httpx.codes.UNAUTHORIZED:
         binding = _BINDING_ERRORS.get(_problem_type_name(problem.get("type")))
         if binding is not None:
             error_class, message = binding
-            raise error_class(_with_problem_details(message, problem))
+            raise error_class(said(message))
         raise AuthenticationError(
-            _with_problem_details(
+            said(
                 "ID Side rejected the API credentials (HTTP 401). Check the "
                 "api_key passed to consent.wrap() against the ID Side "
-                "dashboard; the AI call was not made.",
-                problem,
+                "dashboard; the AI call was not made."
             )
         )
     if status == httpx.codes.PAYMENT_REQUIRED:
         raise QuotaExceededError(
-            _with_problem_details(
+            said(
                 "ID Side plan quota exceeded (HTTP 402). Upgrade the plan or "
-                "wait for the quota window to reset; the AI call was not made.",
-                problem,
+                "wait for the quota window to reset; the AI call was not made."
             )
         )
     if status == httpx.codes.FORBIDDEN:
         type_value = problem.get("type")
         reason = _deny_reason(type_value)
         raise ConsentDeniedError(
-            _with_problem_details(
+            said(
                 "The requested AI usage was denied (HTTP 403); "
-                "the AI call was not made.",
-                problem,
+                "the AI call was not made."
             ),
             reason=reason,
         )
@@ -669,41 +709,36 @@ def _raise_for_status(status: int, response: httpx.Response, origin_hint: str) -
         # Not an outage: the visitor's binding still verifies, and what it
         # covers is out of date. Any other 409 stays undetermined, below.
         raise ConsentRefreshRequiredError(
-            _with_problem_details(
+            said(
                 "This visitor's recorded choices no longer cover this "
                 "application's AI use (HTTP 409): the policy or the questions "
                 "it requires changed since they answered. Show them the widget "
-                "again before retrying; the AI call was not made.",
-                problem,
+                "again before retrying; the AI call was not made."
             )
         )
     if status == httpx.codes.UNPROCESSABLE_ENTITY:
         raise ContractError(
-            _with_problem_details(
+            said(
                 "ID Side refused this call's payload (HTTP 422). If the cloud's "
                 "detail names a value your code passed, fix that value; "
                 "otherwise the SDK and the cloud disagree on the contract — "
-                "upgrade the SDK or report it; the AI call was not made.",
-                problem,
+                "upgrade the SDK or report it; the AI call was not made."
             )
         )
     if status == httpx.codes.TOO_MANY_REQUESTS:
         raise RateLimitedError(
-            _with_problem_details(
+            said(
                 "ID Side rate limit hit (HTTP 429). Retry after a backoff; "
-                "the AI call was not made.",
-                problem,
+                "the AI call was not made."
             )
         )
     # 5xx or any undetermined 4xx: consent could not be verified → fail-closed.
-    raise ConsentUnreachableError(
-        _with_hint(
-            _with_problem_details(
-                f"Could not verify consent (HTTP {status}); the AI call was not made.",
-                problem,
-            ),
-            origin_hint,
+    if undetermined is None:
+        undetermined = (
+            f"Could not verify consent (HTTP {status}); the AI call was not made."
         )
+    raise ConsentUnreachableError(
+        _with_hint(_with_problem_details(undetermined, problem), origin_hint)
     )
 
 
@@ -712,6 +747,59 @@ def _with_hint(message: str, origin_hint: str) -> str:
 
 
 _UNREACHABLE = "ID Side cloud is unreachable; the AI call was not made."
+
+
+def _policy_json(response: httpx.Response, origin_hint: str) -> Any:
+    """The body of a ``/v1/content-policy`` answer, or the typed error it maps to.
+
+    A qualified refusal keeps the class it has on ``/v1/authorize``; any other
+    error says the policy could not be fetched, with its status — never "could
+    not verify consent", which would send the developer to an authorize route
+    that may be answering well.
+    """
+    status = response.status_code
+    if status >= httpx.codes.BAD_REQUEST:
+        _raise_for_status(
+            status,
+            response,
+            origin_hint,
+            undetermined=_policy.unfetched(status),
+            route=_policy.POLICY_ROUTE_LEAD,
+        )
+    try:
+        return response.json()
+    except ValueError:
+        return None  # read_answer refuses it: "is not a JSON object"
+
+
+def _event_body(
+    digest: str,
+    engine: str,
+    blocked: Mapping[str, int],
+    provider: str | None,
+    model: str | None,
+) -> dict[str, Any]:
+    """The JSON of a blocked call's report: what is not given is not written."""
+    body: dict[str, Any] = {
+        "digest": digest,
+        "engine": engine,
+        "blocked": dict(blocked),
+    }
+    if provider is not None:
+        body["provider"] = provider
+    if model is not None:
+        body["model"] = model
+    return body
+
+
+def _jwks_json(response: httpx.Response, origin_hint: str) -> Any:
+    """The cloud's key set, or unreachable: without it no policy can be checked."""
+    try:
+        if response.status_code == httpx.codes.OK:
+            return response.json()
+    except ValueError:
+        pass
+    raise _policy.unreachable(origin_hint)
 
 
 class HttpConsentClient:
@@ -743,6 +831,129 @@ class HttpConsentClient:
             transport=transport,
             headers=headers,
         )
+        self._policy = _policy.PolicyCache()
+        # One fetch of the policy (and of the key set it needs) in flight at a
+        # time: every caller that has no valid policy waits for that one.
+        self._flight_lock = threading.Lock()
+        self._flight: Future[_policy.PolicyState] | None = None
+
+    def content_policy(self) -> _policy.PolicyState:
+        """The application's prompt-cleaning policy, verified and cached.
+
+        Fetched from ``/v1/content-policy`` on first use and again after
+        ``refresh_after`` — at most once per ten seconds while a valid policy is
+        held, whatever the last attempt gave. A policy that does not verify
+        raises :class:`ContentPolicyError`; a cloud that cannot be reached
+        raises :class:`ConsentUnreachableError` unless the policy held is still
+        valid.
+
+        Callers on several threads share one fetch: while it is in flight, a
+        caller that holds a valid policy applies it, and the others wait for
+        that fetch and receive what it gave — its failure included, which is
+        never kept: the next call starts a fetch of its own.
+        """
+        with self._flight_lock:
+            now, mono = _policy.clock(), _policy.monotonic()
+            current = self._policy.held(now, mono)
+            if current is not None:
+                return current
+            flight = self._flight
+            if flight is not None:
+                joined = True
+            else:
+                flight = self._flight = Future()
+                self._policy.attempted_at = mono
+                joined = False
+        if joined:
+            return flight.result()
+        try:
+            state = self._attempt(now, mono)
+        except BaseException as exc:
+            # Even an interrupt: a waiter must never wait for nothing.
+            self._land()
+            flight.set_exception(exc)
+            raise
+        self._land()
+        flight.set_result(state)
+        return state
+
+    def _land(self) -> None:
+        """Clear the slot before the waiters wake: the next caller starts afresh."""
+        with self._flight_lock:
+            self._flight = None
+
+    def _attempt(self, now: float, mono: float) -> _policy.PolicyState:
+        cache = self._policy
+        try:
+            state = self._fetch_policy(now, mono)
+        except (ConsentUnreachableError, RateLimitedError):
+            # Read again: the fetch took time, and the policy held may have
+            # run out while it was failing.
+            held = cache.usable(_policy.clock(), _policy.monotonic())
+            if held is None:
+                raise
+            return held
+        # Under the lock an authorize answer reads and rewrites the state with
+        # (`authorize()`): written outside it, this policy could land between
+        # that read and that write, and be replaced by the older one.
+        with self._flight_lock:
+            cache.state = state
+        return state
+
+    def _fetch_policy(self, now: float, mono: float) -> _policy.PolicyState:
+        response = self._get_policy()
+        delay = self._policy.retry_delay(
+            response.status_code, response.headers.get("Retry-After"), now, mono
+        )
+        if delay is not None:
+            _policy.sleep(delay)
+            response = self._get_policy()
+        pending = _policy.read_answer(_policy_json(response, self._origin_hint))
+        if pending.enabled and not self._policy.knows(pending.key_id):
+            self._policy.jwks = self._fetch_jwks()
+        return _policy.verify_pending(
+            pending, self._policy.jwks, _policy.clock(), self._policy.state
+        )
+
+    def _get_policy(self) -> httpx.Response:
+        try:
+            return self._client.get(_policy.CONTENT_POLICY_PATH)
+        except httpx.HTTPError as exc:
+            raise _policy.unreachable(self._origin_hint) from exc
+
+    def _fetch_jwks(self) -> Any:
+        request = self._client.build_request("GET", _policy.JWKS_PATH)
+        request.headers.pop("Authorization", None)  # a key set needs no key
+        try:
+            response = self._client.send(request)
+        except httpx.HTTPError as exc:
+            raise _policy.unreachable(self._origin_hint) from exc
+        return _jwks_json(response, self._origin_hint)
+
+    def content_events(
+        self,
+        *,
+        digest: str,
+        engine: str,
+        blocked: Mapping[str, int],
+        provider: str | None = None,
+        model: str | None = None,
+    ) -> None:
+        """Report a call cleaning blocked: rule ids and counts, never a value.
+
+        ``provider`` and ``model`` say which provider and model the call was
+        for; each is written only when given (see
+        :func:`idside._content_policy.event_labels`), never as ``null``.
+
+        Best effort: the call is already refused locally, so a report that
+        cannot be delivered is dropped rather than turned into a second error.
+        """
+        with contextlib.suppress(Exception):  # best effort, by contract
+            self._client.post(
+                _policy.CONTENT_EVENTS_PATH,
+                json=_event_body(digest, engine, blocked, provider, model),
+                timeout=_policy.EVENTS_TIMEOUT_SECONDS,
+            )
 
     def authorize(
         self,
@@ -754,6 +965,7 @@ class HttpConsentClient:
         ubt: str | None = None,
         call_site: str | None = None,
         credential_postures: Sequence[str] = (),
+        content_policy: Mapping[str, Any] | None = None,
     ) -> ConsentDecision:
         """Ask the cloud to authorize one AI request.
 
@@ -778,6 +990,10 @@ class HttpConsentClient:
         ignore a posture it was handed, which is the one case where the cloud
         must not count on the call being routed. Labels are app configuration,
         never credentials — the credential itself never leaves the process.
+
+        ``content_policy`` is what this call's prompt cleaning declares (the
+        policy's digest, the engine's, the challenge answer and the counts of
+        what was masked), sent only when the application cleans prompts.
         """
         payload = _authorize_payload(
             provider=provider,
@@ -787,6 +1003,7 @@ class HttpConsentClient:
             ubt=ubt,
             call_site=call_site,
             credential_postures=credential_postures,
+            content_policy=content_policy,
         )
         try:
             # No retry: authorize is not safely idempotent. A request that
@@ -799,9 +1016,16 @@ class HttpConsentClient:
             raise ConsentUnreachableError(
                 _with_hint(_UNREACHABLE, self._origin_hint)
             ) from exc
-        return _decision_from(
+        decision = _decision_from(
             response, self._origin_hint, binding=_binding_for(payload)
         )
+        # Read and rewritten in one step, under the lock a refresh writes the
+        # state under: another thread's newer policy can never be overwritten
+        # with the older one read here. (The async client needs no lock: on
+        # one event loop, nothing runs between that read and that write.)
+        with self._flight_lock:
+            self._policy.note_answer(decision.content_policy, _policy.monotonic())
+        return decision
 
     def close(self) -> None:
         self._client.close()
@@ -843,6 +1067,97 @@ class AsyncHttpConsentClient:
             transport=transport,
             headers=headers,
         )
+        self._policy = _policy.PolicyCache()
+        # The fetch in flight, as a task of the loop that started it.
+        self._flight: asyncio.Task[_policy.PolicyState] | None = None
+
+    async def content_policy(self) -> _policy.PolicyState:
+        """The blocking client's :meth:`HttpConsentClient.content_policy`, awaited.
+
+        Concurrent callers share one fetch, run as a task of its own: a caller
+        cancelled while waiting (a request its client gave up on) never cancels
+        it for the others. A fetch started on another event loop is never
+        awaited from this one: this loop starts its own.
+        """
+        now, mono = _policy.clock(), _policy.monotonic()
+        current = self._policy.held(now, mono)
+        if current is not None:
+            return current
+        loop = asyncio.get_running_loop()
+        flight = self._flight
+        if flight is None or flight.get_loop() is not loop:
+            self._policy.attempted_at = mono
+            flight = self._flight = loop.create_task(self._fly(now, mono))
+        # A waiter cancelled here leaves the fetch running; were they all
+        # cancelled, `shield` still marks a failure of it as retrieved.
+        return await asyncio.shield(flight)
+
+    async def _fly(self, now: float, mono: float) -> _policy.PolicyState:
+        try:
+            return await self._attempt(now, mono)
+        finally:
+            # Before the waiters wake: the next caller starts afresh, and a
+            # failure is never kept. Another loop's fetch may hold the slot.
+            if self._flight is asyncio.current_task():
+                self._flight = None
+
+    async def _attempt(self, now: float, mono: float) -> _policy.PolicyState:
+        cache = self._policy
+        try:
+            state = await self._fetch_policy(now, mono)
+        except (ConsentUnreachableError, RateLimitedError):
+            # Read again: the fetch took time, and the policy held may have
+            # run out while it was failing.
+            held = cache.usable(_policy.clock(), _policy.monotonic())
+            if held is None:
+                raise
+            return held
+        cache.state = state
+        return state
+
+    async def _fetch_policy(self, now: float, mono: float) -> _policy.PolicyState:
+        response = await self._get_policy()
+        delay = self._policy.retry_delay(
+            response.status_code, response.headers.get("Retry-After"), now, mono
+        )
+        if delay is not None:
+            await _policy.async_sleep(delay)
+            response = await self._get_policy()
+        pending = _policy.read_answer(_policy_json(response, self._origin_hint))
+        if pending.enabled and not self._policy.knows(pending.key_id):
+            request = self._client.build_request("GET", _policy.JWKS_PATH)
+            request.headers.pop("Authorization", None)  # a key set needs no key
+            try:
+                jwks_response = await self._client.send(request)
+            except httpx.HTTPError as exc:
+                raise _policy.unreachable(self._origin_hint) from exc
+            self._policy.jwks = _jwks_json(jwks_response, self._origin_hint)
+        return _policy.verify_pending(
+            pending, self._policy.jwks, _policy.clock(), self._policy.state
+        )
+
+    async def _get_policy(self) -> httpx.Response:
+        try:
+            return await self._client.get(_policy.CONTENT_POLICY_PATH)
+        except httpx.HTTPError as exc:
+            raise _policy.unreachable(self._origin_hint) from exc
+
+    async def content_events(
+        self,
+        *,
+        digest: str,
+        engine: str,
+        blocked: Mapping[str, int],
+        provider: str | None = None,
+        model: str | None = None,
+    ) -> None:
+        """The blocking client's :meth:`HttpConsentClient.content_events`, awaited."""
+        with contextlib.suppress(Exception):  # best effort, by contract
+            await self._client.post(
+                _policy.CONTENT_EVENTS_PATH,
+                json=_event_body(digest, engine, blocked, provider, model),
+                timeout=_policy.EVENTS_TIMEOUT_SECONDS,
+            )
 
     async def authorize(
         self,
@@ -854,6 +1169,7 @@ class AsyncHttpConsentClient:
         ubt: str | None = None,
         call_site: str | None = None,
         credential_postures: Sequence[str] = (),
+        content_policy: Mapping[str, Any] | None = None,
     ) -> ConsentDecision:
         """Ask the cloud to authorize one AI request, without blocking the loop.
 
@@ -872,6 +1188,7 @@ class AsyncHttpConsentClient:
             ubt=ubt,
             call_site=call_site,
             credential_postures=credential_postures,
+            content_policy=content_policy,
         )
         try:
             # No retry, for the same reason as the blocking client: a request
@@ -883,9 +1200,11 @@ class AsyncHttpConsentClient:
             raise ConsentUnreachableError(
                 _with_hint(_UNREACHABLE, self._origin_hint)
             ) from exc
-        return _decision_from(
+        decision = _decision_from(
             response, self._origin_hint, binding=_binding_for(payload)
         )
+        self._policy.note_answer(decision.content_policy, _policy.monotonic())
+        return decision
 
     async def aclose(self) -> None:
         await self._client.aclose()

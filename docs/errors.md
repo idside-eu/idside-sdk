@@ -9,7 +9,7 @@ verification](#verification-errors); where behavior differs, it is called out.
 provider anyway". The SDK is [fail-closed](./concepts.md#9-fail-closed) — when
 authorization did not succeed, the provider call simply did not happen. There is
 no partial state to clean up and no request in flight. The verification errors
-follow the same rule one level up: a proof that does not check out is not
+follow the same rule one level up: a certificate that does not check out is not
 accepted.
 
 ```python
@@ -34,7 +34,7 @@ import { IDSideError, ConsentDeniedError } from "@idside/sdk"; // Node.js
 | [`BindingError`](#bindingerror) | the parent of the two above: the visitor's binding was refused, not the key | once the visitor is bound | show the widget — one handler for both |
 | [`ConsentRefreshRequiredError`](#consentrefreshrequirederror) | HTTP 409 `consent_refresh_required` — the visitor's choices no longer cover what the application requires | once the visitor has answered again | show the widget again — not an outage |
 | [`QuotaExceededError`](#quotaexceedederror) | HTTP 402 — plan quota exhausted | after reset | upgrade or wait |
-| [`RateLimitedError`](#ratelimitederror) | HTTP 429 — too many authorize calls | yes, backoff | slow down |
+| [`RateLimitedError`](#ratelimitederror) | HTTP 429 — too many authorize calls or policy fetches | yes, backoff | slow down |
 | [`ContractError`](#contracterror) | HTTP 422 — payload rejected | no | fix the value the cloud's detail names; otherwise upgrade the SDK or report it |
 | [`ConsentTokenError`](#consenttokenerror) | the request cannot be hashed deterministically | no | pass JSON-compatible values |
 | [`MissingIdentityError`](#missingidentityerror) | a `user_id` or `ubt` that names nobody — empty, blank, `0`, `false`, an empty container — or a call naming nobody made from inside an enforced call in progress | no | pass a real identifier, or leave the field out |
@@ -45,14 +45,16 @@ import { IDSideError, ConsentDeniedError } from "@idside/sdk"; // Node.js
 | [`CredentialRoutingError`](#credentialroutingerror) | the `credentials` given to `wrap()` cannot route | no | fix the mapping — raised at `wrap()` time |
 | [`MissingCredentialError`](#missingcredentialerror) | this user's answer needs a credential you have not provisioned | no | provision it and label it |
 | [`UnenforcedCallError`](#unenforcedcallerror) | a body-bearing request was about to leave a wrapped client without going through enforcement | no | send that traffic on a second, unwrapped client |
+| [`ContentBlockedError`](#contentblockederror) | the organization's prompt-cleaning policy blocks this call: a *block* rule found something in it | no, not as it is | let the person remove that content |
+| [`ContentPolicyError`](#contentpolicyerror) | the prompt-cleaning policy from the cloud did not check out, or cannot be applied — or this machine's clock is out of step with it, or a cache served an old one, which the message says | no | set the clock (NTP), or keep the policy route out of a cache, when the message names it; otherwise upgrade the SDK, and report it if it persists |
 | [`IDSideError`](#idsideerror) | base class — catch-all | — | — |
-| [`ActVerificationError`](#verification-errors) + 11 subclasses | a proof did not check out during local verification | no | reject the proof |
+| [`ActVerificationError`](#verification-errors) + 11 subclasses | a certificate did not check out during local verification | no | reject the certificate |
 
 Four of them (`ConsentTokenError`, `MissingIdentityError`,
 `ConflictingIdentityError`, `UnenforceableOptionError`) and most
 `UnsupportedProviderError` cases are raised **before any network I/O** of their
 own: nothing was sent to ID Side either for that call. (A `MissingIdentityError`
-raised inside another call in progress leaves that outer call's proof in the
+raised inside another call in progress leaves that outer call's certificate in the
 ledger.)
 
 `ToolUseRefusedError` is the one entry in this table that is not a failure. It
@@ -93,6 +95,14 @@ returned a 500" (an infrastructure problem).
 
 In Node, `error.name` is set to the concrete class name, and `instanceof` works
 as expected.
+
+### Not an `IDSideError`: Python async outside asyncio
+
+Python's async path needs asyncio. Under trio, or any other event loop, a
+wrapped async call raises `RuntimeError: no running event loop` — not an
+`IDSideError` — before anything is sent: no policy fetched, no consent asked,
+no AI call. Run the async client under asyncio, or call the blocking client
+from a worker thread ([FAQ](./faq.md#does-this-work-with-streaming-with-async-with-my-framework)).
 
 ### Finding it in a chain of causes
 
@@ -156,7 +166,7 @@ def find_idside_error(exc: BaseException) -> BaseException | None:
 ## `ConsentUnreachableError`
 
 **Consent could not be verified.** The most important error in the catalogue,
-because it is the one that expresses the fail-closed guarantee.
+because it is the one that says the SDK fails closed: no answer, no AI call.
 
 Raised when:
 
@@ -177,6 +187,24 @@ Raised when:
 
 That last case matters: a partially understood answer is treated as no answer.
 The SDK never infers a decision from a malformed response.
+
+It is also raised when the application's [prompt-cleaning
+policy](./prompt-cleaning.md) cannot be fetched — the same failures, on
+`/v1/content-policy` or the key set — and no policy fetched earlier is still
+within its validity (at most fifteen minutes). The message then names the
+policy, not consent, and the HTTP status when the cloud answered one — so you
+look at that route, even while `/v1/authorize` answers well:
+
+```text
+ConsentUnreachableError: The ID Side cloud's prompt-cleaning policy could not be
+fetched (HTTP 503), and none is held that is still valid; the AI call was not
+made.
+```
+
+A refusal the cloud qualifies (401, 402, 403, 409 `consent_refresh_required`,
+422, 429) keeps the class it has on `/v1/authorize`, and its message starts
+`While fetching the prompt-cleaning policy:` so that it names the route that
+answered.
 
 **There is no retry inside the SDK, by design.** `authorize` is not safely
 idempotent — a request that reached the cloud before the connection dropped has
@@ -222,7 +250,7 @@ The `reason` attribute qualifies the denial when the cloud provides one:
 | --- | --- | --- |
 | `"fraud_suspended"` | the app is suspended by fraud detection | contact ID Side support through the dashboard |
 | `"organization_suspended"` | your organization's whole account is stopped | this is billing or compliance, not your app — talk to whoever owns the account |
-| `"policy_hold"` | the organization's policy cannot apply to this call, and the application is set to hold such calls — [below](#policy_hold--a-call-the-policy-held) | no option in your code lets a held call out: change what the call names, or ask whoever sets the policy. Changing what the call names is a change to your integration, never a fallback in an error handler: catching `policy_hold` to retry the call elsewhere would route around the organization's decision |
+| `"policy_hold"` | the organization's policy cannot apply to this call, and the strainer blocks the call's provider — [below](#policy_hold--a-call-the-policy-held) | no option in your code lets a held call out: change what the call names, or ask whoever sets the policy. Changing what the call names is a change to your integration, never a fallback in an error handler: catching `policy_hold` to retry the call elsewhere would route around the organization's decision |
 | `None` / `undefined` | a 403 whose reason the SDK does not qualify — today, a secret key without the `authorize` scope (`insufficient_scope`) | honor it, and read the message: the cloud's detail names the missing scope. Mint a key that carries it |
 
 Those are the only three qualified reasons, and they are deliberately distinct:
@@ -262,13 +290,13 @@ different identity is exactly the pattern fraud detection is watching for.
 
 ### `policy_hold` — a call the policy held
 
-Only on an application that applies an organization's policy
-([Concepts §4](./concepts.md#enforce-and-observe--when-the-policy-cannot-apply)).
-When your policy cannot apply to a call (a provider with no such setting, a
-provider your organization has not allowed, no basis declared), Observe lets the
-call through and flags it, Enforce holds it. This is Enforce:
-`/v1/authorize` answers 403, no token is signed, and the provider is never
-called.
+Only on a strainer, under an organization's policy
+([Concepts §4](./concepts.md#blocking-a-provider--when-the-policy-cannot-apply)).
+When your policy cannot apply to a call (a provider without that setting, no
+basis declared): if the strainer blocks that provider, the call is held;
+otherwise it goes through, with the deviation signed in its certificate. This is
+the held call: `/v1/authorize` answers 403, no token is signed, and the provider
+is never called.
 
 ```json
 {
@@ -280,7 +308,7 @@ called.
 }
 ```
 
-`deviations` names what held the call, with the same kinds a flagged proof
+`deviations` names what held the call, with the same kinds the certificate of a call let through
 carries ([spec](./spec/act-token.md#deviations--what-the-policy-could-not-apply)):
 kinds and option names, never a person. The SDK surfaces `reason` and, in the
 message, the cloud's `title` and `detail`; every held call is also listed on the
@@ -294,14 +322,16 @@ call out, but what the call names is your code's, and the policy is its owner's:
 
 | `kind` | What it means | What your code controls | What whoever sets the policy controls |
 | --- | --- | --- | --- |
-| `provider_not_allowed` | the organization allows a list of providers, and this call's is not on it | the provider it calls: one on the list | the list: allowing the provider |
+| `provider_not_allowed` | no longer produced since the list of allowed providers was removed; a call is now held only for the other kinds | — | — |
 | `option_not_enforced` | the policy refuses `option`, and nothing applies that refusal to this provider, endpoint or model — or only a credential you have not labelled could | the provider, endpoint and model it calls: one that applies the refusal, such as a model the provider's descriptor covers; and, where the refusal needs a dedicated credential, labelling one that carries it in `credentials` ([credential routing](./providers.md#6-credential-routing)) | the policy, and the provider account setting declared to ID Side that applies it, where one exists |
 | `basis_not_established` | the call would be signed `legal_basis: "not_established"` — the organization has declared no basis | nothing: naming the person or not changes nothing here | the basis, declared on the dashboard |
+| `content_engine_unverified` | the call declared a [prompt cleaning](./prompt-cleaning.md#what-the-cloud-is-told) that could not be verified: the challenge is missing, was not issued for this application, or was answered wrongly or more than an hour after it expired; or the policy digest is none of this application's | the SDK it runs: a released version, unmodified, on a machine whose clock is set (NTP) — a rebuilt or patched engine answers the challenge wrongly | nothing to set: the call is listed with its deviation on the organization's dashboard |
 
 What your code controls is a change to your integration, not a fallback in an
 error handler: retrying the same call is held again. Whether calls like it are
-held or let through and flagged is the organization's choice, on the ID Side
-dashboard — never an option in your code. An SDK released before `policy_hold`
+held or let through with their deviation signed is the organization's choice,
+provider by provider in each strainer, on the ID Side dashboard — never an
+option in your code. An SDK released before `policy_hold`
 existed raises the same `ConsentDeniedError`, with `reason` unset: the call is
 held all the same.
 
@@ -347,7 +377,7 @@ that has expired. Your key is fine, and regenerating it would change nothing.
 The widget renews a binding without touching a single choice —
 `IDSide.showPreferences()`, then **Confirm these choices** — and its `onUBT`
 callback hands your backend the new token
-([widget §8](./widget.md#8-from-a-recorded-decision-to-a-stronger-proof)).
+([widget §8](./widget.md#8-from-a-recorded-decision-to-a-stronger-certificate)).
 
 The third is the one met the day an application is switched to bound tokens:
 the setting changed, and the backend still names visitors with `user_id`. That
@@ -446,7 +476,7 @@ What to do: purge the UBT from this visitor's session, stop the AI feature for
 them, and let the widget issue a new one. `IDSide.showPreferences()`, then
 **Confirm these choices**, renews a binding without changing any choice, and
 `onUBT` hands your backend the new token
-([widget §8](./widget.md#8-from-a-recorded-decision-to-a-stronger-proof)). Do
+([widget §8](./widget.md#8-from-a-recorded-decision-to-a-stronger-certificate)). Do
 not retry with the same token, and do not fall back to `user_id`. The message
 ends with the cloud's detail, which names the actual cause.
 
@@ -482,7 +512,7 @@ outages must not catch it.
 What to do: stop this AI request and show the visitor the widget. Once they have
 recorded their current choices, the widget's `onUBT` callback hands your backend
 a binding that covers them
-([widget §8](./widget.md#8-from-a-recorded-decision-to-a-stronger-proof)).
+([widget §8](./widget.md#8-from-a-recorded-decision-to-a-stronger-certificate)).
 Declare every provider the application calls in the dashboard before showing the
 widget: a provider it does not know about is a question it cannot ask.
 
@@ -518,6 +548,13 @@ What to do: back off and retry. Unlike `ConsentUnreachableError`, a 429 means th
 request was rejected before doing any work, so retrying is safe. If you hit this
 in normal operation, review your call patterns (are you authorizing inside a
 loop that could be batched?) or request a higher limit.
+
+It can also come from the [prompt-cleaning policy](./prompt-cleaning.md) route.
+While a valid policy is held, a 429 there changes nothing: the policy held is
+applied. While none is, the SDK waits what the cloud's `Retry-After` asks for —
+in seconds, two at most — and asks once more, then raises this error; with no
+`Retry-After` in seconds, it raises at once. However many calls are waiting, a
+wrapped client makes that one fetch and that one retry.
 
 ---
 
@@ -576,7 +613,7 @@ What to do: pass JSON-compatible values. Convert Pydantic models with
 > `ConsentTokenError` is also the parent of the whole
 > [verification error family](#verification-errors) below: on the enforcement
 > path it means "this request cannot be hashed", on the verification path it
-> means "this proof does not hold". Catching it covers both.
+> means "this certificate does not hold". Catching it covers both.
 
 ### Related: `CanonicalizationError` (Node only)
 
@@ -593,12 +630,14 @@ and has no public surface.
 
 **A `user_id` or `ubt` was passed, and it names nobody.** Raised before any I/O
 of its own — nothing was sent to ID Side or to the provider for this call (a
-call made from inside another one leaves that outer call's proof behind: see
+call made from inside another one leaves that outer call's certificate behind: see
 below).
 
 Naming the end user is optional: a call that passes neither field is authorized
-with the API key as the proof's subject (`binding: "api_key"`,
-[Concepts §8](./concepts.md#8-naming-the-end-user-user_id-vs-ubt)). What is
+with the API key as the certificate's subject (`binding: "api_key"`,
+[Concepts §8](./concepts.md#8-naming-the-end-user-user_id-vs-ubt)). Releases
+before `0.1.0.dev3` required an identity on every call, so on them a call that
+names nobody raises `MissingIdentityError`: upgrade to make one. What is
 refused is a field that is *there* and names nobody — an empty string, a string
 made only of blanks (whitespace as the cloud counts it), `0`, `false`, an empty
 list or dict (array or object) — while the other field names nobody either:
@@ -629,9 +668,9 @@ reach an enforced method a second time while your call is still in progress — 
 retry, or a helper built on another. The SDK lets the one hop that belongs to
 your call through without asking again; any other is a second AI call, and it
 arrives without an identity, because the SDK consumed yours on the way in.
-Authorized, it would add a second proof about the API key rather than about
+Authorized, it would add a second certificate about the API key rather than about
 whoever your call named, so it is refused with this error, before any I/O of
-its own. Your call itself was authorized first, so its proof is in the ledger;
+its own. Your call itself was authorized first, so its certificate is in the ledger;
 and when the refused hop was a retry, the first request had already left. A
 call naming nobody is allowed at the top level, never from inside a call in
 progress — and your own code is always at the top level: the body of a loop
@@ -683,7 +722,7 @@ enforcement *after* the SDK had applied it:
 
 | Option | What it did before it was refused |
 | --- | --- |
-| `extra_body` (Python); a second argument's `body` or `fetchOptions` (Node); `http_options.extra_body` / `httpOptions.extraBody` (Gemini) | merged over the request, or replaced it: `store: false` became `true`, tools a user refused went out, another model was called — while the signed proof described the request as authorized |
+| `extra_body` (Python); a second argument's `body` or `fetchOptions` (Node); `http_options.extra_body` / `httpOptions.extraBody` (Gemini) | merged over the request, or replaced it: `store: false` became `true`, tools a user refused went out, another model was called — while the signed certificate described the request as authorized |
 | a per-call `middleware` or `fallbackState` (Anthropic, Node) | ran between enforcement and the network, free to rewrite the body |
 | `server_url` / `serverURL` (Mistral), `http_options.base_url` / `api_version` (Gemini), a second argument's `path`, `defaultBaseURL`, `query` (Node), `extra_query` (Python) | sent the prompt, the ACT token and your API key to another host |
 | a per-call `Authorization`, `X-Api-Key`, `x-goog-api-key`, `OpenAI-Project`… | moved the call onto another credential, defeating the posture the user's answer required — invisibly, since header values are not part of the request hash |
@@ -691,7 +730,7 @@ enforcement *after* the SDK had applied it:
 | `automatic_continuation=True` / `automaticContinuation: true` (Gemini) | made the library answer a `CONTINUATION` response by sending the request again, by itself, under the same token. It is on by default in `google-genai` 2.30+ and `@google/genai` 3.x, so the SDK turns it off on every enforced call, and refuses a call that asks for it |
 | `workspace_id`, `user_profile_id` (Anthropic) | look like body fields and are sent as the `anthropic-workspace-id` and `anthropic-user-profile-id` headers, outside the request hash: the first moves the call to another workspace — the unit [credential routing](./providers.md#6-credential-routing) chooses — and the second attributes it to a user profile whose programs can require retention and human review. Both headers are reserved too |
 | `prompt_cache_options` (OpenAI) | sets a prompt-cache lifetime (`ttl`, up to `12h`) that the forced `prompt_cache_retention` does not bound, so a user's refusal of extended caching could be recorded beside a twelve-hour cache |
-| `generation_output_config` / `generationOutputConfig` (Gemini) | had the provider write the generated media to a `gs://` bucket of the caller's choosing — a copy of the output kept somewhere the proof never names |
+| `generation_output_config` / `generationOutputConfig` (Gemini) | had the provider write the generated media to a `gs://` bucket of the caller's choosing — a copy of the output kept somewhere the certificate never names |
 | a per-call `fetch` in `httpOptions` (`@google/genai`) | sent the request on a transport nobody wrapped |
 | an argument spelled like `user_id` or `ubt` but not exactly as it — `userId`, `USER_ID`, `user-id`, `Ubt`: the same letters, another case or separators | was not read as the identity: the call was authorized as naming nobody, about the API key, and in Node the misspelled field went to the provider in the body. Refused whatever its value, `None` and `null` included, and before the identity is read. Only top-level arguments are compared: a `user_id` nested in Anthropic's `metadata` is the provider's own field and passes |
 
@@ -742,8 +781,8 @@ enforced, in these cases:
 | A client derived from a wrapped one (`with_options` / `withOptions`, `copy`) that points at another provider or another host, or brings its own transport, query or middleware | yes |
 
 **Being async is not one of these cases.** Python's `wrap()` used to reject
-`AsyncOpenAI` and friends with this error; it enforces them now, with the same
-guarantees as their blocking counterparts. If you are reading this after
+`AsyncOpenAI` and friends with this error; it enforces them now, exactly as
+their blocking counterparts. If you are reading this after
 upgrading, an `UnsupportedProviderError` on an async client means what it means
 on any other client: no descriptor matches it.
 
@@ -846,6 +885,86 @@ acts on it there. The ledger entry records that agentic tools were refused for
 this user on this call, which is exactly as much as we know.
 
 ---
+
+## `ContentBlockedError`
+
+The organization's [prompt-cleaning policy](./prompt-cleaning.md) has a rule set
+to *block*, and it found something in this call: a payment card, an IBAN, an
+attachment, a term the organization listed. **Nothing was sent** — not to the
+AI provider, and not to ID Side, which receives only the rule ids and counts,
+with the provider and model the call asked for (best effort, on
+`POST /v1/content-events`; see [what the report carries](./prompt-cleaning.md#what-the-cloud-is-told)),
+and never asks `/v1/authorize`.
+
+`blocked` maps each rule to how many times it matched — a catalogue rule id
+(`credit_card`), `custom:<LABEL>` for an entry the organization added,
+`attachments`, or `size_limit` for a body past the engine's limits (more than
+8,388,608 characters of text, or nested deeper than 128 levels). The message
+names the same, and never a value:
+
+```text
+ContentBlockedError: The organization's prompt-cleaning policy blocks this call:
+it found credit_card (1). The AI call was not made and nothing of it was sent;
+remove that content and try again.
+```
+
+```python
+from idside import ContentBlockedError
+
+try:
+    client.chat.completions.create(model=model, messages=messages)
+except ContentBlockedError as error:
+    show_user("This message contains something your organization does not "
+              "allow to be sent to an AI service.", rules=error.blocked)
+```
+
+Do not retry the same call: it will be blocked again. Do not route it to an
+unwrapped client either — that sends exactly what the organization said must
+not leave.
+
+No `wrap()` option and no per-call option turns cleaning off on a client
+connected to the ID Side cloud. A `consent_client=` / `consentClient` of your own
+replaces that cloud entirely: it is meant for tests only, and its calls carry no
+cleaning certificate — those that still reach the cloud are counted as calls with no
+cleaning declared.
+
+## `ContentPolicyError`
+
+The [prompt-cleaning policy](./prompt-cleaning.md) the cloud sent cannot be
+applied: its signature, type, issuer, expiry, application or digest did not
+check out, or it is a document this SDK does not read (a malformed entry, a
+newer `schema`). The SDK is fail-closed: a policy it cannot apply is never
+replaced by no policy, so **the AI call was not made**. The message names the
+field or the entry's position, never a value — custom entries are the
+organization's own words.
+
+It also comes from `verify_clean()` / `verifyClean()` and `idside-verify-clean`
+when the policy you give them cannot be applied.
+
+**A clock out of step, or an old answer.** A policy is valid fifteen minutes
+from the moment the cloud signs it, and may be dated up to five minutes ahead of
+this machine. A policy that is signed and intact but falls outside that window
+by this machine's clock is refused with a message that says so and names no
+value. Issued in the future, it says the clock looks behind (more than five
+minutes). Already expired on arrival, it names both causes: the clock is more
+than about fifteen minutes ahead, or a cache between this machine and the cloud
+served an old answer — the cloud marks every answer `Cache-Control: no-store`,
+which a cache in the way may ignore:
+
+```text
+ContentPolicyError: The prompt-cleaning policy just received from the ID Side
+cloud is signed and intact, but this machine's clock puts it past its expiry:
+either the clock looks ahead, or a cache between this machine and the cloud
+served an old answer. Check that this machine's clock is set (NTP) and that no
+proxy caches /v1/content-policy; the AI call was not made.
+```
+
+What to do then: set the machine's clock (NTP), or keep `/v1/content-policy` out
+of the cache in the way. The window does not widen, and nothing else needs to
+change.
+
+What to do otherwise: upgrade the SDK. If it persists on the latest release,
+report it: the cloud and the SDK disagree, and nothing on your side can fix it.
 
 ## `CredentialRoutingError`
 
@@ -1052,7 +1171,7 @@ These are raised only by local ACT verification — `verify_act()` in Python,
 `ActVerificationError`, which inherits `ConsentTokenError`, which inherits
 `IDSideError`.
 
-The design rule is the one that runs through the whole product: **a proof is
+The design rule is the one that runs through the whole product: **a certificate is
 valid only when the function returns.** There is no "valid enough", no partial
 result, no falsy return — every failure raises. A caller that catches nothing is
 already failing closed. The subclasses exist so that an auditor can tell a
@@ -1062,7 +1181,7 @@ The names below are not a convention the two SDKs happen to share: which class
 comes out for a given token is pinned by
 [shared vectors](../packages/descriptors/testdata/act-verification-vectors.json)
 that both suites replay. An auditor checking a token in Node and a customer
-checking the same token in Python must reach the same verdict, or the proof is
+checking the same token in Python must reach the same verdict, or the certificate is
 an opinion about which library you installed.
 
 | Error | Raised when | What it usually means |
@@ -1073,10 +1192,10 @@ an opinion about which library you installed.
 | `ActKeyNotFoundError` | no key in the JWKS matches the `kid`, or the match cannot verify ES256 (wrong `kty`/`crv`, encryption-only, unusable coordinates) | your JWKS copy predates a key rotation. Refresh it |
 | `ActPrivateKeyInKeySetError` | a key in the set carries **private** material (`d`, `k`) | an incident, not a retry — see below |
 | `ActSignatureError` | the signature does not match header+payload | the token was altered after signing, or never signed by that key. Never retry into acceptance |
-| `ActExpiredError` | past `exp`, beyond the leeway | tokens live one hour. Auditing an archived proof? Pass `now` / `now=` — the instant you are auditing — instead of the wall clock |
+| `ActExpiredError` | past `exp`, beyond the leeway | tokens live one hour. Auditing an archived certificate? Pass `now` / `now=` — the instant you are auditing — instead of the wall clock |
 | `ActNotYetValidError` | `iat` or `nbf` in the future, beyond the leeway | clock skew. Check the verifying machine's clock before suspecting the token |
-| `ActIssuerError` | `iss` is not an accepted issuer | a `test.idside.eu` token — from a deployment of the cloud that is not the production service — verified without `allow_test_issuer` / `allowTestIssuer`. A test key's proof from the production service is signed `idside.eu` and does not raise this: read `proof.mode` |
-| `ActBindingMismatchError` | a pinned `request_hash`, `nonce`, `sub` or `app_id` does not match | **one token = one request** — the proof belongs to a different call, user or app |
+| `ActIssuerError` | `iss` is not an accepted issuer | a `test.idside.eu` token — from a deployment of the cloud that is not the production service — verified without `allow_test_issuer` / `allowTestIssuer`. A test key's certificate from the production service is signed `idside.eu` and does not raise this: read `proof.mode` |
+| `ActBindingMismatchError` | a pinned `request_hash`, `nonce`, `sub` or `app_id` does not match | **one token = one request** — the certificate belongs to a different call, user or app |
 | `ActVerificationUnavailableError` | the ES256 backend is missing (Python: `pip install 'idside[verify]'`); the JWKS URL cannot be fetched or returns something unusable; two keys share a `kid` | verification could not be performed — which is never the same as "valid" |
 
 ### Why a private key in the JWKS gets its own class
@@ -1107,7 +1226,7 @@ on the token. Those raise `ValueError` in Python and `TypeError` in Node.js —
 deliberately outside
 the `ActVerificationError` hierarchy, so `except ActVerificationError` /
 `catch (e instanceof ActVerificationError)` never swallows them into a
-"the proof is invalid" branch.
+"the certificate is invalid" branch.
 
 ```python
 from idside import ActBindingMismatchError, ActVerificationError, verify_act
@@ -1115,16 +1234,16 @@ from idside import ActBindingMismatchError, ActVerificationError, verify_act
 try:
     proof = verify_act(token, jwks=jwks, request_hash=expected_hash)
 except ActBindingMismatchError:
-    audit_log.error("proof does not belong to this request")
+    audit_log.error("certificate does not belong to this request")
 except ActVerificationError as exc:
-    audit_log.error("proof rejected: %s", exc)
+    audit_log.error("certificate rejected: %s", exc)
 else:
     audit_log.info("verified %s %s (%s)", proof.provider, proof.model, proof.binding)
 ```
 
 See the quickstarts for the full call signatures:
-[Python](./quickstart-python.md#7-verify-a-proof-yourself) ·
-[Node.js](./quickstart-node.md#7-verify-a-proof-yourself).
+[Python](./quickstart-python.md#7-verify-a-certificate-yourself) ·
+[Node.js](./quickstart-node.md#7-verify-a-certificate-yourself).
 
 ---
 

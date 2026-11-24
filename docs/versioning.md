@@ -34,9 +34,9 @@ still running that version. The blast radius of a careless cloud change is
 "nobody's AI features work", which is why the rules below are absolute rather
 than aspirational.
 
-What that promise covers is the **exchange**, not the **outcome**. It guarantees
-that every SDK keeps understanding what the cloud sends and keeps applying it
-correctly. It does not guarantee what the cloud decides for a given person —
+What that promise covers is the **exchange**, not the **outcome**. It commits
+the cloud to sending only what every SDK still installed understands and
+applies correctly. It says nothing of what the cloud decides for a given person —
 that changes every time someone updates a choice, and it changes when the rule
 that resolves an unanswered question changes, as it did when silence became a
 refusal ([CHANGELOG](../CHANGELOG.md)). A call refused by a decision the SDK
@@ -59,7 +59,7 @@ new provenance or legal basis must not stop older SDKs. From that, exactly:
 | --- | --- | --- |
 | **Add** a top-level response field | ✅ always | Older SDKs never look at it. |
 | **Add** a 403 problem `type` | ✅ | An SDK that does not know it still raises `ConsentDeniedError`, with `reason` unset: the call is refused all the same, and only the explanation is missing. `policy_hold` arrived this way. |
-| **Add** a `source` or `legal_basis` value | ✅ | Both SDKs carry these as opaque strings and never branch on them, so a new value reaches the proof and the developer's code untouched. `public_task`, `legal_obligation` and `vital_interests` arrived this way. Renaming one is not adding: a claim may be added, never redefined (§1.2). |
+| **Add** a `source` or `legal_basis` value | ✅ | Both SDKs carry these as opaque strings and never branch on them, so a new value reaches the certificate and the developer's code untouched. `public_task`, `legal_obligation` and `vital_interests` arrived this way. Renaming one is not adding: a claim may be added, never redefined (§1.2). |
 | **Add** a `binding` value | only for a request older SDKs cannot send | `binding` is a closed domain the SDK checks against its request, so a new value reaches no older SDK safely unless that SDK can never receive it. `api_key` arrived this way: it answers a request that names nobody, which no SDK sent before `0.1.0.dev3`, and every request that names somebody keeps `ubt` or `user_id`. |
 | **Accept** a request without a field older SDKs always send | ✅ | Older SDKs keep sending it, so they never take the new path. A request naming nobody arrived this way. |
 | **Add** a key inside `constraints` | ❌ under `/v1` | A constraint is an instruction to apply locally, so an SDK that does not know it cannot ignore it: it fails closed and stops every call. A new constraint ships with the SDK release that understands it. |
@@ -77,18 +77,19 @@ A new SDK minor may start using `/v2`; the old ones keep talking to `/v1`.
 
 ### 1.2 The ACT token is versioned by "forever"
 
-A proof outlives the SDK that obtained it. Tokens sit in the ledger, in
+A certificate outlives the SDK that obtained it. Tokens sit in the ledger, in
 customers' logs, in an auditor's evidence bundle, and someone will verify one
 years from now with whatever SDK they have. So:
 
 - **The request-hash function is frozen.** `sha256:` + SHA-256 of the
   [JCS](https://www.rfc-editor.org/rfc/rfc8785) canonicalisation of the caller's
   pre-enforcement payload, excluding the identity parameter and per-request
-  transport headers. Forced parameters and constraint transformations happen
-  afterward and are not added to the hash
+  transport headers — after prompt cleaning, when the application cleans
+  prompts, so the hash is of what leaves. Forced parameters and constraint
+  transformations happen afterward and are not added to the hash
   ([spec §3.1](./spec/act-token.md#31-request_hash--canonicalization)). Changing
   it would mean an auditor recomputing the hash from a stored request gets a
-  different answer than the token says — the proof becomes unfalsifiable in the
+  different answer than the token says — the certificate becomes unfalsifiable in the
   wrong direction. The cross-language
   [test vectors](../packages/descriptors/testdata/request-hash-vectors.json) are
   what hold both SDKs and the cloud to it.
@@ -115,9 +116,14 @@ to the cloud:
 - **The consent catalogue** (`catalogue_version`, currently `2`) names the
   options (`training.foundation`, `retention.conversation`, …). Those names
   appear inside `consent_state` in **signed** tokens. A signed claim cannot be
-  migrated: renaming an option would leave old proofs describing an option
+  migrated: renaming an option would leave old certificates describing an option
   nobody can look up. Options are therefore added, and retired ones keep their
   name reserved.
+
+The prompt-cleaning catalogue (`content-rules.json`) follows the same rule: a
+rule's `id` (an entry of `detectors`) is named in policies and counted in
+statistics, so rules are added and never renamed, and an id a release does not know is ignored by
+it rather than refused.
 
 Both are bundled into each SDK, kept byte-identical to
 [`packages/descriptors/`](../packages/descriptors/) by a test, and updated in
@@ -166,7 +172,7 @@ What the promise covers:
 | --- | --- | --- |
 | Entry point | `consent.wrap()` and its keyword arguments | `consent.wrap()` / `wrap()` and `WrapOptions` |
 | The call contract | `user_id=` / `ubt=` on an enforced call — optional, at most one — and the closed list of per-call options it accepts — adding to that list is not a break, removing from it is | `user_id` / `ubt`, the `Enforced<T>` type, and the same closed list |
-| Verification | `verify_act()` and every field of `VerifiedAct`; `request_hash()` | `verifyAct()`, `VerifiedAct`; `requestHash()` |
+| Verification | `verify_act()` and every field of `VerifiedAct`; `request_hash()`; `verify_clean()`, `content_policy_digest()` and the `idside-verify-clean` command | `verifyAct()`, `VerifiedAct`; `requestHash()`; `verifyClean()`, `contentPolicyDigest()` and the same command |
 | Errors | every exported exception **class name** and its place in the hierarchy | the same, plus `error.name` |
 | Options | `catalogue()`, `decidable_options()`, `disclosures()` and the shape they return | `catalogue()`, `decidableOptions()`, `disclosures()` |
 | Providers | `ProviderAdapter` and the three methods an adapter implements | `ProviderAdapter`, `RequestMetadata` |
@@ -214,7 +220,7 @@ to be traded off against convenience:
 - one token, one request ([ACT spec](./spec/act-token.md)).
 
 A release that weakened one of these would not be a major version of this SDK.
-It would be a different product wearing its name, and the proofs it produced
+It would be a different product wearing its name, and the certificates it produced
 would be worth less than none. If you find something that looks like an
 exception, that is a bug and a
 [security report](../SECURITY.md), not a feature request.
@@ -267,6 +273,6 @@ While only pre-releases exist, pin the exact version: `== 0.1.0.dev3` /
 - pin `~= 0.1.0` / `^0.1.0` and read the CHANGELOG on a minor bump;
 - pin the **cloud** nowhere — it is a service, and §1 is the promise that
   covers it;
-- keep the ACT tokens you receive. They are the proof, they verify offline
+- keep the ACT tokens you receive. They are the certificates: they verify offline
   forever, and they are the one artefact that outlives every version number on
   this page.

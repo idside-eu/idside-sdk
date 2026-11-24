@@ -22,7 +22,7 @@ not a deployment convenience. Your page cannot read inside the iframe and the
 iframe cannot read your page, which is what makes the
 [opaque tunnel](../../docs/concepts.md#3-the-opaque-tunnel) real: a widget
 running as a library *in* your page would put your code between the user and
-their answer, and the signed proof would attest to nothing. The same isolation
+their answer, and the signed certificate would attest to nothing. The same isolation
 is why this repository can be fully auditable without the widget's markup being
 in it — every line that touches *your requests* is here; the surface that
 collects *your users' answers* is deliberately somewhere you cannot reach.

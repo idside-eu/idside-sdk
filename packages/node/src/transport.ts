@@ -24,6 +24,20 @@ import {
   QuotaExceededError,
   RateLimitedError,
 } from "./exceptions.ts";
+import {
+  CONTENT_EVENTS_PATH,
+  CONTENT_POLICY_PATH,
+  EVENTS_TIMEOUT_MS,
+  JWKS_PATH,
+  PolicyCache,
+  clock,
+  unfetched,
+  POLICY_ROUTE_LEAD,
+  readAnswer,
+  unreachable,
+  verifyPending,
+  type PolicyState,
+} from "./contentPolicy.ts";
 
 export const DEFAULT_BASE_URL = "https://sdk.idside.eu";
 
@@ -330,6 +344,14 @@ export interface ConsentDecision {
    * never the best of what happens to be available.
    */
   readonly credentialPosture?: string;
+  /**
+   * What the cloud made of this call's prompt-cleaning declaration —
+   * `{ status: "applied" | "outdated" | "anomaly" | "not_applied", digest }` —
+   * or `undefined` when the application cleans nothing. Advisory: it never
+   * changes the call; the SDK fetches a fresh policy when it says the one
+   * applied is not current.
+   */
+  readonly contentPolicy?: Readonly<Record<string, unknown>>;
 }
 
 export interface AuthorizeRequest {
@@ -369,11 +391,39 @@ export interface AuthorizeRequest {
    * process.
    */
   readonly credentialPostures?: readonly string[];
+  /**
+   * What this call's prompt cleaning declares — the policy's digest, the
+   * engine's, the challenge answer and the counts of what was masked — sent
+   * only when the application cleans prompts.
+   */
+  readonly contentPolicy?: Readonly<Record<string, unknown>>;
 }
 
-/** The interface the SDK uses to authorize a request against the cloud. */
+/**
+ * The interface the SDK uses to authorize a request against the cloud.
+ *
+ * `contentPolicy()` and `contentEvents()` are optional: a client without them
+ * (a stand-in written for a test, or one built before cleaning existed)
+ * cleans nothing, exactly as an SDK without cleaning — no `content_policy`
+ * field is sent, and the cloud sees that no cleaning was declared.
+ */
 export interface ConsentClient {
   authorize(request: AuthorizeRequest): Promise<ConsentDecision>;
+  contentPolicy?(): Promise<PolicyState>;
+  contentEvents?(report: ContentEvents): Promise<void>;
+}
+
+/**
+ * A call cleaning blocked: rule ids and counts, never a value — and which
+ * provider and model it was for, each only when the service keeps it as it is
+ * (`eventLabels()`), never as `null`.
+ */
+export interface ContentEvents {
+  readonly digest: string;
+  readonly engine: string;
+  readonly blocked: Readonly<Record<string, number>>;
+  readonly provider?: string;
+  readonly model?: string;
 }
 
 export interface HttpConsentClientOptions {
@@ -413,6 +463,12 @@ export class HttpConsentClient implements ConsentClient {
   readonly #fetch: typeof fetch;
   /** The sentence an outage-shaped failure carries when no address was given. */
   readonly #originHint: string;
+  readonly #policy = new PolicyCache();
+  /**
+   * The fetch of the policy (and of the key set it needs) in flight, shared by
+   * every caller that has no valid policy; cleared before they resume.
+   */
+  #flight: Promise<PolicyState> | undefined;
 
   /**
    * The address is resolved here, in the order the Python transport uses: the
@@ -456,6 +512,9 @@ export class HttpConsentClient implements ConsentClient {
       // A call that names nobody carries no identity field at all — not an
       // empty one, which the cloud would refuse.
       ...(ubt !== undefined ? { ubt } : userId !== undefined ? { user_id: userId } : {}),
+      // Only when the application cleans prompts: one that cleans nothing
+      // sends exactly what an SDK without cleaning sends.
+      ...(request.contentPolicy !== undefined ? { content_policy: request.contentPolicy } : {}),
     };
 
     const response = await this.#post(body);
@@ -488,7 +547,163 @@ export class HttpConsentClient implements ConsentClient {
       }
     }
 
-    return decisionFrom(record, binding);
+    const decision = decisionFrom(record, binding);
+    this.#policy.noteAnswer(decision.contentPolicy, clock.monotonic());
+    return decision;
+  }
+
+  /**
+   * The application's prompt-cleaning policy, verified and cached.
+   *
+   * Fetched from `/v1/content-policy` on first use and again after
+   * `refresh_after` — at most once per ten seconds while a valid policy is held,
+   * whatever the last attempt gave. A policy that does not verify throws `ContentPolicyError`;
+   * a cloud that cannot be reached throws `ConsentUnreachableError` unless the
+   * policy held is still valid.
+   *
+   * Concurrent callers share one fetch: while it is in flight, a caller that
+   * holds a valid policy applies it, and the others wait for that fetch and
+   * receive what it gave — its failure included, which is never kept: the next
+   * call starts a fetch of its own.
+   */
+  async contentPolicy(): Promise<PolicyState> {
+    const now = clock.now();
+    const mono = clock.monotonic();
+    const current = this.#policy.held(now, mono);
+    if (current !== undefined) return current;
+    if (this.#flight === undefined) {
+      this.#policy.attemptedAt = mono;
+      // Cleared before the waiters resume: the next caller starts afresh. The
+      // caller that starts it returns it at once, as every waiter does, so a
+      // failure always has a handler.
+      const flight = this.#attempt(now, mono).finally(() => {
+        this.#flight = undefined;
+      });
+      this.#flight = flight;
+    }
+    return this.#flight;
+  }
+
+  async #attempt(now: number, mono: number): Promise<PolicyState> {
+    const cache = this.#policy;
+    let state: PolicyState;
+    try {
+      state = await this.#fetchPolicy(now, mono);
+    } catch (error) {
+      // Read again: the fetch took time, and the policy held may have run out
+      // while it was failing.
+      const held = cache.usable(clock.now(), clock.monotonic());
+      if (held === undefined || !(error instanceof ConsentUnreachableError || error instanceof RateLimitedError)) {
+        throw error;
+      }
+      return held;
+    }
+    cache.state = state;
+    return state;
+  }
+
+  async #fetchPolicy(now: number, mono: number): Promise<PolicyState> {
+    let response = await this.#get(CONTENT_POLICY_PATH, true);
+    const delay = this.#policy.retryDelay(response.status, response.headers.get("retry-after"), now, mono);
+    if (delay !== undefined) {
+      await clock.sleep(delay);
+      response = await this.#get(CONTENT_POLICY_PATH, true);
+    }
+    // A qualified refusal keeps the class it has on /v1/authorize; any other
+    // error says the policy could not be fetched, with its status — never
+    // "could not verify consent", which would send the developer to an
+    // authorize route that may be answering well.
+    if (!response.ok) {
+      raiseForStatus(
+        response.status,
+        await problemBody(response),
+        this.#originHint,
+        unfetched(response.status),
+        POLICY_ROUTE_LEAD,
+      );
+    }
+    let data: unknown;
+    try {
+      data = await response.json();
+    } catch {
+      data = undefined; // readAnswer refuses it: "is not a JSON object"
+    }
+    const pending = readAnswer(data);
+    if (pending.enabled && !this.#policy.knows(pending.keyId)) {
+      // A key set is public: it is fetched without the API key.
+      const keys = await this.#get(JWKS_PATH, false);
+      let jwks: unknown;
+      try {
+        jwks = keys.ok ? await keys.json() : undefined;
+      } catch {
+        jwks = undefined;
+      }
+      if (jwks === undefined) throw unreachable(this.#originHint);
+      this.#policy.jwks = jwks;
+    }
+    return verifyPending(pending, this.#policy.jwks, clock.now(), this.#policy.state);
+  }
+
+  /**
+   * Report a call cleaning blocked: rule ids and counts, never a value. Best
+   * effort: the call is already refused locally, so a report that cannot be
+   * delivered is dropped rather than turned into a second error.
+   */
+  async contentEvents(report: ContentEvents): Promise<void> {
+    const headers: Record<string, string> = { "Content-Type": "application/json", "User-Agent": USER_AGENT };
+    if (this.#apiKey) headers.Authorization = `Bearer ${this.#apiKey}`;
+    const doFetch = this.#fetch;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), Math.min(this.#timeoutMs, EVENTS_TIMEOUT_MS));
+    try {
+      await doFetch(this.#baseUrl + CONTENT_EVENTS_PATH, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          digest: report.digest,
+          engine: report.engine,
+          blocked: report.blocked,
+          // Written only when given: the service refuses a report whose member
+          // it cannot read, and `null` is one.
+          ...(report.provider !== undefined ? { provider: report.provider } : {}),
+          ...(report.model !== undefined ? { model: report.model } : {}),
+        }),
+        signal: controller.signal,
+      });
+    } catch {
+      // best effort, by contract
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * Single GET with a hard timeout, its body included; a network failure is an
+   * unreachable cloud.
+   *
+   * The answer comes back already read. `fetch` resolves once the headers are
+   * in: a body that stalls after them would otherwise be waited for with no
+   * deadline — by every call of this client, since they share this fetch — and
+   * one that breaks would read as a malformed policy, which a policy held and
+   * still valid does not stand in for. Python reads the body under its timeout
+   * and calls both an unreachable cloud; so does this.
+   */
+  async #get(path: string, withKey: boolean): Promise<Response> {
+    const headers: Record<string, string> = { "User-Agent": USER_AGENT };
+    if (withKey && this.#apiKey) headers.Authorization = `Bearer ${this.#apiKey}`;
+    const doFetch = this.#fetch;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.#timeoutMs);
+    try {
+      const response = await doFetch(this.#baseUrl + path, { method: "GET", headers, signal: controller.signal });
+      const body = await response.arrayBuffer();
+      // A status that carries no body (204, 304) refuses one, even empty.
+      return new Response(body.byteLength > 0 ? body : null, { status: response.status, headers: response.headers });
+    } catch (cause) {
+      throw unreachable(this.#originHint, cause);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /** Single POST with a hard timeout. No retry — see below. */
@@ -698,7 +913,23 @@ function decisionFrom(record: Record<string, unknown>, binding: Binding): Consen
     binding,
     constraints: constraintsFrom(record),
     credentialPosture: credentialPosture(record.credential_posture),
+    contentPolicy: contentPolicyAnswer(record.content_policy),
   };
+}
+
+/**
+ * Read the optional `content_policy` answer; anything unexpected is ignored.
+ *
+ * Advisory, so read leniently: it never changes what this call does, only when
+ * the SDK next fetches the policy. A shape this SDK does not know is read as no
+ * answer, as an older SDK reads the field at all. Python's twin is
+ * `_content_policy_answer()`.
+ */
+export function contentPolicyAnswer(value: unknown): Readonly<Record<string, unknown>> | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  if (typeof record.status !== "string") return undefined;
+  return Object.fromEntries(Object.entries(record).filter(([key]) => key === "status" || key === "digest"));
 }
 
 /**
@@ -769,25 +1000,28 @@ function raiseForStatus(
   status: number,
   problem: Record<string, unknown>,
   originHint: string,
+  undetermined = `Could not verify consent (HTTP ${status}); the AI call was not made.`,
+  route = "",
 ): never {
+  // `route` leads every qualified refusal of a route other than /v1/authorize:
+  // the class stays, and the message names the route that answered.
+  const said = (message: string): string => withProblemDetails(route + message, problem);
   if (status === 401) {
     const binding = BINDING_ERRORS.get(problemTypeName(problem.type));
     if (binding) {
       const [BindingClass, message] = binding;
-      throw new BindingClass(withProblemDetails(message, problem));
+      throw new BindingClass(said(message));
     }
     throw new AuthenticationError(
-      withProblemDetails(
+      said(
         "ID Side rejected the API credentials (HTTP 401). Check the apiKey passed to consent.wrap(); the AI call was not made.",
-        problem,
       ),
     );
   }
   if (status === 402) {
     throw new QuotaExceededError(
-      withProblemDetails(
+      said(
         "ID Side plan quota exceeded (HTTP 402). Upgrade the plan or wait for the window to reset; the AI call was not made.",
-        problem,
       ),
     );
   }
@@ -795,9 +1029,8 @@ function raiseForStatus(
     const type = problem.type;
     const reason = denyReason(type);
     throw new ConsentDeniedError(
-      withProblemDetails(
+      said(
         "The requested AI usage was denied (HTTP 403); the AI call was not made.",
-        problem,
       ),
       { reason },
     );
@@ -809,40 +1042,30 @@ function raiseForStatus(
     // Not an outage: the visitor's binding still verifies, and what it covers
     // is out of date. Any other 409 stays undetermined, below.
     throw new ConsentRefreshRequiredError(
-      withProblemDetails(
+      said(
         "This visitor's recorded choices no longer cover this application's AI use (HTTP 409): " +
           "the policy or the questions it requires changed since they answered. " +
           "Show them the widget again before retrying; the AI call was not made.",
-        problem,
       ),
     );
   }
   if (status === 422) {
     throw new ContractError(
-      withProblemDetails(
+      said(
         "ID Side refused this call's payload (HTTP 422). If the cloud's detail names a value your code passed, " +
           "fix that value; otherwise the SDK and the cloud disagree on the contract — upgrade the SDK or " +
           "report it; the AI call was not made.",
-        problem,
       ),
     );
   }
   if (status === 429) {
     throw new RateLimitedError(
-      withProblemDetails(
+      said(
         "ID Side rate limit hit (HTTP 429). Retry after a backoff; the AI call was not made.",
-        problem,
       ),
     );
   }
-  // 5xx or any undetermined 4xx: consent could not be verified → fail-closed.
-  throw new ConsentUnreachableError(
-    withHint(
-      withProblemDetails(
-        `Could not verify consent (HTTP ${status}); the AI call was not made.`,
-        problem,
-      ),
-      originHint,
-    ),
-  );
+  // 5xx or any undetermined 4xx: consent could not be verified → fail-closed,
+  // in the words of the route when it has its own.
+  throw new ConsentUnreachableError(withHint(withProblemDetails(undetermined, problem), originHint));
 }

@@ -365,7 +365,7 @@ _WHY = {
     ),
     "generation_output_config": (
         "has the provider write the generated media to a storage bucket the "
-        "proof never names"
+        "certificate never names"
     ),
     "automatic_continuation": (
         "makes the library send the request again, on its own, under the one "
@@ -533,9 +533,9 @@ def _refuse_option(where: str, name: str) -> None:
     raise UnenforceableOptionError(
         f"`{where}` cannot be used on a consent-enforced call: it "
         f"{_WHY.get(name, _WHY_UNKNOWN)}, so the request leaving the process "
-        "would not be the one the proof describes. The AI call was not made and "
-        "ID Side was not asked. Pass request parameters as named arguments of the "
-        "call, and set where the client sends when you build it."
+        "would not be the one the certificate describes. The AI call was not made "
+        "and ID Side was not asked. Pass request parameters as named arguments of "
+        "the call, and set where the client sends when you build it."
     )
 
 
@@ -843,10 +843,11 @@ def _refuse_reserved_headers(
     )
     raise UnenforceableOptionError(
         f"`{where}` sets `{(token or reserved)[0]}`, a header that {what}. "
-        "Changing it on one call would send the request on terms the proof does "
-        "not describe, and credential routing could no longer hold. The AI call "
-        "was not made and ID Side was not asked. Set credentials when you build "
-        "the client, and route between several with consent.wrap(credentials=…)."
+        "Changing it on one call would send the request on terms the certificate "
+        "does not describe, and credential routing could no longer hold. The AI "
+        "call was not made and ID Side was not asked. Set credentials when you "
+        "build the client, and route between several with "
+        "consent.wrap(credentials=…)."
     )
 
 
@@ -933,7 +934,7 @@ def refuse_declared_rewrites(client: Any, descriptor: ProviderDescriptor) -> Non
         raise UnsupportedProviderError(
             "This google-genai client was built with `http_options.extra_body`, "
             "which the library merges into every request body after the SDK has "
-            "authorized it — the proof would describe requests that never left "
+            "authorized it — the certificate would describe requests that never left "
             "the process. The client was not wrapped: build it without "
             "`extra_body`, and pass parameters as named arguments of each call."
         )

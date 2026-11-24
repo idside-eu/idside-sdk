@@ -793,7 +793,7 @@ function reservedHeader(name: string, where: string): UnenforceableOptionError {
   return new UnenforceableOptionError(
     `The \`${name}\` header cannot be set on a consent-enforced call (in \`${where}\`). ${NOT_MADE} It chooses ` +
       "the key, account or project the call goes out on, or it carries the ACT token itself. A per-call value " +
-      "would send the request on something the proof does not record. Configure credentials on the client, or " +
+      "would send the request on something the certificate does not record. Configure credentials on the client, or " +
       "let consent.wrap({ credentials }) route between them.",
   );
 }

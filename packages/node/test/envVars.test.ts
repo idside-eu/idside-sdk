@@ -1,3 +1,4 @@
+import { cleaningOff } from "./cleaningOff.ts";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { wrap } from "../src/consent.ts";
@@ -20,7 +21,7 @@ for (const [label, configured, expectedUrl] of [
     process.env.IDSIDE_API_KEY = "sk_test_env_key"; // pragma: allowlist secret
 
     const seen: { url: string; auth: string | null }[] = [];
-    globalThis.fetch = (async (
+    globalThis.fetch = cleaningOff((async (
       input: string | URL | Request,
       init?: RequestInit,
     ) => {
@@ -46,7 +47,7 @@ for (const [label, configured, expectedUrl] of [
         }),
         { status: 200, headers: { "content-type": "application/json" } },
       );
-    }) as unknown as typeof fetch;
+    }) as unknown as typeof fetch);
 
     try {
       // `unknown` as a body type intersects with the identity to the identity

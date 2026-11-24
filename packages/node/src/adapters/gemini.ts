@@ -12,7 +12,7 @@
  * `config.httpOptions.headers`, without mutating the caller's objects.
  */
 
-import { GenericAdapter, dropPath, filterProtected, isPlainObject, mergeHeaders, type RequestMetadata } from "./base.ts";
+import { GenericAdapter, dropPath, filterProtected, isPlainObject, mergeHeaders } from "./base.ts";
 import { GEMINI_CONFIG_FIELDS } from "./callOptions.ts";
 import { ConsentTokenError } from "../exceptions.ts";
 
@@ -31,18 +31,21 @@ function asDict(value: unknown, what: string): Record<string, unknown> {
 
 export class GeminiAdapter extends GenericAdapter {
   /**
-   * The hash, without the config fields that are not request data.
+   * What is hashed, and cleaned: the call without the config fields that are
+   * not request data.
    *
    * `config.abortSignal` is how a Gemini call is cancelled. It never leaves the
    * process, and it cannot be canonicalized: it used to make every call that
-   * passed one throw `ConsentTokenError`. So no existing hash moves.
+   * passed one throw `ConsentTokenError`. So no existing hash moves. Left out
+   * here rather than in the hash alone, so that prompt cleaning, which reads
+   * the same object, does not meet it either.
    */
-  override extractRequestMetadata(params: Record<string, unknown>): RequestMetadata {
+  override requestPayload(params: Record<string, unknown>): Record<string, unknown> {
     let hashed = params;
     for (const [field, role] of Object.entries(GEMINI_CONFIG_FIELDS)) {
       if (role === "unhashed") hashed = dropPath(hashed, ["config", field]);
     }
-    return super.extractRequestMetadata(hashed);
+    return super.requestPayload(hashed);
   }
 
   /**

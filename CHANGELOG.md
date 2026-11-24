@@ -90,7 +90,16 @@ never reaches ID Side; only digests and counts do.
   right answer later than that is an `anomaly`.
 - **`ContentBlockedError`**: a *block* rule matched. Nothing was sent; the
   rule ids and counts are on `.blocked`, and reported to the cloud best effort
-  (`POST /v1/content-events`).
+  (`POST /v1/content-events`), with the provider (the descriptor's name) and
+  the model the call asked for, so that the dashboard lists a blocked call
+  under its provider and model as it lists an authorized one. Each of those
+  two is sent only when the service keeps it as written — a model of 1 to 200
+  printable ASCII characters, no blank at either end, passed as a string — and
+  left out otherwise, never sent empty or null. Never a value of the prompt,
+  never the identity. A custom `consent_client` / `consentClient` receives
+  them as `provider` and `model` arguments, only when they are sent; one
+  without `content_events` / `contentEvents` still blocks the call and reports
+  nothing.
 - **`ContentPolicyError`**: the policy did not check out, or cannot be applied.
   Fail-closed. A policy that is signed and intact but out of step with this
   machine's clock says so, and which way the clock looks wrong: set it (NTP);
@@ -160,6 +169,32 @@ never reaches ID Side; only digests and counts do.
 - The request hash is computed after cleaning when the application cleans
   prompts — the function is unchanged, and so is every hash of an application
   that cleans nothing ([spec §3.1](./docs/spec/act-token.md#31-request_hash--canonicalization)).
+- **Error messages say "certificate"** where they said "proof", as the
+  dashboard does — `verify_act()` / `verifyAct()`'s refusals, the transport
+  guard's, and the refused per-call options'. The error classes, their `reason`
+  and every other word are unchanged; code that matched on the word "proof" in
+  a message should match on the class instead.
+
+### Docs
+
+- **The documentation uses the dashboard's words.** The signed record of a call
+  is a **certificate** (it was "proof"); the group of API keys that carries an
+  organization's refusals is a **strainer**; an entry of the prompt-cleaning
+  catalogue is a **rule** (`detectors` in the file and in a policy, unchanged).
+  Nothing signed is renamed: the ACT token, `verify_act()` / `verifyAct()`,
+  claims, fields, error classes and call-site ids keep their names.
+- **One switch per provider replaces Enforce and Observe.** When the policy
+  cannot apply to a call, a strainer that blocks the call's provider holds it
+  (`policy_hold`, unchanged), and one that lets it through sends it with the
+  deviation signed in its certificate (`deviations`, unchanged). A new strainer
+  blocks every provider until its organization lets one through. The list of allowed providers is gone, so the cloud no longer
+  produces the `provider_not_allowed` deviation; certificates issued before
+  may still carry it ([Concepts §4](./docs/concepts.md#blocking-a-provider--when-the-policy-cannot-apply)).
+  Neither SDK changes: both forward `deviations` and the 403 untouched.
+- **The `deviations` tables list `content_engine_unverified`**: a call that
+  declared a prompt cleaning the cloud could not verify — a challenge missing,
+  not issued for the application or answered wrongly, or a policy digest none
+  of its revisions — let through with it signed, or held under `policy_hold`.
 
 ## [0.1.0.dev3] — 2026-11-14
 

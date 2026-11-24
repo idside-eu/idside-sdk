@@ -1,6 +1,6 @@
 # ID Side SDK — documentation
 
-AI consent infrastructure: a signed proof, attached to every AI API call, of the
+AI consent infrastructure: a signed certificate, attached to every AI API call, of the
 policy it was authorized against and the settings forced on it. This is the documentation set for the
 source-available SDKs.
 
@@ -21,6 +21,7 @@ source-available SDKs.
 | HTTP API reference — `GET /openapi.yaml` | The endpoints this SDK calls, field by field: request bodies, every response, and the full catalogue of problem types. Served by the cloud unauthenticated, at the service origin configured in `IDSIDE_BASE_URL`, so you can read it, diff it and generate a client from it without an account. **This is the contract**: where a sentence in these pages and that file disagree, that file is right — it is checked against the running routes on every build, and prose is not. |
 | [Providers](./providers.md) | Supported clients, intercepted call sites, where parameters and the token are injected, and how to add a provider |
 | [Provider privacy matrix](./providers-privacy-matrix.md) | Option by option, what each provider actually lets you control — enforced, contractual, account-level, absent from the API, or not through the endpoints the SDK wraps |
+| [Prompt cleaning](./prompt-cleaning.md) | The organization's policy masking or blocking addresses, cards, keys and its own terms before a call leaves — inside your process — what it does not catch, and the replay check |
 | [Errors](./errors.md) | Every error type both SDKs raise — enforcement and token verification — when each fires, and what to do about it |
 | [FAQ](./faq.md) | Outages, latency, what ID Side sees, GDPR posture, quota, verifying a token, bypassing the SDK |
 | [Versioning](./versioning.md) | What a version number promises, what the *protocol* promises instead — you can pin the SDK and not the cloud — and how a deprecation is announced |
@@ -48,7 +49,7 @@ If you are evaluating ID Side, read [Concepts](./concepts.md) first — especial
 [the opaque tunnel](./concepts.md#3-the-opaque-tunnel), which explains why the
 SDK refuses to let the code that makes a call set what applies to it,
 [the policy](./concepts.md#4-the-policy-what-applies-to-a-call-and-who-decided),
-which says what every proof records, and
+which says what every certificate records, and
 [the trust model](./concepts.md#what-the-tunnel-does-not-claim), which is honest
 about what the design does and does not guarantee.
 
@@ -57,7 +58,7 @@ If you are integrating, go straight to a quickstart, then read
 decision your calling code has to be ready for. If your application asks its
 users rather than applying your organization's policy, read the
 [widget guide](./widget.md) too: without the widget nobody ever writes a
-preference, so every option resolves to a refusal and every proof you collect
+preference, so every option resolves to a refusal and every certificate you collect
 records that none was established.
 
 ## Status
@@ -65,7 +66,7 @@ records that none was established.
 Pre-release, under active development.
 
 - The Python and Node.js SDKs are implemented and tested — enforcement
-  (`consent.wrap()`) and offline proof verification (`verify_act()` /
+  (`consent.wrap()`) and offline certificate verification (`verify_act()` /
   `verifyAct()`). Both are published as pre-releases: `idside` `0.1.0.dev3` on
   PyPI and `@idside/sdk` `0.1.0-dev.3` on npm, under the `next` dist-tag.
   Install them with `pip install idside` and `npm install @idside/sdk`: the SDK

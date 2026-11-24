@@ -261,7 +261,9 @@ def test_one_permit_covers_one_nested_hop_and_not_the_next() -> None:
         consent_client=fake,
     )
 
-    with pytest.raises(MissingIdentityError, match="inside another"):
+    with pytest.raises(
+        MissingIdentityError, match=r"(?s)inside another.*a certificate made now"
+    ):
         client.messages.parse(
             model="claude-sonnet-5", messages=_MESSAGES, user_id="usr_marie_456"
         )
@@ -572,6 +574,7 @@ def test_an_unwrapped_post_endpoint_is_refused_before_it_is_sent() -> None:
     assert wire.requests == [], "the request must not have left the process"
     message = str(excinfo.value)
     assert "POST" in message
+    assert "with no certificate and no ledger entry" in message
     assert "/v1/embeddings" in message
 
 
@@ -1347,6 +1350,7 @@ def test_a_transport_that_cannot_refuse_redirects_is_refused_at_wrap(
         )
 
     assert "follow_redirects" in str(caught.value)
+    assert "signed its certificate" in str(caught.value)
     assert "send" not in route.__dict__, "a client that was refused was not patched"
 
 

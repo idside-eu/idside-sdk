@@ -505,6 +505,7 @@ test("a per-call header naming the credential is refused, in every spelling and 
       for (const [shape, value] of Object.entries(shapes)) {
         const error = await assertRefusedBeforeAuthorize(make(), { headers: value }, `${name} ${header} (${shape})`);
         assert.ok(error.message.toLowerCase().includes(header.toLowerCase()), "the message names the header");
+        assert.ok(error.message.includes("something the certificate does not record"), error.message);
         assert.ok(!error.message.includes(ATTACKER_KEY), "the message never repeats a header value");
       }
     }

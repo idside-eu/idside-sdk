@@ -181,8 +181,10 @@ def test_an_invalid_mode_is_rejected(mode: object) -> None:
 def test_a_legacy_proof_without_mode_needs_an_explicit_opt_in() -> None:
     token = _es256(payload=_claims(mode=_ABSENT))
 
-    with pytest.raises(ActMalformedError, match="mode"):
+    with pytest.raises(ActMalformedError, match="mode") as raised:
         _verify(token)
+    # The dashboard's word: a certificate, never a "proof".
+    assert "certificate minted before" in str(raised.value)
 
     assert _verify(token, allow_legacy_without_mode=True).mode is None
 
@@ -355,8 +357,9 @@ def test_a_non_string_alg_header_is_rejected() -> None:
 
 
 def test_a_ubt_presented_as_an_act_is_rejected() -> None:
-    with pytest.raises(ActTypeMismatchError, match="ubt\\+jwt"):
+    with pytest.raises(ActTypeMismatchError, match="ubt\\+jwt") as raised:
         _verify(_es256(_header(typ="ubt+jwt")))
+    assert "not the certificate of an authorized AI call" in str(raised.value)
 
 
 @pytest.mark.parametrize("typ", ["JWT", "act+JWT", "", "widget+jwt"])
@@ -972,8 +975,9 @@ def test_now_does_not_relax_anything_but_the_time_window() -> None:
 
 
 def test_a_foreign_issuer_is_rejected() -> None:
-    with pytest.raises(ActIssuerError, match=r"evil\.example"):
+    with pytest.raises(ActIssuerError, match=r"evil\.example") as raised:
         _verify(_es256(payload=_claims(iss="evil.example")))
+    assert "not a certificate for this one" in str(raised.value)
 
 
 def test_the_test_issuer_is_rejected_by_default() -> None:
@@ -1025,8 +1029,9 @@ def test_a_matching_request_hash_passes() -> None:
 
 
 def test_a_request_hash_bound_to_another_request_is_rejected() -> None:
-    with pytest.raises(ActBindingMismatchError, match="request_hash"):
+    with pytest.raises(ActBindingMismatchError, match="request_hash") as raised:
         _verify(_es256(), request_hash="sha256:" + "cd" * 32)
+    assert "this certificate was issued for" in str(raised.value)
 
 
 def test_a_nonce_mismatch_is_rejected() -> None:

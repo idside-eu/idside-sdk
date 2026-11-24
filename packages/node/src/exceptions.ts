@@ -36,13 +36,14 @@ export class ConsentUnreachableError extends IDSideError {}
  * - `"organization_suspended"` — the whole account behind the app is stopped.
  *   Billing or compliance, not your app: it is not the same person you talk to,
  *   which is why it is not the same reason.
- * - `"policy_hold"` — when the organization's policy cannot apply to a call (a
- *   provider with no such setting, a provider the organization has not
- *   allowed, an employee who is not identified), Observe lets the call through
- *   and flags it, Enforce holds it; this is Enforce's hold. No option in your
- *   code lets a held call out: the provider, endpoint, model and identifier
- *   the call names, and the credentials you label, are your code's to change,
- *   the policy is its owner's.
+ * - `"policy_hold"` — the organization's policy cannot apply to this call (a
+ *   provider without that setting, no basis declared), and the strainer blocks
+ *   the call's provider when it is not compliant. Each strainer has one switch
+ *   per provider: a provider let through sends the call with the deviation
+ *   signed in its certificate, a blocked one holds it. No option in your code
+ *   lets a held call out: the provider, endpoint and model the call names, and
+ *   the credentials you label, are your code's to change; the policy, and each
+ *   provider's switch, are its owner's.
  * - `undefined` — a 403 whose reason this SDK does not qualify. Today that is a
  *   secret key minted without the `authorize` scope; the message carries the
  *   cloud's detail, which names the missing scope.

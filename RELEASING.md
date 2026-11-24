@@ -382,7 +382,7 @@ once a package is installable. Read it once, on purpose.
 [`docs/versioning.md` §1](./docs/versioning.md#1-two-things-are-versioned-and-they-are-not-the-same-thing)):
 
 - The request-hash definition, including *which* fields are excluded. An auditor
-  recomputes it years later; if it moves, old proofs stop checking out.
+  recomputes it years later; if it moves, old certificates stop checking out.
 - The ten mandatory fields of the authorize response. Removing one stops every
   older SDK from making AI calls at all.
 - Call-site ids (`chat.completions.create`, …) and consent-option names

@@ -355,6 +355,7 @@ def test_openai_extra_body_is_refused_before_authorize(
         UnenforceableOptionError,
     )
     assert "extra_body" in str(refused)
+    assert "the one the certificate describes" in str(refused)
 
 
 def test_openai_responses_extra_body_is_refused_before_authorize() -> None:
@@ -834,6 +835,7 @@ def test_openai_reserved_headers_are_refused(
     )
     (name, value), *_ = headers.items()
     assert name in str(refused)
+    assert "terms the certificate does not describe" in str(refused)
     assert value not in str(refused), "a header value may be a secret"
 
 
@@ -2652,6 +2654,7 @@ def test_a_gemini_client_built_to_rewrite_every_body_is_not_wrapped() -> None:
     with pytest.raises(UnsupportedProviderError) as caught:
         consent.wrap(raw, consent_client=_Cloud())
 
+    assert "the certificate would describe requests" in str(caught.value)
     assert "extra_body" in str(caught.value)
     assert not hasattr(raw.models.generate_content, "__idside_consent_enforced__")
 

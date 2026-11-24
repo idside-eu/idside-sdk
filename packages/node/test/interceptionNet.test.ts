@@ -351,7 +351,8 @@ test("a nested hop naming nobody is refused, not authorized about the key", asyn
 
     await assert.rejects(
       call("parse", { model: "claude-3", messages: [], ...outer }),
-      (error: unknown) => error instanceof MissingIdentityError && /inside another/.test(error.message),
+      (error: unknown) =>
+        error instanceof MissingIdentityError && /inside another[^]*a certificate made now/.test(error.message),
       JSON.stringify(outer),
     );
     assert.equal(cc.calls.length, 1, "the nested hop was authorized about the key");

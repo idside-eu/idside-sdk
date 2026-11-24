@@ -744,6 +744,100 @@ else
 fi
 
 echo
+echo "The report of a blocked call (the same body on the wire, provider and model included):"
+# What POST /v1/content-events carries, read off each SDK's own HTTP client:
+# the policy's digest, the engine, the rule ids and counts, and which provider
+# and model the call was for — each of those two only when the service keeps
+# it as it is, left out (never null) otherwise, since a member the service
+# cannot read makes it refuse the whole report. Never a value of the prompt.
+# The policy is handed over already verified, as in the section above.
+events_models='[{"model": "gpt-4o-mini"}, {"model": "ft:gpt-4o:org:atlas:abc123"}, {"model": "my model v2"}, {"model": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}, {"model": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}, {"model": ""}, {"model": " gpt-4o"}, {"model": "gpt\n4o"}, {"model": "modèle"}, {"model": 4}, {"model": null}, {"model": ["gpt-4o"]}, {}]'
+py=$(cd packages/python && uv run python -c "
+import json, sys
+from types import SimpleNamespace
+import httpx
+from idside import consent
+from idside._jcs import canonicalize
+from idside._cleaning import content_policy_digest
+from idside._content_policy import PolicyState
+from idside._transport import HttpConsentClient
+from idside.adapters import ProviderAdapter
+from idside.exceptions import ContentBlockedError
+from idside.providers import load_descriptors
+
+policy = json.loads(sys.argv[1])
+digest = content_policy_digest(policy)
+state = PolicyState(policy=policy, declaration={'digest': digest, 'engine': '1'},
+                    digest=digest, refresh_at=0, valid_until=0)
+for case in json.loads(sys.argv[2]):
+    wire = []
+    def answer(request):
+        wire.append((request.method, request.url.path, json.loads(request.content)))
+        return httpx.Response(204)
+    http = HttpConsentClient('https://cloud.parity.test', transport=httpx.MockTransport(answer))
+    class Cloud:
+        def content_policy(self): return state
+        content_events = http.content_events
+        def authorize(self, **request): raise AssertionError('a blocked call reached authorize')
+    class Completions:
+        def create(self, **kwargs): raise AssertionError('a blocked call reached the provider')
+    client = consent.wrap(SimpleNamespace(chat=SimpleNamespace(completions=Completions())),
+                          adapter=ProviderAdapter(load_descriptors()['openai']), consent_client=Cloud())
+    try:
+        client.chat.completions.create(messages=[{'role': 'user', 'content': 'card 4111 1111 1111 1111'}], **case)
+        print('NOT BLOCKED')
+    except ContentBlockedError:
+        (method, path, body), = wire
+        print(json.dumps(case.get('model', 'absent'), ensure_ascii=False)[:24], method, path, canonicalize(body).decode())
+" "$policy_json" "$events_models")
+nd=$(cd packages/node && node --experimental-strip-types -e "
+import {wrap} from './src/consent.ts';
+import {GenericAdapter} from './src/adapters/index.ts';
+import {loadDescriptors} from './src/descriptors.ts';
+import {canonicalizeToString as jcs} from './src/jcs.ts';
+import {contentPolicyDigest} from './src/cleaning/index.ts';
+import {PolicyState} from './src/contentPolicy.ts';
+import {HttpConsentClient} from './src/transport.ts';
+import {ContentBlockedError} from './src/exceptions.ts';
+
+const policy = JSON.parse(process.argv[1]);
+const digest = contentPolicyDigest(policy);
+const state = new PolicyState(policy, {digest, engine: '1'}, digest, 0, 0);
+for (const c of JSON.parse(process.argv[2])) {
+  const wire = [];
+  const http = new HttpConsentClient('https://cloud.parity.test', {
+    fetch: async (url, init) => {
+      wire.push([init.method, new URL(url).pathname, JSON.parse(init.body)]);
+      return new Response(null, {status: 204});
+    },
+  });
+  const cloud = {
+    contentPolicy: async () => state,
+    contentEvents: (report) => http.contentEvents(report),
+    authorize: async () => { throw new Error('a blocked call reached authorize'); },
+  };
+  const client = wrap(
+    {chat: {completions: {create: async () => { throw new Error('a blocked call reached the provider'); }}}},
+    {adapter: new GenericAdapter(loadDescriptors().get('openai')), consentClient: cloud},
+  );
+  try {
+    await client.chat.completions.create({messages: [{role: 'user', content: 'card 4111 1111 1111 1111'}], ...c});
+    console.log('NOT BLOCKED');
+  } catch (error) {
+    if (!(error instanceof ContentBlockedError)) throw error;
+    const [[method, path, body]] = wire;
+    console.log(JSON.stringify('model' in c ? c.model : 'absent').slice(0, 24), method, path, jcs(body));
+  }
+}" "$policy_json" "$events_models")
+if [ "$py" = "$nd" ] && [ "$(echo "$py" | grep -c ' POST /v1/content-events ')" = 13 ]; then
+  echo "$py" | sed -E 's/"(x{8})x+"/"\1…"/g; s/(sha256:[0-9a-f]{12})[0-9a-f]+/\1…/g; s/^/  ✅ /'
+else
+  echo "  ❌ DIVERGENCE"
+  diff <(echo "$py") <(echo "$nd") | sed 's/^/     /'
+  status=1
+fi
+
+echo
 echo "A signed cleaning policy (the same answers, the same verdict, whichever SDK reads them):"
 # Each SDK checks the policy before it applies anything: key purpose, signature
 # (high s accepted, as ECDSA does), type, algorithm, issuer, digest, application

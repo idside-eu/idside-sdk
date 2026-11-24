@@ -90,3 +90,68 @@ def test_every_exempted_phrase_is_still_in_the_documents() -> None:
 
     for phrase in _PROVIDER_SENSE:
         assert phrase in everything, phrase
+
+
+# The words of 2026-11-19 and 2026-11-23, as the dashboard and the public site
+# say them: the signed record of a call is a certificate, not a "proof", and
+# a strainer blocks a provider or lets it through, one switch per provider,
+# instead of the single Enforce / Observe choice. A guide in the old words
+# describes a setting nobody can find on the dashboard any more.
+#
+# The changelog keeps the words its released entries were written in, and the
+# privacy matrix is generated from the descriptors, so neither is read here.
+# Code is not prose: a variable named `proof` in an example, and an anchor kept
+# so that an old link still lands, are not the notion.
+_PROSE_DOCUMENTS = [
+    path
+    for path in _DOCUMENTS
+    if path.name not in {"CHANGELOG.md", "providers-privacy-matrix.md"}
+]
+
+_FENCE = re.compile(r"^```.*?^```", re.MULTILINE | re.DOTALL)
+_INLINE_CODE = re.compile(r"`[^`\n]*`")
+_ANCHOR = re.compile(r'<a id="[^"]*"></a>')
+_LINK_TARGET = re.compile(r"\]\([^)]*\)")
+
+_OLD_WORDS = re.compile(r"(?<![-\w])(?:proofs?|Proofs?|PROOF|Enforce|Observe)(?![-\w])")
+
+
+def _old_words(text: str) -> list[str]:
+    for code in (_FENCE, _INLINE_CODE, _ANCHOR, _LINK_TARGET):
+        text = code.sub(" ", text)
+    prose = _prose(text)
+    return [
+        prose[max(0, found.start() - 40) : found.end() + 40]
+        for found in _OLD_WORDS.finditer(prose)
+    ]
+
+
+def test_the_documents_say_certificate_and_name_no_retired_setting() -> None:
+    read = {path.relative_to(_ROOT).as_posix() for path in _PROSE_DOCUMENTS}
+    assert {"docs/concepts.md", "docs/spec/act-token.md", "README.md"} <= read
+
+    said = {
+        path.relative_to(_ROOT).as_posix(): mentions
+        for path in _PROSE_DOCUMENTS
+        if (mentions := _old_words(path.read_text(encoding="utf-8")))
+    }
+
+    assert said == {}, (
+        "The signed record of a call is a certificate, and a strainer blocks a "
+        "provider or lets it through: 'proof', 'Enforce' and 'Observe' are the "
+        "words the dashboard retired."
+    )
+
+
+def test_the_old_words_are_refused_in_prose_and_left_in_code() -> None:
+    assert len(_old_words("and every proof records what applied")) == 1
+    assert len(_old_words("Proofs carry the issuer")) == 1
+    assert len(_old_words("set to Enforce, the call is held")) == 1
+    assert len(_old_words("Observe lets the call through")) == 1
+    assert _old_words("a tamper-proof ledger, future-proof fields") == []
+    assert _old_words("read `proof.mode` first") == []
+    assert _old_words("```python\nproof = verify_act(token)\n```\n") == []
+    assert _old_words('<a id="7-verify-a-proof-yourself"></a>') == []
+    assert _old_words("[step 7](#7-verify-a-proof-yourself)") == []
+    assert _old_words("Enforcement splits along two axes; we enforce it") == []
+    assert _old_words("what the stand-ins observed") == []

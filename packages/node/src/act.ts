@@ -307,7 +307,7 @@ export async function verifyAct(token: string, options: VerifyActOptions): Promi
   if (rawMode === undefined && !("mode" in claims)) {
     if (options.allowLegacyWithoutMode !== true) {
       throw new ActMalformedError(
-        "Missing required claim 'mode'. For a proof minted before this claim existed, " +
+        "Missing required claim 'mode'. For a certificate minted before this claim existed, " +
           "set allowLegacyWithoutMode: true explicitly.",
       );
     }
@@ -320,7 +320,7 @@ export async function verifyAct(token: string, options: VerifyActOptions): Promi
   if (!expectedIssuers.has(strings.iss)) {
     throw new ActIssuerError(
       `Issuer ${JSON.stringify(strings.iss)} is not accepted (expected ` +
-        `${[...expectedIssuers].sort().join(" or ")}). A token from another environment is not a proof for this one.`,
+        `${[...expectedIssuers].sort().join(" or ")}). A token from another environment is not a certificate for this one.`,
     );
   }
   checkTimeWindow(claims, issuedAt, expiresAt, leeway, now);
@@ -334,7 +334,7 @@ export async function verifyAct(token: string, options: VerifyActOptions): Promi
     if (expected !== undefined && !constantTimeEqual(strings[name], expected)) {
       throw new ActBindingMismatchError(
         `Claim '${name}' does not match the value pinned by the caller: ` +
-          "this proof was issued for a different request, user or app.",
+          "this certificate was issued for a different request, user or app.",
       );
     }
   }
@@ -389,7 +389,7 @@ function splitToken(token: unknown): [string, string, string] {
  * something to clean up. Canonicality also means one token has exactly one
  * string form, so nothing keyed on that string can be fooled by a re-encoding.
  */
-function decodeSegment(segment: string, what: string): Buffer {
+export function decodeSegment(segment: string, what: string): Buffer {
   if (!BASE64URL.test(segment)) {
     throw new ActMalformedError(`The ${what} is not unpadded base64url (JOSE forbids '=', '+' and '/').`);
   }
@@ -400,7 +400,7 @@ function decodeSegment(segment: string, what: string): Buffer {
   return decoded;
 }
 
-function jsonObject(raw: Buffer, what: string): Record<string, unknown> {
+export function jsonObject(raw: Buffer, what: string): Record<string, unknown> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw.toString("utf8"));
@@ -428,13 +428,13 @@ function checkType(header: Record<string, unknown>): void {
   if (header.typ !== ACT_TYPE) {
     throw new ActTypeMismatchError(
       `The JOSE header declares typ=${JSON.stringify(header.typ)}; an ACT token is ` +
-        `'${ACT_TYPE}'. A token minted for another purpose is not a proof of consent.`,
+        `'${ACT_TYPE}'. A token minted for another purpose is not the certificate of an authorized AI call.`,
     );
   }
 }
 
 /** Reject `crit`: this verifier understands no JOSE extension. */
-function checkNoCriticalExtensions(header: Record<string, unknown>): void {
+export function checkNoCriticalExtensions(header: Record<string, unknown>): void {
   if ("crit" in header) {
     throw new ActMalformedError(
       "The JOSE header declares 'crit' extensions this verifier does not understand; " +
@@ -444,7 +444,7 @@ function checkNoCriticalExtensions(header: Record<string, unknown>): void {
 }
 
 /** Read `kid`. Absent means no key selection is possible — fail closed. */
-function readKeyId(header: Record<string, unknown>): string {
+export function readKeyId(header: Record<string, unknown>): string {
   const keyId = header.kid;
   if (typeof keyId !== "string" || !keyId) {
     throw new ActMalformedError(
@@ -510,7 +510,7 @@ async function fetchJwks(url: string, options: VerifyActOptions): Promise<unknow
 }
 
 /** Pick the JWK named by `kid`. No fallback: unknown key ⇒ rejection. */
-function selectKey(keySet: unknown, keyId: string): Record<string, unknown> {
+export function selectKey(keySet: unknown, keyId: string): Record<string, unknown> {
   if (!isRecord(keySet)) {
     throw new ActVerificationUnavailableError(
       "The key set is neither a JWKS object ({ keys: [...] }) nor a single JWK; the token was NOT accepted.",
@@ -581,7 +581,7 @@ function checkKeyUsable(jwk: Record<string, unknown>, keyId: string): Record<str
 
 // --- signature ----------------------------------------------------------
 
-function checkSignature(signingInput: string, signature: Buffer, jwk: Record<string, unknown>, keyId: string): void {
+export function checkSignature(signingInput: string, signature: Buffer, jwk: Record<string, unknown>, keyId: string): void {
   if (signature.length !== SIGNATURE_BYTES) {
     throw new ActSignatureError(
       `An ES256 signature is ${SIGNATURE_BYTES} raw bytes (r‖s); this one is ${signature.length}. ` +

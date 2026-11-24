@@ -2,7 +2,7 @@
 
 # ID Side SDK
 
-**AI consent infrastructure — a signed proof, on every AI call, of the policy it was authorized against and the settings forced on it.**
+**AI consent infrastructure — a signed certificate, on every AI call, of the policy it was authorized against and the settings forced on it.**
 
 [![License: Source Available](https://img.shields.io/badge/License-Source_Available-blue.svg)](./LICENSE)
 [![Status](https://img.shields.io/badge/status-pre--release-orange.svg)](#status)
@@ -28,7 +28,8 @@
 Your organization sends data to an AI API — your staff's work, your users'
 requests. Months later, a data protection authority asks you to prove that
 *this specific call*, on *this date*, honored the AI policy you had set at that
-moment: no training, no retention, only the providers you allowed.
+moment: no training, no retention — and, where a provider could not comply,
+the call held or the gap signed.
 
 A row in your database is an assertion. A screenshot is not evidence. Without a
 verifiable record of each call, that question is very hard to answer.
@@ -37,10 +38,10 @@ verifiable record of each call, that question is very hard to answer.
 
 ID Side applies **the Stripe model to AI consent**: an *opaque tunnel*. Your
 organization sets its AI policy on the ID Side dashboard — what may be retained
-or trained on, which providers may be called — and it applies to every call made
-with your API keys. The code that makes the call is never on that path, so it
-cannot loosen the policy, and cannot fake the proof either. You call the
-provider as before; you get back an enforced call and a signed proof.
+or trained on, and which providers are blocked when they cannot comply — and it
+applies to every call made with your API keys. The code that makes the call is never on that path, so it
+cannot loosen the policy, and cannot fake the certificate either. You call the
+provider as before; you get back an enforced call and a signed certificate.
 
 ```python
 from openai import OpenAI
@@ -89,32 +90,39 @@ If the decision cannot be verified, **the call does not happen** — [fail-close
 
 Naming the end user is optional. A call that names nobody is proven against the
 API key that made it (`binding="api_key"`); a `user_id` — a person, or a team
-such as `team-marketing` — makes the proof say whom the call was for. Every
-proof carries the basis your organization declared for the processing
+such as `team-marketing` — makes the certificate say whom the call was for. Every
+certificate carries the basis your organization declared for the processing
 ([Concepts §4](./docs/concepts.md#4-the-policy-what-applies-to-a-call-and-who-decided)).
 
 Applications can also ask their users rather than decide for them: the ID Side
 [Preference Center](./docs/widget.md) asks, and its users' calls pass
 `ubt="eyJ..."` (a **User Binding Token** signed by ID Side) instead of
 `user_id`. The cloud then verifies the identity rather than taking the
-developer's word for it, and the proof records the stronger `binding="ubt"`.
+developer's word for it, and the certificate records the stronger `binding="ubt"`.
 
-And because a proof only the issuer can check is not a proof, both SDKs verify
+And because a certificate only the issuer can check proves nothing, both SDKs verify
 ACT tokens **offline** — `verify_act()` / `verifyAct()`: signature against the
 public JWKS, `ES256` pinned, expiry, and the request binding, with no call to
 ID Side. This repository verifies; it never signs.
+
+An organization can also decide what must not leave its applications in a
+prompt — addresses, cards, IBANs, keys, its own terms — and both SDKs mask or
+block it **inside your process, before the call is hashed and sent**: the
+prompt never reaches ID Side, only counts do. It reduces that risk; it does not
+find everything. See [prompt cleaning](./docs/prompt-cleaning.md).
 
 ## Documentation
 
 | Page | |
 | --- | --- |
-| [Examples](./examples/) | Four programs that run today, offline, and print what actually left the process |
+| [Examples](./examples/) | Four programs that run today, offline, and print what actually left the process — and one that replays prompt cleaning |
 | [Quickstart — Python](./docs/quickstart-python.md) | Install, wrap, first call, and a runnable offline dry run |
 | [Quickstart — Node.js](./docs/quickstart-node.md) | The same for `@idside/sdk`, with how to run it from a checkout |
 | [Concepts](./docs/concepts.md) | Opaque tunnel, the policy and who decides, ACT token, ledger, GPC, fail-closed — and the trust model, stated honestly |
 | [Providers](./docs/providers.md) | Supported clients, intercepted call sites, what gets forced and why |
 | [Provider privacy matrix](./docs/providers-privacy-matrix.md) | Option by option, what each provider actually lets you control — and what it does not |
 | [Preference Center widget](./docs/widget.md) | The `<script>` tag for an application that asks its users instead of deciding for them |
+| [Prompt cleaning](./docs/prompt-cleaning.md) | What an organization's cleaning policy masks or blocks before a call leaves, what it does not catch, and how to replay it |
 | [Errors](./docs/errors.md) | Every error both SDKs raise, and what to do about it |
 | [Versioning](./docs/versioning.md) | What `0.x` promises, what the protocol promises instead, and how deprecations work |
 | [Changelog](./CHANGELOG.md) | What each release changed — one version number covers both packages |
@@ -131,7 +139,7 @@ ID Side. This repository verifies; it never signs.
 | Anthropic | `anthropic` | `@anthropic-ai/sdk` | Messages API; forced parameters go in the request body, the token in a header |
 | Google Gemini | `google-genai` | `@google/genai` | token carried via `config.http_options.headers` |
 | Mistral | `mistralai` | `@mistralai/mistralai` | chat, FIM and agents entry points, streaming included |
-| DeepSeek | `openai` | `openai` | an `openai` client pointed at `api.deepseek.com`; its own descriptor, so proofs record `provider: "deepseek"` |
+| DeepSeek | `openai` | `openai` | an `openai` client pointed at `api.deepseek.com`; its own descriptor, so certificates record `provider: "deepseek"` |
 
 Adding a standard provider is a JSON descriptor, not code — see
 [`packages/descriptors/`](./packages/descriptors/) and
@@ -166,8 +174,8 @@ Pre-release and under active development. What is true today:
 
 - **Python SDK** — implemented and tested (`consent.wrap()`, five provider
   descriptors: OpenAI, Anthropic, Google Gemini, Mistral and DeepSeek; typed errors, request-hash vectors, offline `verify_act()`). Blocking and
-  async clients alike — `AsyncOpenAI` and `AsyncAnthropic` are enforced with the
-  same guarantees, so FastAPI and other ASGI applications are supported.
+  async clients alike — `AsyncOpenAI` and `AsyncAnthropic` are enforced exactly
+  as the blocking ones, so FastAPI and other ASGI applications are supported.
   Published on PyPI as `idside` `0.1.0.dev3`.
 - **Node.js SDK** — at parity with Python (including `verifyAct()`), zero
   runtime dependencies, native TypeScript. Published on npm as `@idside/sdk`

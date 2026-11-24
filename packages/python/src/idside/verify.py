@@ -312,7 +312,7 @@ def verify_act(
     if raw_mode is None and "mode" not in claims:
         if not allow_legacy_without_mode:
             raise ActMalformedError(
-                "Missing required claim 'mode'. For a proof minted before this "
+                "Missing required claim 'mode'. For a certificate minted before this "
                 "claim existed, pass allow_legacy_without_mode=True explicitly."
             )
         mode = None
@@ -327,7 +327,7 @@ def verify_act(
         raise ActIssuerError(
             f"Issuer {strings['iss']!r} is not accepted "
             f"(expected {' or '.join(sorted(expected_issuers))}). "
-            "A token from another environment is not a proof for this one."
+            "A token from another environment is not a certificate for this one."
         )
     _check_time_window(
         claims,
@@ -346,7 +346,7 @@ def verify_act(
         if expected is not None and not _constant_time_equal(strings[name], expected):
             raise ActBindingMismatchError(
                 f"Claim {name!r} does not match the value pinned by the caller: "
-                "this proof was issued for a different request, user or app."
+                "this certificate was issued for a different request, user or app."
             )
 
     return VerifiedAct(
@@ -458,7 +458,7 @@ def _check_type(header: Mapping[str, Any]) -> None:
         raise ActTypeMismatchError(
             f"Refusing token type {token_type!r}: expected {ACT_TYPE!r}. "
             "A User Binding Token ('ubt+jwt') or any other ID Side token is not "
-            "a proof that an AI call was authorized."
+            "the certificate of an authorized AI call."
         )
 
 

@@ -69,7 +69,7 @@ from openai import OpenAI
 from idside import consent
 
 client = consent.wrap(OpenAI(base_url="https://api.deepseek.com", api_key=...))
-# the proof records provider: "deepseek", not "openai"
+# the certificate records provider: "deepseek", not "openai"
 ```
 
 If you route several providers through one client class, wrap each client
@@ -123,7 +123,7 @@ returns something you `with` (or `async with`), and the request happens when you
 enter it. So the SDK splits along the seam the helper already has — it consumes
 the identity and hashes the request at the call, where a mistake belongs, and
 asks the cloud inside `__enter__`/`__aenter__`, next to the request it
-authorizes. A stream nobody enters made no request, so it needed no proof, and
+authorizes. A stream nobody enters made no request, so it needed no certificate, and
 gets no ledger entry: the same number on a blocking client and an async one, for
 the same abandoned stream. (Mistral's `chat.stream()` is a *call site*, not one
 of these helpers, and it sends when you call it — so it is authorized when you
@@ -152,7 +152,7 @@ An alias may itself call the patched method (Anthropic's `parse` does). The
 outer wrapper creates a private, context-local permit after authorization. A
 nested patched method is passed through only when that one-shot permit matches
 the wrapper instance, call site and exact ACT token; a public header by itself is
-never proof that enforcement happened. The context remains active across async
+never evidence that enforcement happened. The context remains active across async
 work and deferred stream entry, while the token continues to travel with the
 provider request.
 
@@ -287,7 +287,7 @@ declared call site (`chat.completions.with_raw_response.create`,
 endpoint no descriptor declares (`embeddings.with_raw_response.create`) it is
 refused exactly like the plain method. So read a rate-limit header or stream a
 response byte by byte on the wrapped client — there is nothing to move
-elsewhere, and moving it would cost you the proof.
+elsewhere, and moving it would cost you the certificate.
 
 **The remedy for what the table above refuses is a second, unwrapped client**
 for that traffic:
@@ -558,11 +558,12 @@ the user's preferences, which is the one thing this architecture never does.
 
 **A posture you have not provisioned stops the call**
 ([`MissingCredentialError`](./errors.md#missingcredentialerror)), it does not
-fall back. On an application under an organization's policy, the cloud reads
-the labels you declare first: when the policy refuses an option only a posture
-you have not labelled can carry, Observe names no posture — the call leaves on your
-ordinary credential, and its proof records the refusal as not applied — and
-Enforce holds the call (`policy_hold`). Either way the SDK never picks another
+fall back. On a strainer, under an organization's policy, the cloud reads the
+labels you declare first: when the policy refuses an option only a posture you
+have not labelled can carry, a strainer that lets the call's provider through
+names no posture — the call leaves on your ordinary credential, and its
+certificate records the refusal as not applied — and one that blocks that
+provider holds the call (`policy_hold`). Either way the SDK never picks another
 credential itself. And the credential never leaves your process: ID Side is
 told which *labels* exist, never their values. A per-call header that would
 override the credential — `Authorization`, `X-Api-Key`, `x-goog-api-key`,

@@ -11,26 +11,26 @@ Like Stripe for card numbers, ID Side keeps **the code that makes an AI call out
 of the loop of what applies to it**. An organization's policy is set on the
 ID Side dashboard; a person who is asked answers ID Side directly (via the widget
 or their ID Side account). The code that makes the call supplies an API key —
-and, if it wants, an identifier for the person — and receives a proof; it can
+and, if it wants, an identifier for the person — and receives a certificate; it can
 neither read nor alter the policy or the preferences.
 
 **Why this is vital:** if the developer could modify preferences, the ACT token's
-cryptographic proof would be worthless (they could collect an opt-out via the
+cryptographic certificate would be worthless (they could collect an opt-out via the
 popup, then pass an opt-in to the SDK). The opaque tunnel eliminates that risk.
 
 **Trust model — deterrent + evidentiary:** the tunnel does not make cheating
 technically impossible, but a developer who bypasses the SDK (calling the
-provider directly) has **no proof** of what was authorized: no ACT token, no ledger
+provider directly) has **no certificate** of what was authorized: no ACT token, no ledger
 entry, nothing to show an authority (DPA) for that call.
 
 ### 1.1 One mechanism: the policy, and who decided
 
 The tunnel serves one product: an organization imposes its AI policy on the
 calls made with its API keys — an employer for its staff, a publisher for the
-users of its application — and every proof records what applied and on what
+users of its application — and every certificate records what applied and on what
 basis. The SDK cannot tell how a call was decided — deliberately. Every call
-produces the same forced parameters and the same signed proof; what differs is
-**who decided**, and the proof records it:
+produces the same forced parameters and the same signed certificate; what differs is
+**who decided**, and the certificate records it:
 
 | | **An organization's policy** | **The person, asked** (available) |
 | --- | --- | --- |
@@ -48,10 +48,10 @@ release: `public_task`, `legal_obligation` and `vital_interests` were added that
 way.
 
 **Naming the person is optional.** A call that names nobody carries no identity
-field; the cloud takes the API key as the proof's subject (`sub` is then a
+field; the cloud takes the API key as the certificate's subject (`sub` is then a
 pseudonymous subject of the key, scoped per app like a person's) and answers
 `binding: "api_key"`. The SDKs accept that answer on such a call and on no
-other, and refuse any other binding on it, so a proof can never claim a subject
+other, and refuse any other binding on it, so a certificate can never claim a subject
 the call did not have.
 
 **A policy can only refuse.** It turns an option off, never on. A policy able to
@@ -100,9 +100,12 @@ Circuit B — AI call (developer backend → SDK → provider)
 The request payload is deliberately minimal: an identifier when the call names
 someone (none otherwise), a provider, a model, a **hash** of the request, the `call_site` about to be called (two endpoints of
 the same provider do not accept the same parameters), and the *labels* of the
-credentials the developer provisioned — never their values. Prompts, messages and
-completions never leave the developer's backend for ID Side — the SDK is
-structurally unable to send them.
+credentials the developer provisioned — never their values — and, when the
+organization cleans prompts, what cleaning was applied: digests, a challenge
+answer, and how many values each rule masked, never which
+([prompt cleaning](./prompt-cleaning.md)). Prompts, messages and completions
+never leave the developer's backend for ID Side — the SDK is structurally unable
+to send them.
 
 The response fields above are the ones both SDKs actually read. Ten are
 mandatory: `decision`, `consent_state`, `source`, `legal_basis`, `binding`,
@@ -146,10 +149,10 @@ The two circuits never cross on the developer's side.
 
 ## 3. The two injection types
 
-| | Type 1 — Provider params (UNDERSTOOD) | Type 2 — ACT token (PROOF) |
+| | Type 1 — Provider params (UNDERSTOOD) | Type 2 — ACT token (CERTIFICATE) |
 | --- | --- | --- |
 | Mechanism | Forces **existing** parameters (OpenAI `store=false` and `prompt_cache_retention`, Mistral `store=false` on conversations) | Attaches a signed ECDSA P-256 JWT, `X-AI-Consent-Token` header |
-| Effect | The provider **reads and applies** → real enforcement, day one | The provider ignores it today → **audit proof**, day one |
+| Effect | The provider **reads and applies** → real enforcement, day one | The provider ignores it today → **audit certificate**, day one |
 | Future | — | If providers adopt it as a protocol, Type 2 absorbs Type 1 |
 
 ## 4. Source-available / proprietary boundary
@@ -321,7 +324,7 @@ over client-level headers).
   and the cloud verifies signature and app binding. This closes the spoofing
   gap where a developer collects consent for one user and calls the SDK with
   another. Every authorize response and ACT token records which identity form
-  was used (`binding: "ubt" | "user_id"`), so an auditor can weigh the proof.
+  was used (`binding: "ubt" | "user_id"`), so an auditor can weigh the certificate.
 - **Anti-replay**: `request_hash` + `nonce` + 1h TTL; one token = one request.
 - **Fail-closed**: cloud unreachable ⇒ no AI call.
 - **Fraud Detection** (cloud): per-`app_id` anomaly analysis.

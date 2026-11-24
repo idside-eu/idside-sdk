@@ -12,7 +12,7 @@
 - Cross-package checks run from the repository root:
   `scripts/check_version_parity.sh`, `scripts/check_sdk_parity.sh`,
   `scripts/check_publishable.sh`, `scripts/check_docs_examples.sh`.
-- Preserve fail-closed behavior: caller-supplied proof headers never authorize
+- Preserve fail-closed behavior: caller-supplied ACT headers never authorize
   a provider call, malformed authorization responses never reach the provider,
   and incomplete installation of transport guards must fail explicitly.
   Bind internal provenance to the wrapped client, token and sending endpoint;
@@ -26,18 +26,18 @@
   `build_content_vectors.py` from hand-written expectations, holds both to the
   same output. Patterns stay in the portable, linear-time subset; never log,
   raise or report a matched value; no tracked file holds a whole secret-shaped
-  string (split it, as the vectors do). A detector never counts a value it
+  string (split it, as the vectors do). A rule (an entry of `detectors`) never counts a value it
   masked only in part: a character a value class takes must also stand in that
   pattern's boundaries. A match whose value group took no part is context that
   rules a value out (a version word before four numbers): both engines skip it
-  whole. A `block_only` pattern runs only when its detector blocks: under Mask
+  whole. A `block_only` pattern runs only when its rule blocks: under Mask
   what it alone finds is neither masked nor counted (a private key's BEGIN line
   quoted in prose), since every placeholder written is a value counted. What
   no portable pattern reads in linear time is a named check of the engine
   (`followed_by`, written alike in both SDKs: `material.py` / `material.ts`),
   where two neighbouring parts of a pattern would take the same characters
   (a backtracking matcher retries every split). Each
-  detector's `description` says what it reads, never more.
+  rule's `description` says what it reads, never more.
   `test_content_whole_values.py` / `contentWholeValues.test.ts` hold the rule
   that matters most: a counted value leaves no run of four of its characters
   in the output, whatever surrounds it, and one in a neutral context is
@@ -93,7 +93,7 @@
   `npm install @idside/sdk openai`).
   `IDSIDE_BASE_URL` is for a local or staging cloud: the origin alone, without
   `/v1` or `/widget`. Naming the end user is optional: a call with no
-  identity sends no identity field, and the API key is the proof's subject
+  identity sends no identity field, and the API key is the certificate's subject
   (`binding: api_key`; the answer's binding must be the identity sent —
   `user_id`, `ubt`, or `api_key` for none — and nothing else). An identity that
   is present but names nobody stays a `MissingIdentityError`, and so does a call

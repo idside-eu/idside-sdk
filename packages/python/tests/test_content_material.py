@@ -221,43 +221,85 @@ _SLOW_SHAPES = {
 }  # fmt: skip
 
 
+# Every duration below is the CPU time of this thread (``time.thread_time``),
+# never the wall clock: another process on the machine, or a thread an earlier
+# test left running, would otherwise be counted as the engine's. A reading
+# that is too slow is slow in CPU time too. Each measure warms the cleaner
+# first — the first clean of a process pays what is not the engine's reading
+# — and keeps the best of several passes, a pass that meets the bound ending
+# it early: a reading superlinear by nature misses it on every pass.
+
+#: What one block may take: milliseconds are expected, seconds were measured.
+_ONE_BLOCK_SECONDS = 0.5
+#: A short text of the same kinds, cleaned once before anything is timed.
+_WARM_UP = _BEGIN + "\nComment: a@b.fr <br>[A_1]\n!!\n"
+#: Passes at most per measure.
+_PASSES = 5
+#: Four times the text may take at most this many times as long: linear is
+#: about 4, quadratic 16.
+_SLOPE = 8
+
+
+def _cpu(cleaner: ContentCleaner, text: str) -> tuple[float, Any]:
+    began = time.thread_time()
+    result = cleaner.clean(text)
+    return time.thread_time() - began, result
+
+
+def _one_block(text: str) -> tuple[float, Any]:
+    """The best CPU time of one clean, after a warm-up, and its result."""
+    cleaner = ContentCleaner(_BOTH)
+    cleaner.clean(_WARM_UP)
+    best = float("inf")
+    for _ in range(_PASSES):
+        took, result = _cpu(cleaner, text)
+        best = min(best, took)
+        if best < _ONE_BLOCK_SECONDS:
+            break
+    return best, result
+
+
+def _slope(cleaner: ContentCleaner, small: str, large: str) -> tuple[float, float]:
+    """The best CPU times of a text and of one four times as long.
+
+    Measured in turn, pass after pass, so that whatever slows one pass down
+    weighs on both sizes alike, and compared as a ratio: the slope, not a
+    duration, is what says linear.
+    """
+    assert len(large) == 4 * len(small)
+    cleaner.clean(small[:4096])
+    best_small = best_large = float("inf")
+    for _ in range(_PASSES):
+        best_small = min(best_small, _cpu(cleaner, small)[0])
+        best_large = min(best_large, _cpu(cleaner, large)[0])
+        if best_large <= _SLOPE * max(best_small, 0.002):
+            break
+    return best_small, best_large
+
+
 @pytest.mark.parametrize("shape", sorted(_SLOW_SHAPES))
 def test_one_block_of_each_slow_shape_takes_milliseconds(shape: str) -> None:
     # One block took up to 24 s with the look-ahead (four lines of <br>); the
     # addresses, masked first, become placeholders the second pass reads.
-    cleaner = ContentCleaner(_BOTH)
-    began = time.perf_counter()
-    result = cleaner.clean(_SLOW_SHAPES[shape])
-    assert time.perf_counter() - began < 0.5
+    took, result = _one_block(_SLOW_SHAPES[shape])
+    assert took < _ONE_BLOCK_SECONDS
     assert "private_key" not in result.counts  # pragma: allowlist secret
 
 
 @pytest.mark.parametrize("lines", [1, 2, 3, 4, 5, 8, 16, 32, 64])
 def test_one_block_of_header_lines_of_br_takes_milliseconds(lines: int) -> None:
     # Only four header lines are read; the look-ahead's time grew with each.
-    block = _BEGIN + ("\nComment: " + "<br>" * 63) * lines + "\n!!\n"
-    cleaner = ContentCleaner(_BOTH)
-    began = time.perf_counter()
-    result = cleaner.clean(block)
-    assert time.perf_counter() - began < 0.5
+    took, result = _one_block(_BEGIN + ("\nComment: " + "<br>" * 63) * lines + "\n!!\n")
+    assert took < _ONE_BLOCK_SECONDS
     assert "private_key" not in result.counts  # pragma: allowlist secret
 
 
 @pytest.mark.parametrize("shape", sorted(_SLOW_SHAPES))
 def test_a_megabyte_of_each_slow_shape_grows_linearly(shape: str) -> None:
-    cleaner = ContentCleaner(_BOTH)
-
-    def best(size: int) -> float:
-        text = _blocks(_SLOW_SHAPES[shape], size)
-        times = []
-        for _ in range(2):
-            began = time.perf_counter()
-            cleaner.clean(text)
-            times.append(time.perf_counter() - began)
-        return min(times)
-
-    small, large = best(262_144), best(1_048_576)
-    assert large <= 8 * max(small, 0.002)
+    text = _blocks(_SLOW_SHAPES[shape], 262_144)
+    small, large = _slope(ContentCleaner(_BOTH), text, text * 4)
+    assert large <= _SLOPE * max(small, 0.002), f"{small:.3f} s, then {large:.3f} s"
+    # A ceiling as well, far above what a megabyte takes (under a second).
     assert large < 5
 
 
@@ -272,18 +314,8 @@ def test_many_findings_of_two_lengths_resolve_in_linear_time() -> None:
     # Inserting each kept finding into a sorted list took quadratic time: 28 s
     # for 8 MiB of alternating addresses.
     cleaner = ContentCleaner({"schema": 1, "detectors": {"ip_address": "mask"}})
-
-    def best(size: int) -> float:
-        text = _alternating(size)
-        times = []
-        for _ in range(2):
-            began = time.perf_counter()
-            cleaner.clean(text)
-            times.append(time.perf_counter() - began)
-        return min(times)
-
-    small, large = best(1_048_576), best(4_194_304)
-    assert large <= 8 * small
+    small, large = _slope(cleaner, _alternating(1_048_576), _alternating(4_194_304))
+    assert large <= _SLOPE * small, f"{small:.3f} s, then {large:.3f} s"
 
 
 @dataclass(frozen=True)

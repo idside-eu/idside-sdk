@@ -3,7 +3,7 @@
 Naming the end user is optional. Most calls name nobody — a back-office job, an
 assistant every employee shares, a feature whose users the organization does
 not track — and the policy the organization set on the ID Side dashboard
-applies to them all the same. The proof's subject is then the API key the call
+applies to them all the same. The certificate's subject is then the API key the call
 was made with, and the answer says so: `binding: "api_key"`.
 
 This example uses the SDK's real transport to the cloud, so what it prints as
@@ -32,6 +32,11 @@ PROMPT = "Draft a polite reply to this supplier."
 
 def cloud_stub(request: httpx.Request) -> httpx.Response:
     """Stands in for sdk.idside.eu, and prints what the SDK sent it."""
+    if request.url.path == "/v1/content-policy":
+        # Before its first call the SDK asks for the application's prompt-
+        # cleaning policy; this application cleans nothing (see
+        # replay_cleaning.py and docs/prompt-cleaning.md).
+        return httpx.Response(200, json={"enabled": False})
     sent = json.loads(request.content)
     print("2. What ID Side was asked")
     print(f"   POST {request.url.path}")
@@ -49,7 +54,7 @@ def cloud_stub(request: httpx.Request) -> httpx.Response:
         # The organization's policy decided, on the basis it declared.
         "source": "default_policy",
         "legal_basis": "legitimate_interest",
-        # The proof's subject is the API key the call was made with.
+        # The certificate's subject is the API key the call was made with.
         "binding": "api_key",
     }
     print("3. What ID Side answered")
@@ -117,7 +122,7 @@ def main() -> None:
     print("Two things to read twice:")
     print("   - no identity left this process, and none was needed: the policy")
     print("     applies to every call made with the key;")
-    print("   - the proof still carries the basis the organization declared.")
+    print("   - the certificate still carries the basis the organization declared.")
 
 
 if __name__ == "__main__":

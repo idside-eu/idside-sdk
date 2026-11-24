@@ -69,15 +69,15 @@ If the decision cannot be verified, **the call does not happen** (fail-closed).
 ### Naming the end user
 
 Naming the end user is **optional**. A call that names nobody is authorized with
-your API key as the proof's subject (the proof records `binding: "api_key"`),
-and your organization's policy applies to it as to any other. To make the proof
+your API key as the certificate's subject (the certificate records `binding: "api_key"`),
+and your organization's policy applies to it as to any other. To make the certificate
 say whom a call was for, pass at most one of two fields; both are consumed by
 the SDK and never forwarded to the provider:
 
 - `user_id` — your own identifier for the person, or for a team
-  (`"team-marketing"`); the proof records `binding: "user_id"`.
+  (`"team-marketing"`); the certificate records `binding: "user_id"`.
 - `ubt` — a **User Binding Token** issued by the ID Side widget, on an
-  application that asks its users (strongest binding; the proof records
+  application that asks its users (strongest binding; the certificate records
   `binding: "ubt"`).
 
 Passing both throws `ConflictingIdentityError`; passing one that names nobody
@@ -183,9 +183,9 @@ const client: Enforced<OpenAI> = consent.wrap(new OpenAI());
 a wrapped client with it. See
 [quickstart §TypeScript](https://github.com/idside-eu/idside-sdk/blob/main/docs/quickstart-node.md#typescript).
 
-## Verifying a proof — `verifyAct()`
+## Verifying a certificate — `verifyAct()`
 
-The ACT token attached to each call is a signed, independently checkable proof.
+The ACT token attached to each call is a signed, independently checkable certificate.
 `verifyAct()` checks one **locally and offline**, with no call to ID Side — what
 an auditor, a compliance team or a data protection authority needs:
 
@@ -194,7 +194,7 @@ import { verifyAct } from "@idside/sdk";
 
 const proof = await verifyAct(token, {
   jwks, // the public JWK Set, or: jwksUrl: "https://sdk.idside.eu/.well-known/jwks.json"
-  requestHash, // pin the request this proof must belong to
+  requestHash, // pin the request this certificate must belong to
 });
 
 proof.provider; // "openai"
@@ -225,7 +225,7 @@ looked at, and an unknown `kid` is never worked around by trying another key.
 - **Test keys** — a call made with an `sk_test_` key on the production service
   is signed as `idside.eu` and passes with the default options; only
   `proof.mode` says `"test"`. Check `proof.mode === "live"` before treating a
-  proof as production evidence.
+  certificate as production evidence.
 - **Mode and lifetime** — `proof.mode` is typed as `"test" | "live"`, and the
   declared lifetime cannot exceed 3600 seconds. A missing mode is accepted only
   with `allowLegacyWithoutMode: true` for a known historical archive; that
@@ -246,6 +246,16 @@ Replay across *different* calls is not detectable offline — a local verifier h
 no history; that is the cloud ledger's job. What it proves is that this signed
 token belongs to this exact request. Behaviour matches the Python SDK's
 `verify_act()` check for check, including the error taxonomy.
+
+## Prompt cleaning
+
+When the organization has set a prompt-cleaning policy, every enforced call is
+cleaned before it is hashed and sent — addresses, cards, keys and the
+organization's own terms masked as `[EMAIL_1]`, or the call blocked with
+`ContentBlockedError` — inside your process: the prompt never reaches ID Side.
+`verifyClean(body, policy, { provider })` and `npx idside-verify-clean` replay
+it on a request that left. What it does and does not catch:
+[prompt cleaning](https://github.com/idside-eu/idside-sdk/blob/main/docs/prompt-cleaning.md).
 
 ## Supported providers
 
@@ -328,7 +338,7 @@ custom adapter with `registerAdapter()`.
 - **What the SDK cannot reach.** Code given to a client when it is constructed
   — its own `fetch`, client-level `middleware`, Mistral HTTP hooks — is the
   developer's network layer, outside what a library running in the same process
-  can judge. The proof records what was authorized.
+  can judge. The certificate records what was authorized.
 
 ## Development
 

@@ -69,7 +69,7 @@ from one of two places:
   <https://sdk.idside.eu/pricing> says what it covers;
 - **the no-account sandbox**, *Test without an account* on
   <https://sdk.idside.eu/sdk> — an `sk_test_` key valid for 24 hours and
-  limited to 20 calls, to see a real proof before you sign up.
+  limited to 20 calls, to see a real certificate before you sign up.
 
 ```bash
 # IDSIDE_BASE_URL is optional: https://sdk.idside.eu is the default.
@@ -108,7 +108,7 @@ call is proven against your API key instead: your organization's policy applies
 either way ([naming the end user](#naming-the-end-user)). If your application
 asks its users instead and requires bound tokens, declare your providers in the
 dashboard, connect the
-[widget and your backend session](./widget.md#8-from-a-recorded-decision-to-a-stronger-proof)
+[widget and your backend session](./widget.md#8-from-a-recorded-decision-to-a-stronger-certificate)
 first, then pass `ubt`. Do not enable AI requests until the backend has stored
 the visitor’s token; do not fall back to `user_id`, or to naming nobody, when
 bound tokens are required.
@@ -142,10 +142,11 @@ client = consent.wrap(
 ```
 
 You label; ID Side chooses. A posture you have not provisioned stops the call
-rather than falling back to the wrong one — except on an application under an
-organization's policy that is set to Observe, where ID Side names no posture
-you did not label: the call leaves on your ordinary credential and its proof records the
-refusal as not applied (set to Enforce, the call is held instead). See
+rather than falling back to the wrong one — except on a strainer that lets the
+call's provider through, where ID Side names no posture you did not label: the
+call leaves on your ordinary credential and its certificate records the refusal
+as not applied (where the strainer blocks that provider, the call is held
+instead). See
 [credential routing](./providers.md#6-credential-routing).
 
 **A cloud on your own machine.** `IDSIDE_BASE_URL` may point at an ID Side cloud
@@ -153,13 +154,13 @@ running locally, on `http://localhost:…`, and authorization works the same. On
 thing does not: `verify_act()` refuses on purpose to fetch a key set over
 `http://` — public keys fetched over an unauthenticated channel prove nothing —
 so `jwks_url=` raises `ValueError` there. Fetch the key set yourself and pass
-it as `jwks=` ([step 7](#7-verify-a-proof-yourself)). That cloud is not
+it as `jwks=` ([step 7](#7-verify-a-certificate-yourself)). That cloud is not
 production, so it signs as the test issuer, `test.idside.eu`, which
 `verify_act()` refuses unless told otherwise — hence `allow_test_issuer=True` in
 that branch, and only there (the *issuer* detail of step 7). The `https://`
 branch assumes the production service; any other cloud served over `https://`
 signs as the test issuer too, and needs `allow_test_issuer=True` as well. An
-`sk_test_` key on the production service does not: its proofs carry the
+`sk_test_` key on the production service does not: its certificates carry the
 production issuer, and `proof.mode` is what says they are test ones.
 
 ```python
@@ -181,13 +182,13 @@ else:  # a cloud on your own machine: its key set, and its test issuer
 ### Naming the end user
 
 Naming the end user is optional. A call that passes neither `user_id=` nor
-`ubt=` is authorized with your API key as the proof's subject — the proof
+`ubt=` is authorized with your API key as the certificate's subject — the certificate
 records `binding: "api_key"` — and your organization's policy applies to it as
-to any other. Pass one of the two, never both, when you want the proof to say
+to any other. Pass one of the two, never both, when you want the certificate to say
 whom the call was for; the SDK consumes it and never forwards it to the
 provider. `user_id=` is your own identifier for a person or a team
 (`"team-marketing"`); `ubt=` is the token the ID Side widget issues on an
-application that asks its users — the stronger proof. The distinction is
+application that asks its users — the stronger certificate. The distinction is
 explained in [Concepts §8](./concepts.md#8-naming-the-end-user-user_id-vs-ubt).
 
 A `user_id=` that is there but names nobody — `""`, blanks, `0`, `False` — raises
@@ -209,7 +210,7 @@ pick one.
 everything.**
 The SDK cannot write a preference and never will — that is the
 [opaque tunnel](./concepts.md#3-the-opaque-tunnel) — so what nobody accepted is
-refused: every option resolves to `false`, on every provider, and each proof
+refused: every option resolves to `false`, on every provider, and each certificate
 reads `legal_basis: "not_established"`. Most calls still go out, with the
 strictest parameters forced. Two refusals are louder than the rest. Pass
 `tools=` and the call raises
@@ -257,7 +258,7 @@ matters:
 - **`stream()` stays a context manager.** It is not a coroutine on an async
   client either — it returns something you `async with` — so the SDK checks the
   identity at the call and authorizes inside `__aenter__`, next to the request it
-  authorizes. A stream nobody enters made no request, so it needed no proof.
+  authorizes. A stream nobody enters made no request, so it needed no certificate.
 
 ## 4. What just happened
 
@@ -301,7 +302,7 @@ token = one request**. Full claim list in
   genuine?"* — deliberately without revealing what the user consented to. See
   [the spec](./spec/act-token.md#5-verification).
 - **Locally**, with no help from ID Side at all: fetch the JWKS, verify the
-  signature, recompute the hash. See [step 7](#7-verify-a-proof-yourself).
+  signature, recompute the hash. See [step 7](#7-verify-a-certificate-yourself).
 
 ## 5. Handle the errors that matter
 
@@ -385,7 +386,7 @@ one like `usr_marie_456`, which is why the salt is there. A call that names
 nobody has no `subject=` at all — a pseudonym of "nobody" would read as one
 person making every such call — and reads `binding=api_key`; nothing is derived
 from your API key. `request_hash` is the
-value the ledger indexes, so it is how you find the proof for a given call.
+value the ledger indexes, so it is how you find the certificate for a given call.
 
 Two deliberate absences. The **ACT token** is never logged: it is bearer
 material, and the request hash already answers the question you would have
@@ -537,9 +538,11 @@ and you get **the same `request_hash` for the same payload**. That is not a
 coincidence: it is the property that lets an auditor recompute the hash from your
 request, in whatever language they like, and check it against the token.
 
-## 7. Verify a proof yourself
+## 7. Verify a certificate yourself
 
-A proof nobody but the issuer can check is not a proof. `verify_act()` checks an
+<a id="7-verify-a-proof-yourself"></a>
+
+A certificate nobody but the issuer can check proves nothing. `verify_act()` checks an
 ACT token **offline**, with no call to ID Side: JWS structure, `alg` pinned to
 `ES256`, `typ` = `act+jwt`, key selection by `kid`, the signature, the mandatory
 claims, the issuer, the time window, and any binding you pin.
@@ -555,7 +558,7 @@ pip install 'idside[verify]'      # adds cryptography
 ```python
 from idside import request_hash, verify_act
 
-# The request this proof must belong to: the arguments of the call, without
+# The request this certificate must belong to: the arguments of the call, without
 # user_id / ubt and extra_headers, which the SDK never hashes.
 expected_hash = request_hash(
     {"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "Hello!"}]}
@@ -565,9 +568,9 @@ expected_hash = request_hash(
 proof = verify_act(
     token,                          # the raw X-AI-Consent-Token value
     jwks=jwks,                      # or: jwks_url="https://sdk.idside.eu/.well-known/jwks.json"
-    request_hash=expected_hash,     # pin the request this proof must belong to
+    request_hash=expected_hash,     # pin the request this certificate must belong to
 )
-if proof.mode != "live":            # a test key's proof verifies too — see below
+if proof.mode != "live":            # a test key's certificate verifies too — see below
     raise ValueError("not production evidence: minted with a test key")
 
 print(proof.app_id, proof.provider, proof.model, proof.binding, proof.mode)
@@ -616,17 +619,17 @@ Six details worth knowing:
   it was not given is a verifier you cannot reason about.
 - **There is no `user_id=` parameter**, deliberately. The token's `sub` is the
   app-scoped *pseudonym* the cloud derived from the end user; the raw `user_id`
-  you passed to `consent.wrap()` never enters the proof. Pin `subject=` if you
+  you passed to `consent.wrap()` never enters the certificate. Pin `subject=` if you
   have the pseudonym — pinning your own identifier would reject valid tokens.
 - **`request_hash` is the check that matters.** A valid signature only says
   "ID Side issued this". Pinning the hash says "…for *this* request". Without
   it, a genuine token from another call would pass.
-- **A test key's proof verifies: read `proof.mode`.** A call made with an
+- **A test key's certificate verifies: read `proof.mode`.** A call made with an
   `sk_test_` key against the ID Side service — the sandbox key included — is
   signed by the production key and carries `iss: idside.eu`, so it passes
   `verify_act()` with the default options. Only `proof.mode` tells it apart:
   `"test"` or `"live"`, the mode of the API key that minted it. Check
-  `proof.mode == "live"` before you treat a proof as production evidence. A
+  `proof.mode == "live"` before you treat a certificate as production evidence. A
   token without `mode` is malformed unless you explicitly set
   `allow_legacy_without_mode=True` while reading a known historical archive;
   that compatibility result has `proof.mode is None`.
@@ -635,14 +638,14 @@ Six details worth knowing:
   — a staging cloud, or one on your own machine — and its tokens are rejected
   unless you set `allow_test_issuer=True`.
 - **Auditing an old call needs `now=`.** ACT tokens live one hour, so an archived
-  proof is expired against the wall clock. Pass the instant you are auditing —
+  certificate is expired against the wall clock. Pass the instant you are auditing —
   `verify_act(token, jwks=jwks, now=ledger_entry["issued_at"])` — and the answer
-  becomes "was this proof valid when the call was made?".
+  becomes "was this certificate valid when the call was made?".
 
 `now=` moves **only** the `exp` / `iat` / `nbf` window. The signature, `alg`,
 `typ`, the issuer and every binding you pinned are checked exactly the same way,
-so a generous `now` can turn an expired proof into a readable one but never a
-forgery into a proof.
+so a generous `now` can turn an expired certificate into a readable one but never a
+forgery into a valid certificate.
 
 The verifier also rejects any token whose declared lifetime exceeds 3600
 seconds, even when `now=` falls inside that oversized window.

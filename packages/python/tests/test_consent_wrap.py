@@ -139,7 +139,14 @@ def test_a_200_deny_response_never_reaches_the_provider() -> None:
     }
     cloud = HttpConsentClient(
         "https://api.example.test",
-        transport=httpx.MockTransport(lambda _request: httpx.Response(200, json=body)),
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(
+                200,
+                json={"enabled": False}
+                if request.url.path == "/v1/content-policy"
+                else body,
+            )
+        ),
     )
 
     with pytest.raises(ConsentUnreachableError, match="decision"):

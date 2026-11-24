@@ -1,7 +1,7 @@
 # Security Policy
 
-Security is at the heart of ID Side: the product *is* a proof of compliance.
-A flaw in this SDK can compromise our users' chain of proof. We take every
+Security is at the heart of ID Side: the product *is* a signed certificate on every AI call.
+A flaw in this SDK can compromise the certificates our users rely on. We take every
 report very seriously.
 
 ## Reporting a vulnerability

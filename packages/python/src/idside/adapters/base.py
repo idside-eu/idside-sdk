@@ -267,23 +267,14 @@ class ProviderAdapter:
         """
         return self.get_call_sites(client)[0]
 
-    def extract_request_metadata(self, **kwargs: Any) -> dict[str, Any]:
-        """Extract the model and the deterministic request hash for one call.
+    def request_payload(self, **kwargs: Any) -> dict[str, Any]:
+        """The object the request hash is computed over, as JSON values.
 
-        The hash is ``sha256:<hex>`` over the RFC 8785 (JCS) canonical form of
-        the caller's pre-enforcement payload — the call kwargs minus the two
-        identity parameters (``user_id``/``ubt``) and the per-request headers
-        kwarg. Cloud-forced parameters, local constraint transformations,
-        routed credentials and the ACT header are applied only after this hash
-        is computed. Shared test vectors in
-        ``packages/descriptors/testdata/`` pin this computation across SDK
-        languages. Values that cannot be normalized to JSON raise
-        :class:`ConsentTokenError` (never a silent ``repr()`` fallback), with two
-        exceptions that put nothing on the wire: a library's "not given"
-        sentinel (``omit``, ``NOT_GIVEN``, ``UNSET``), and a transport option
-        whose value is an object — ``timeout=httpx.Timeout(…)``,
-        ``retries=RetryConfig(…)`` — which says how the request travels, not
-        what it asks. Both used to raise, so leaving them out moves no hash.
+        The call kwargs minus the identity parameters and the per-request
+        headers kwarg, each value normalized to JSON (see
+        :meth:`extract_request_metadata` for what is left out and why). Prompt
+        cleaning reads and rewrites exactly this, so the hash is always of what
+        leaves.
         """
         ignored = {
             self.descriptor.identity_param,
@@ -308,6 +299,27 @@ class ProviderAdapter:
                 # objects ever had a hash, so leaving them out moves none.
                 if key not in transport:
                     raise
+        return payload
+
+    def extract_request_metadata(self, **kwargs: Any) -> dict[str, Any]:
+        """Extract the model and the deterministic request hash for one call.
+
+        The hash is ``sha256:<hex>`` over the RFC 8785 (JCS) canonical form of
+        the caller's pre-enforcement payload — the call kwargs minus the two
+        identity parameters (``user_id``/``ubt``) and the per-request headers
+        kwarg. Cloud-forced parameters, local constraint transformations,
+        routed credentials and the ACT header are applied only after this hash
+        is computed. Shared test vectors in
+        ``packages/descriptors/testdata/`` pin this computation across SDK
+        languages. Values that cannot be normalized to JSON raise
+        :class:`ConsentTokenError` (never a silent ``repr()`` fallback), with two
+        exceptions that put nothing on the wire: a library's "not given"
+        sentinel (``omit``, ``NOT_GIVEN``, ``UNSET``), and a transport option
+        whose value is an object — ``timeout=httpx.Timeout(…)``,
+        ``retries=RetryConfig(…)`` — which says how the request travels, not
+        what it asks. Both used to raise, so leaving them out moves no hash.
+        """
+        payload = self.request_payload(**kwargs)
         try:
             # The single source of the formula, shared with the public
             # `idside.request_hash()` a verifier recomputes it with.

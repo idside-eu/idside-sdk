@@ -6,7 +6,7 @@ On such an application it is the half of ID Side your users see, and where
 preferences are **written** — the SDK only ever reads them, and there is no
 other writer in the system. Skip it there and the enforcement path still works,
 but it resolves every call to a **total refusal** — what nobody accepted is refused, on every option and
-every provider — and every proof you collect says `legal_basis: "not_established"`:
+every provider — and every certificate you collect says `legal_basis: "not_established"`:
 nobody was asked.
 
 That state is safe and it is honest. It is also not a product: your users are
@@ -20,7 +20,7 @@ Under an organization's policy — the main way ID Side is used — nobody is
 asked, and the SDK needs no widget at all: every call is decided by the policy
 and signed with the basis the organization declared. This page is about asking.
 [§11](#11-the-imposed-mode) describes what the widget shows if you embed it on
-an application that applies a policy: a read-only statement, never a question.
+a strainer, which applies a policy: a read-only statement, never a question.
 
 > **Status.** The widget is implemented and served by the ID Side cloud, at
 > `https://sdk.idside.eu/widget/v1.js`. Everything below is the real interface;
@@ -44,7 +44,7 @@ cannot read inside it; the iframe cannot read your page. That isolation is not
 an implementation detail that could be optimised away later — it is the
 mechanism that makes the [opaque tunnel](./concepts.md#3-the-opaque-tunnel)
 real. A widget shipped as a JavaScript library running in your page would put
-your code between the user and their answer, and the signed proof would be worth
+your code between the user and their answer, and the signed certificate would be worth
 nothing.
 
 Which is also why `packages/widget/` in this repository holds no source: the
@@ -263,7 +263,7 @@ would be the record of it.
 
 **What happens when an identifier changes** — cleared storage, a new browser, a
 new device: the person is a stranger. Not an error, a defined state. Everything
-is refused for them, the proof records `source: "app_default"` and
+is refused for them, the certificate records `source: "app_default"` and
 `legal_basis: "not_established"`, and the widget asks again. Nobody is
 mistakenly treated as having agreed to something. That is the safe direction to
 fail in, and it is the reason this is a plumbing problem rather than a
@@ -272,7 +272,7 @@ compliance one.
 **Under an organization's policy, the identifier is optional.** The policy and
 the basis the organization declared apply to every call made with its keys,
 whether the call names a person, a team or nobody; an identifier only makes the
-proof say whom the call was for ([Concepts §8](./concepts.md#8-naming-the-end-user-user_id-vs-ubt)).
+certificate say whom the call was for ([Concepts §8](./concepts.md#8-naming-the-end-user-user_id-vs-ubt)).
 Any stable identifier will do. The pseudonymisation is one-way, which is exactly
 the property that protects your users.
 
@@ -377,7 +377,9 @@ const off = IDSide.onChange(handler); off();   // subscribe / unsubscribe
   Useful when several parts of a page need to react. Note the `ubt` event
   carries no token: only the `onUBT` option receives one.
 
-## 8. From a recorded decision to a stronger proof
+## 8. From a recorded decision to a stronger certificate
+
+<a id="8-from-a-recorded-decision-to-a-stronger-proof"></a>
 
 When the widget records a decision, ID Side may hand your page a **User Binding
 Token**: a short JWT in which ID Side attests that *it* saw this user, in this
@@ -403,7 +405,7 @@ IDSide.init({
 ```
 
 Send it to your backend and pass it to the SDK as `ubt=` **instead of**
-`user_id=` (never both — that raises `ConflictingIdentityError`). The proof then
+`user_id=` (never both — that raises `ConflictingIdentityError`). The certificate then
 records `binding: "ubt"` rather than `binding: "user_id"`, and an auditor can
 see the difference: with `user_id`, nothing ties the identifier you passed to
 the person who actually answered; with a UBT, ID Side signed that binding
@@ -493,7 +495,7 @@ specifically. The GPC specification allows exactly that.
 
 ## 11. The imposed mode
 
-On an application that applies an organization's policy, the SDK needs no
+On a strainer, which applies an organization's policy, the SDK needs no
 widget: nobody is asked, and every call is decided by the policy. If you embed
 the widget there anyway, to show the people concerned what was decided,
 everything above still applies: same tag, same `init()`, same presentations,
@@ -504,9 +506,9 @@ nothing about *what was decided*, and an organization that decides for its
 employees owes them the substance, not just the courtesy of not being asked. So
 the panel renders, server-side, in the widget's own locale:
 
-- **the legal basis, in words** — never the column value the proofs carry. This
+- **the legal basis, in words** — never the column value the certificates carry. This
   is the single thing the person is most owed, and `not_established` in
-  particular has to be readable, because it means the proofs issued about them
+  particular has to be readable, because it means the certificates issued about them
   assert nothing;
 - **what was decided, labelled** — each option allowed or refused, using the
   same shared catalogue the SDKs and the [provider

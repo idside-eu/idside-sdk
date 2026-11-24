@@ -2,10 +2,10 @@
 
 Runs anywhere, with no ID Side account and no OpenAI bill. Two things are
 replaced by stand-ins, and only two: the ID Side cloud, which would sign the
-proof, and OpenAI's endpoint, which would answer it. Everything between them is
+certificate, and OpenAI's endpoint, which would answer it. Everything between them is
 the real SDK doing the real work — finding the call site the descriptor
 declares, hashing the request, consuming the identity, forcing the retention
-parameter the decision names, attaching the proof, and refusing anything that
+parameter the decision names, attaching the certificate, and refusing anything that
 did not go through enforcement.
 
 Run it:  uv run wrapped_call.py

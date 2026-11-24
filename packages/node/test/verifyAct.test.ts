@@ -149,7 +149,11 @@ test("rejects an invalid ACT mode", async () => {
 test("requires an explicit opt-in for a legacy proof without mode", async () => {
   const token = makeToken(claims({ mode: undefined }));
 
-  await assert.rejects(verifyAct(token, OPTIONS), ActMalformedError);
+  // The dashboard's word: a certificate, never a "proof".
+  await assert.rejects(
+    verifyAct(token, OPTIONS),
+    (error: unknown) => error instanceof ActMalformedError && error.message.includes("certificate minted before"),
+  );
   assert.equal((await verifyAct(token, { ...OPTIONS, allowLegacyWithoutMode: true })).mode, undefined);
 });
 
@@ -327,7 +331,11 @@ test("rejects a token with an unsupported crit header", async () => {
 });
 
 test("rejects a UBT presented as an ACT (typ: ubt+jwt)", async () => {
-  await assert.rejects(verifyAct(makeToken(claims(), { typ: "ubt+jwt" }), OPTIONS), ActTypeMismatchError);
+  await assert.rejects(
+    verifyAct(makeToken(claims(), { typ: "ubt+jwt" }), OPTIONS),
+    (error: unknown) =>
+      error instanceof ActTypeMismatchError && error.message.includes("not the certificate of an authorized AI call"),
+  );
 });
 
 test("rejects a plain JWT and a token with no typ at all", async () => {
@@ -447,7 +455,10 @@ test("rejects a signature that is not 64 raw bytes (DER-encoded, truncated or ab
 // --- issuer -------------------------------------------------------------
 
 test("rejects an unknown issuer", async () => {
-  await assert.rejects(verifyAct(makeToken(claims({ iss: "idside.eu.attacker.test" })), OPTIONS), ActIssuerError);
+  await assert.rejects(
+    verifyAct(makeToken(claims({ iss: "idside.eu.attacker.test" })), OPTIONS),
+    (error: unknown) => error instanceof ActIssuerError && error.message.includes("not a certificate for this one"),
+  );
   await assert.rejects(verifyAct(makeToken(claims({ iss: "https://idside.eu" })), OPTIONS), ActIssuerError);
 });
 
@@ -598,7 +609,8 @@ test("checks the request_hash binding when the caller pins one", async () => {
   assert.equal((await verifyAct(token, { ...OPTIONS, requestHash: REQUEST_HASH })).requestHash, REQUEST_HASH);
   await assert.rejects(
     verifyAct(token, { ...OPTIONS, requestHash: `sha256:${"b".repeat(64)}` }),
-    ActBindingMismatchError,
+    (error: unknown) =>
+      error instanceof ActBindingMismatchError && error.message.includes("this certificate was issued for"),
   );
 });
 

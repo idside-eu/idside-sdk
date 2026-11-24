@@ -83,7 +83,7 @@ The two circuits never cross on your side. Details and the exact payloads are in
 
 ### Why the missing setter is the feature
 
-Suppose the SDK let you pass the preferences you had collected. Then the proof
+Suppose the SDK let you pass the preferences you had collected. Then the certificate
 it produces would attest to *what you told it*, not to *what the user chose*. A
 developer could show an opt-out dialog, record the opt-out in their own database,
 and still call the SDK with `training=true`. The signed token would faithfully
@@ -95,7 +95,7 @@ deliberately narrower than you might want, and that narrowness is the product.
 
 An organization's policy is not an exception. It is set on the ID Side
 dashboard, not by the code that makes the call, it can only refuse, and the
-proof says it came from the organization (§4). The code path that sends the
+certificate says it came from the organization (§4). The code path that sends the
 prompt has no say in what applies to it.
 
 ### What the tunnel does *not* claim
@@ -107,7 +107,7 @@ SDK runs in their process, on their machine.
 The model is **deterrent and evidentiary**, not coercive. A developer who
 bypasses the SDK has no ACT token and no ledger entry for that call, and
 therefore nothing to show for that call. The model does not make violations
-impossible; it makes them *visible as gaps in the proof chain*. This is the
+impossible; it makes them *visible as gaps in the record*. This is the
 same reason double-entry bookkeeping works without preventing anyone from lying.
 
 ## 4. The policy: what applies to a call, and who decided
@@ -116,8 +116,10 @@ One product, one mechanism. The organization that holds the API keys sets a
 policy on the ID Side dashboard — an employer equipping its staff with AI, or a
 publisher whose application serves its own users — and that policy applies to
 every call made with its keys. Holding one of its keys is acting under its
-policy. The SDK is byte-for-byte the same for everyone — same `wrap()`, same
-authorize call, same signed proof — and the proof says what applied and who
+policy. On the dashboard its keys are grouped in **strainers**: each strainer
+adds its own refusals to the organization's, and every call made with one of its
+keys applies them. The SDK is byte-for-byte the same for everyone — same `wrap()`, same
+authorize call, same signed certificate — and the certificate says what applied and who
 decided:
 
 | Claim | On a call under an organization's policy |
@@ -125,11 +127,11 @@ decided:
 | `source` | `default_policy` — the decision is the organization's |
 | `legal_basis` | the basis the organization declared: `legitimate_interest`, `contractual_obligation`, `public_task`, `legal_obligation`, `vital_interests` or `consent` — or `not_established` while it has declared none |
 | `binding` | `api_key` when the call named nobody, `user_id` or `ubt` when it named someone ([§8](#8-naming-the-end-user-user_id-vs-ubt)) |
-| `refused_by` | which layer refused each option: the organization, a team, the application |
+| `refused_by` | which layer refused each option: the organization, a team, the strainer |
 
 Naming the person a call is for is optional, and most calls name nobody: the
-proof's subject is then the API key the call was made with. Name a person, or a
-team, when you want the proof to say whom the call was for (§8). The policy and
+certificate's subject is then the API key the call was made with. Name a person, or a
+team, when you want the certificate to say whom the call was for (§8). The policy and
 the declared basis apply either way.
 
 Three properties keep a policy from being a preference setter in disguise:
@@ -140,9 +142,10 @@ Three properties keep a policy from being a preference setter in disguise:
 - **It can only refuse.** A policy turns an option off, never on. A refusal is
   applied to the call wherever it can be — a forced provider parameter, a
   declined call, a dedicated credential — and the token names the layer that
-  made it; where it cannot, Enforce and Observe (below) decide what happens.
+  made it; where it cannot, the strainer's switch for the call's provider
+  (below) decides what happens.
 - **It signs what the organization declared, as the organization's.** The basis
-  in the proof is the one the organization declared on the dashboard, carried
+  in the certificate is the one the organization declared on the dashboard, carried
   with `source: "default_policy"`, so that nobody reading it mistakes a
   declaration for an answer someone gave. ID Side does not assess the
   declaration. An organization may declare `consent` too; where it does, the
@@ -159,7 +162,7 @@ Nothing in your integration selects how a call is decided. `source` and
 ACT token, and both SDKs treat them as opaque strings — they never branch on the
 value. How an application decides is a property of the application in the ID
 Side account the key belongs to. Your code is identical either way; read the
-fields back off the proof if you want to know what applied. Their lists of
+fields back off the certificate if you want to know what applied. Their lists of
 values only grow, and a new value reaches your code with no SDK release —
 `public_task`, `legal_obligation` and `vital_interests` arrived this way — so do
 not close your own handling on the values above.
@@ -171,14 +174,14 @@ The [Preference Center](./widget.md) asks each person, in a surface ID Side
 serves and you cannot read. They answer; the answer lands on ID Side's side of
 the tunnel; from then on every AI call you make for that person — named with the
 UBT the widget issues, or with your own `user_id` — is resolved against it. The
-proof carries `source: "widget"` (or `gpc`, `idside_account`) and
+certificate carries `source: "widget"` (or `gpc`, `idside_account`) and
 `legal_basis: "consent"`, because a person made a positive act.
 
 That way of deciding needs the widget. **Without it, nobody ever writes a
 preference** — the SDK cannot, by design (§3) — and one rule takes over: **what
 nobody accepted is refused.** Every option in the catalogue, on every provider,
 tool use included, resolves to a refusal for a person who has not answered, and
-the proof says why: `source: "app_default"`, `legal_basis: "not_established"`.
+the certificate says why: `source: "app_default"`, `legal_basis: "not_established"`.
 An option your users were never asked about is refused rather than unenforced;
 add a provider next year that brings a new option with it, and everyone who
 answered before it existed refuses it from day one, with nothing for you to
@@ -203,65 +206,74 @@ never under the person's.
 An application can also refuse options on its own, for everyone who uses it —
 from its page on the ID Side dashboard, never from your code. It is a refusal
 and nothing else: it cannot accept anything on anybody's behalf, it does not
-change `source` or `legal_basis`, and the proof writes it under `app`. On an
+change `source` or `legal_basis`, and the certificate writes it under `app`. On an
 application that asks, describe it as what it is — "this application refuses X,
 whatever the user answers". It decides nothing in the user's place: what the
 application leaves open is still theirs to answer, the widget states the
 refusal instead of asking a question whose answer could not count, and the
-proof still says what they answered — or that they never did.
+certificate still says what they answered — or that they never did.
 
-### Enforce and Observe — when the policy cannot apply
+### Blocking a provider — when the policy cannot apply
+
+<a id="enforce-and-observe--when-the-policy-cannot-apply"></a>
 
 A policy is not always something a call can carry out: a provider may have no
-setting for an option the organization refuses, the organization may not have
-allowed the provider at all, and while it has declared no basis there is none
-to sign. **When your policy cannot apply to a call (a provider with no such
-setting, a provider your organization has not allowed, no basis declared),
-Observe lets the call through and flags it, Enforce holds it.**
+setting for an option the organization refuses, and while the organization has
+declared no basis there is none to sign. **When your policy cannot apply to a
+call (a provider without that setting, no basis declared): if the strainer
+blocks that provider, the call is held; otherwise it goes through, with the
+deviation signed in its certificate.** Each strainer has one switch per
+provider, "Block the provider when it is not compliant":
 
-- **Observe**, the default: the call goes out, and its token carries a
-  [`deviations`](./spec/act-token.md#deviations--what-the-policy-could-not-apply)
-  claim naming what did not apply.
-- **Enforce**: `/v1/authorize` answers 403 and the SDK raises
+- **Block**: `/v1/authorize` answers 403 and the SDK raises
   [`ConsentDeniedError`](./errors.md#policy_hold--a-call-the-policy-held) with
-  `reason == "policy_hold"`, before the provider is called.
+  `reason == "policy_hold"`, before the provider is called. A new strainer
+  blocks every provider until the organization lets one through; one that
+  existed before the switches kept, on each provider, the behaviour it had.
+- **Let through**: the call goes out, and its certificate carries a
+  [`deviations`](./spec/act-token.md#deviations--what-the-policy-could-not-apply)
+  claim naming what did not apply; the organization sees the call in
+  Monitoring.
 
-The organization chooses, application by application, on the ID Side
-dashboard — nothing in your code selects either, and your code is the same
-under both. A developer can never bypass a wrapped client: a deviation never
-comes from a setting your code turned off. It comes from what the call names —
-the provider, the endpoint, the model — set against what the organization has
-set up. What the call names is your code's choice: a provider the organization
-allows and that applies what the policy refuses, and an endpoint and a model its
+The switch of the call's provider decides for every deviation of that call —
+the ones that come from the provider and the ones that do not, such as a basis
+nobody declared. The organization sets the switches, strainer by strainer, on
+the ID Side dashboard — nothing in your code sets one, and your code is the
+same either way. A developer can never bypass a wrapped client: a deviation
+never comes from a setting your code turned off. It comes from what the call
+names — the provider, the endpoint, the model — set against what the
+organization has set up. What the call names is your code's choice: a provider
+that applies what the policy refuses, and an endpoint and a model its
 descriptor covers. The rest is the organization's: the same call is still held
-or flagged while it has declared no basis, while a refusal rests on an account
-setting that no current declaration covers, or while its policy refuses an
-option nothing at that provider can apply. A refusal the provider answers only
-in its own terms is applied when those terms rule the processing out, and is a
-deviation when they leave it possible. A refusal that only a dedicated
-credential can carry (see
+or signed with its deviation while it has declared no basis, while a refusal
+rests on an account setting that no current declaration covers, or while its
+policy refuses an option nothing at that provider can apply. A refusal the
+provider answers only in its own terms is applied when those terms rule the
+processing out, and is a deviation when they leave it possible. A refusal that
+only a dedicated credential can carry (see
 [credential routing](./providers.md#6-credential-routing)) is a deviation while
-you have labelled no credential for it: Observe sends the call on your ordinary
-credential and flags it, Enforce holds it. Whatever the policy can apply to a
-call that goes out is applied, tool refusals included, which the SDK enforces
-itself under either setting since only it sees whether a call carries tools. An
-application that asks its users has neither setting: its calls are never held
-or flagged.
+you have labelled no credential for it: a provider let through gets the call on
+your ordinary credential, with the deviation signed; a blocked one gets
+nothing. Whatever the policy can apply to a call that goes out is applied, tool
+refusals included, which the SDK enforces itself whichever way the switch is
+set, since only it sees whether a call carries tools. An application that asks
+its users has no such switch: its calls are never held or flagged.
 
 ### The mistake worth naming
 
 **Declaring a basis you do not hold.** Not because a rule forbids it — because
 the mechanism records exactly what you declared, and that is all it records.
 
-The basis in every proof is the one your organization declared on the
+The basis in every certificate is the one your organization declared on the
 dashboard, signed with `source: "default_policy"`. ID Side does not check it
-against anything: it is your statement, and the proof carries it as yours, on
+against anything: it is your statement, and the certificate carries it as yours, on
 every call, in a form nobody can edit afterwards. Declare `consent` for people
 nobody asked, and the file shows a year of calls signed `consent` beside a
-source that says nobody was asked. Declare nothing, and every proof reads
-`not_established`, each one flagged — or held, under Enforce.
+source that says nobody was asked. Declare nothing, and every certificate reads
+`not_established`, each one a deviation — signed in its certificate, or held
+wherever the strainer blocks the provider.
 
-Now picture that file in front of the authority it was built for. The proof did
+Now picture that file in front of the authority it was built for. The certificate did
 not decide anything for you; it wrote down what you decided, and when. That is
 the shape of the product: it is **deterrent and evidentiary, never policing**.
 Nothing stops you from configuring it carelessly. The system simply records what
@@ -284,7 +296,7 @@ specification today.
    consent state that applies, decides which provider parameters must be forced,
    mints a token and appends a ledger entry. This is the proprietary part; the
    SDK sees it as one HTTP endpoint, `POST /v1/authorize`.
-3. **Proof.** The **ACT token** (AI Consent Token) — a signed JWT bound to one
+3. **Certificate.** The **ACT token** (AI Consent Token) — a signed JWT bound to one
    specific request — plus its immutable ledger entry. Specified openly in
    [`spec/act-token.md`](./spec/act-token.md).
 
@@ -301,7 +313,7 @@ specification today.
 ## 6. The ACT token
 
 An ACT token is an `ES256`-signed JWT of at most 3,072 characters (the
-`deviations` claim of a flagged call is what can take it past 2 KB), with a
+`deviations` claim of a call let through is what can take it past 2 KB), with a
 one-hour lifetime, attached to the provider call as the `X-AI-Consent-Token`
 header. It records —
 in a form nobody can retroactively alter — the pseudonymized subject (the person
@@ -331,9 +343,9 @@ infrastructure worth anything to a third party.
 What it *can* do is check one. Both SDKs verify a token offline — signature
 against the public JWKS, `ES256` pinned, expiry, and the request binding — with
 no call to ID Side: `verify_act()` in Python,
-[`verifyAct()`](./quickstart-node.md#7-verify-a-proof-yourself) in Node.js. A
-proof only its issuer can validate would not be a proof. And a proof whose
-verdict depended on which SDK you installed would not be one either, which is why
+[`verifyAct()`](./quickstart-node.md#7-verify-a-certificate-yourself) in Node.js. A
+certificate only its issuer can validate would prove nothing. And a certificate whose
+verdict depended on which SDK you installed would prove nothing either, which is why
 [shared vectors](../packages/descriptors/testdata/act-verification-vectors.json)
 pin the outcome — down to the error raised — for both implementations.
 
@@ -355,18 +367,18 @@ way to make an AI call through the SDK and *not* leave a trace.
 ## 8. Naming the end user: `user_id` vs UBT
 
 Naming the end user is **optional**. A call that names nobody is authorized with
-the API key as the proof's subject: the token's `sub` is then a pseudonymous
+the API key as the certificate's subject: the token's `sub` is then a pseudonymous
 subject of that key, scoped per app exactly as a person's is, and its `binding`
 reads `api_key`. Most calls name nobody, and the organization's policy applies
 to them all the same.
 
 Name the person a call is for — or a team, such as `team-marketing` — when you
-want the proof to say whom the call was for. Pass at most one of two mutually
+want the certificate to say whom the call was for. Pass at most one of two mutually
 exclusive fields:
 
 | | nothing | `user_id="usr_marie_456"` | `ubt="eyJ…"` |
 | --- | --- | --- | --- |
-| The proof is about | whoever holds the API key | the person or team you name | the person the widget saw |
+| The certificate is about | whoever holds the API key | the person or team you name | the person the widget saw |
 | Origin | — | you assert it | the ID Side widget issued it |
 | SDK behavior | no identity field is sent | sent as-is | forwarded opaquely, never decoded |
 | Recorded as | `binding: "api_key"` | `binding: "user_id"` | `binding: "ubt"` |
@@ -378,7 +390,7 @@ The `user_id` form has an honest gap: nothing ties the identifier you pass to
 the person it names. On an application that asks its users, a developer could
 collect Marie's opt-out and call the SDK with Paul's id. The UBT closes that gap
 — the widget saw the user, ID Side signed the binding, and the cloud verifies the
-signature. The proof records which form you used, so an auditor can weigh it
+signature. The certificate records which form you used, so an auditor can weigh it
 accordingly.
 
 Passing both raises `ConflictingIdentityError`. Passing one that names nobody —
@@ -402,7 +414,7 @@ you name them consistently.** That part is yours, and only yours.
 - **Under an organization's policy** ([§4](#4-the-policy-what-applies-to-a-call-and-who-decided))
   — any stable identifier you choose for the person or the team: your own
   primary key, an employee number, `team-marketing`. The policy and the declared
-  basis apply whatever it is; the identifier only says, in the proof, whom the
+  basis apply whatever it is; the identifier only says, in the certificate, whom the
   call was for.
 - **Signed in to your product** — send your own stable identifier: the primary
   key, the account id, whatever survives a password reset. Nothing else needed.
@@ -422,7 +434,7 @@ circuits: the answer given in the browser and the AI call made by your backend
 belong to the same person only if you send the same string in both places. An
 identifier that changes there — cleared storage, another browser, a new device —
 makes the person a stranger again. That is a defined state, not a failure:
-everything is refused for them, the proof records `source: "app_default"` and
+everything is refused for them, the certificate records `source: "app_default"` and
 `legal_basis: "not_established"`, and the widget asks again. Nobody is ever
 mistaken for having agreed to something. It fails in the safe direction, which
 is what makes this a plumbing problem rather than a compliance one.
@@ -436,7 +448,7 @@ The SDK never guesses a decision, and never falls back to "call the provider
 anyway".
 
 This is a real trade-off and it is chosen deliberately: the alternative
-(fail-open) would mean that the moments when your proof chain has holes are
+(fail-open) would mean that the moments when your record has holes are
 exactly the moments you cannot detect. An outage you can see beats a silent gap
 in an audit trail. Practical consequences and how to handle them are in the
 [FAQ](./faq.md#what-happens-if-id-side-is-down).
@@ -467,7 +479,7 @@ different time horizons:
 | --- | --- | --- |
 | What | existing provider knobs (e.g. OpenAI `store: false`, no-training headers) | the `X-AI-Consent-Token` header |
 | Who reads it | the provider, today | nobody at the provider, today |
-| Effect | real enforcement now | audit proof now |
+| Effect | real enforcement now | audit certificate now |
 | Later | — | if providers adopt it, Type 2 absorbs Type 1 |
 
 The SDK holds **no** table mapping consent states to provider parameters. It
