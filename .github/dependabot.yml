@@ -1,29 +1,73 @@
+# Dependency updates, once a month, a few pull requests at a time.
+#
+# Two groups per ecosystem, on purpose:
+#   - provider-libraries: the AI provider clients the SDK wraps. A new release
+#     of one can add per-call options, and an enforced call only lets through
+#     options that have been classified (docs/versioning.md §3): CI fails until
+#     someone classifies what the release added. Never merged blind.
+#   - tooling: everything else (linters, type checkers, test runners, types).
+#
+# Security updates are not held by this schedule: they are raised as soon as
+# an advisory is published.
 version: 2
 updates:
+  # Node SDK and its example.
   - package-ecosystem: "npm"
     directories: ["/packages/node", "/examples/node"]
     schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 10
+      interval: "monthly"
+    open-pull-requests-limit: 5
     labels: ["dependencies", "node"]
     commit-message:
       prefix: "deps"
+    groups:
+      provider-libraries:
+        patterns:
+          - "openai"
+          - "@anthropic-ai/sdk"
+          - "@google/genai"
+          - "@mistralai/mistralai"
+      tooling:
+        patterns: ["*"]
+        exclude-patterns:
+          - "openai"
+          - "@anthropic-ai/sdk"
+          - "@google/genai"
+          - "@mistralai/mistralai"
 
-  # Python SDK (uv)
+  # Python SDK (uv).
   - package-ecosystem: "uv"
     directory: "/packages/python"
     schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 10
+      interval: "monthly"
+    open-pull-requests-limit: 5
     labels: ["dependencies", "python"]
     commit-message:
       prefix: "deps"
+    groups:
+      provider-libraries:
+        patterns:
+          - "openai"
+          - "anthropic"
+          - "google-genai"
+          - "mistralai"
+      tooling:
+        patterns: ["*"]
+        exclude-patterns:
+          - "openai"
+          - "anthropic"
+          - "google-genai"
+          - "mistralai"
 
-  # GitHub Actions — keeps pins current (and proposes pinning by SHA).
+  # GitHub Actions: keeps pins current (and proposes pinning by SHA).
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: "monthly"
+    open-pull-requests-limit: 5
     labels: ["dependencies", "ci"]
     commit-message:
       prefix: "ci"
+    groups:
+      actions:
+        patterns: ["*"]
