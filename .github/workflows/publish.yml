@@ -69,7 +69,7 @@ jobs:
       actions: read # read environment protection through the repository API
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Only publish the requested version's tag
@@ -87,7 +87,7 @@ jobs:
       # without protection. Check before CI or artifacts exist, while this job
       # itself references no environment and therefore cannot create one.
       - name: The selected publish environments require a reviewer
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           PACKAGES: ${{ inputs.packages }}
         with:
@@ -134,18 +134,18 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # The published Node package is compiled JavaScript, so it is built on the
       # engines floor rather than the newest Node — the same reason the
       # `publishable` CI job runs there.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "22.12"
           cache: npm
           cache-dependency-path: packages/node/package-lock.json
 
-      - uses: astral-sh/setup-uv@v4
+      - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
 
@@ -230,7 +230,7 @@ jobs:
       - name: What is about to be uploaded
         run: ls -l "$RUNNER_TEMP/artefacts"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-artefacts
           path: ${{ runner.temp }}/artefacts
@@ -254,7 +254,7 @@ jobs:
       # Trusted publishing needs npm >= 11.5.1 on Node >= 22.14, and `npm stage`
       # needs npm >= 11.15.0; both need a GitHub-hosted runner, as self-hosted
       # runners are not supported.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "24.x"
 
@@ -263,7 +263,7 @@ jobs:
           npm install -g npm@latest
           npm --version
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: release-artefacts
           path: artefacts
@@ -305,7 +305,7 @@ jobs:
       contents: read
       id-token: write # PyPI exchanges this for a 15-minute project-scoped token
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: release-artefacts
           path: artefacts
