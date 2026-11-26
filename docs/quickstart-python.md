@@ -296,7 +296,10 @@ token = one request**. Full claim list in
 ### Where to see it
 
 - **The ledger**, in the ID Side dashboard: one entry per authorized call, with
-  its token id — the audit trail you show a data protection authority.
+  its token id, and one per call the policy held or the SDK blocked, by its
+  certificate number (`evt_…`) — the audit trail you show a data protection
+  authority. Its export is sealed by ID Side, and anyone can check it without an
+  account on `https://sdk.idside.eu/verify`.
 - **Publicly**, with no API key and no account:
   `GET https://sdk.idside.eu/v1/verify/{token_id}` answers *"is this token
   genuine?"* — deliberately without revealing what the user consented to. See

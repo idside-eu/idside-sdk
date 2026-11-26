@@ -58,6 +58,7 @@ new provenance or legal basis must not stop older SDKs. From that, exactly:
 | Change | Allowed under `/v1`? | Why |
 | --- | --- | --- |
 | **Add** a top-level response field | ✅ always | Older SDKs never look at it. |
+| **Add** a member to a problem document | ✅ | Both SDKs read a problem document's `type`, `title` and `detail` and nothing else, so a new member reaches no SDK and stops none. `certificate_id` on `policy_hold` arrived this way. |
 | **Add** a 403 problem `type` | ✅ | An SDK that does not know it still raises `ConsentDeniedError`, with `reason` unset: the call is refused all the same, and only the explanation is missing. `policy_hold` arrived this way. |
 | **Add** a `source` or `legal_basis` value | ✅ | Both SDKs carry these as opaque strings and never branch on them, so a new value reaches the certificate and the developer's code untouched. `public_task`, `legal_obligation` and `vital_interests` arrived this way. Renaming one is not adding: a claim may be added, never redefined (§1.2). |
 | **Add** a `binding` value | only for a request older SDKs cannot send | `binding` is a closed domain the SDK checks against its request, so a new value reaches no older SDK safely unless that SDK can never receive it. `api_key` arrived this way: it answers a request that names nobody, which no SDK sent before `0.1.0.dev3`, and every request that names somebody keeps `ubt` or `user_id`. |

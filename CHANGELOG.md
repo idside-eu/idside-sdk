@@ -14,7 +14,21 @@ version number promises — and what it deliberately does not — is
 
 ## [Unreleased]
 
-Nothing yet.
+### Docs
+
+- **A verifier of your own pins `typ` to `act+jwt`** as well as `alg`, as
+  `verify_act()` / `verifyAct()` do: the key set also holds the keys of ID
+  Side's other signatures ([spec §3.2](./docs/spec/act-token.md#32-keys-and-rotation)).
+- `GET /v1/verify/{number}` is documented with its `held` and `blocked`
+  answers for a certificate number (`evt_…`), in the FAQ and the spec's
+  response shape; the quickstart's ledger, a held call's certificate of
+  refusal in the spec, and the Python README's `ConsentDeniedError` say where
+  that number appears.
+- `docs/versioning.md` §1.1 lists adding a member to a problem document as
+  allowed under `/v1`: both SDKs read `type`, `title` and `detail` only.
+  `certificate_id` arrived this way.
+- The `QuotaExceededError` example shows the cloud's current message, and
+  Concepts no longer says a call with no basis declared may be held.
 
 ## [0.1.0.dev4] — 2026-11-26
 

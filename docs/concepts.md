@@ -272,8 +272,8 @@ against anything: it is your statement, and the certificate carries it as yours,
 every call, in a form nobody can edit afterwards. Declare `consent` for people
 nobody asked, and the file shows a year of calls signed `consent` beside a
 source that says nobody was asked. Declare nothing, and every certificate reads
-`not_established`, each one a deviation — signed in its certificate, or held
-wherever the strainer blocks the provider.
+`not_established`, each one a deviation signed in its certificate: the calls go
+out, and the file says, call after call, that no basis was established.
 
 Now picture that file in front of the authority it was built for. The certificate did
 not decide anything for you; it wrote down what you decided, and when. That is

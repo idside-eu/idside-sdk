@@ -218,8 +218,10 @@ Two ways, neither requiring ID Side's cooperation for the important one.
 
 1. fetch the public keys from `GET /.well-known/jwks.json` and select the one
    matching the token header's `kid`;
-2. verify the signature, **pinning `alg` to `ES256`**. A token declaring `none`
-   or an HMAC algorithm is a forgery attempt, not a negotiation;
+2. verify the signature, **pinning `alg` to `ES256` and `typ` to `act+jwt`**. A
+   token declaring `none` or an HMAC algorithm is a forgery attempt, not a
+   negotiation; the key set also holds the keys of ID Side's other signatures,
+   which are not certificates;
 3. check `exp`, require `exp - iat <= 3600`, validate `mode` (`test` or `live`),
    and check `iss`;
 4. recompute `request_hash` from the caller payload captured before enforcement
@@ -281,8 +283,9 @@ the claim that matters when you are asked about one call.
 **Remotely** — `GET /v1/verify/{token_id}`, public, no API key, no account. It
 answers *"is this token genuine, and is it still valid?"* and deliberately omits
 `sub` and `consent_state`: an endpoint that revealed a person's choices to anyone
-holding a token id would be a privacy hole dressed as transparency. Full
-procedure and response shape in
+holding a token id would be a privacy hole dressed as transparency. It also
+answers the number (`evt_…`) of a held or a blocked call's certificate, `held`
+or `blocked`: those calls have no token. Full procedure and response shape in
 [`spec/act-token.md` §5](./spec/act-token.md#5-verification).
 
 ## Can the SDK be bypassed?

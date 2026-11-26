@@ -205,7 +205,7 @@ anyway" — when authorization did not succeed, the AI call simply did not happe
 | Error | Meaning | What to do |
 | ----- | ------- | ---------- |
 | `ConsentUnreachableError` | Cloud unreachable, 5xx, or unusable answer | Treat as a transient outage: retry later, degrade your flow |
-| `ConsentDeniedError` | Usage denied for the account or key, or held by the organization's policy (`.reason`: `fraud_suspended`, `organization_suspended`, `policy_hold`, or `None` = a denial the SDK cannot qualify, such as a key without the `authorize` scope). Never a user's own refusal | Do not retry; read the message and surface the denial in your product |
+| `ConsentDeniedError` | Usage denied for the account or key, or held by the organization's policy (`.reason`: `fraud_suspended`, `organization_suspended`, `policy_hold`, or `None` = a denial the SDK cannot qualify, such as a key without the `authorize` scope); on `policy_hold` the message ends with the number of the call's certificate of refusal (`evt_…`). Never a user's own refusal | Do not retry; read the message and surface the denial in your product |
 | `AuthenticationError` | Bad ID Side API key (HTTP 401) | Fix the key; retrying is pointless |
 | `InvalidBindingError` | The visitor's UBT did not verify — expired, issued for another app, altered, or not a UBT at all (HTTP 401 `ubt_invalid`); a `BindingError`, so also an `AuthenticationError` | Not the key: discard the stored UBT and let the widget issue a new one |
 | `BindingRequiredError` | The app requires a UBT and the call passed `user_id`, or named nobody (HTTP 401 `ubt_required`); a `BindingError` too | Show the widget before any AI call and pass its UBT as `ubt` |

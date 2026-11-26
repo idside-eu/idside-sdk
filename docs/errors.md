@@ -1267,12 +1267,14 @@ message:
 
 ```
 ID Side plan quota exceeded (HTTP 402). Upgrade the plan or wait for the quota
-window to reset; the AI call was not made. Cloud says: Quota exceeded; 50000/50000
-authorize calls used this month.
+window to reset; the AI call was not made. Cloud says: Quota exceeded; Monthly
+live proof quota reached for this organization. No call was authorized. Move to
+a paid plan at https://idside.eu/pricing, or contact contact@idside.eu to request
+a higher limit.
 ```
 
-Log the full message. It is the difference between "402" and knowing which quota,
-on which plan, ran out.
+Log the full message. It is the difference between "402" and knowing that the
+organization's monthly quota ran out, and where to raise it.
 
 ## Next
 

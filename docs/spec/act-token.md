@@ -191,7 +191,9 @@ application that asks its visitors, which has no such setting. On a token issued
 before it was introduced, its absence says nothing either way. Where the
 strainer blocks the call's provider, the same call gets no token at all: `/v1/authorize` answers 403
 [`policy_hold`](../errors.md#policy_hold--a-call-the-policy-held), and the
-provider is never called.
+provider is never called. Its record is its certificate of refusal: an entry of
+the organization's ledger numbered `evt_…` (`certificate_id`), which lists the
+same kinds and is not a token.
 
 The claim name and its values are signed, so they are never renamed or
 redefined ([`versioning.md`](../versioning.md) §1.2); a kind added later is a
@@ -327,8 +329,9 @@ each of those signatures carries a `typ` of its own: pinning `typ` to `act+jwt`,
 as `verify_act()` / `verifyAct()` do, is what keeps any of them from passing
 for an ACT token.
 
-Verifiers **must** pin `alg` to `ES256` and reject any other value — a token
-declaring `none` or an HMAC algorithm is a forgery attempt, not a negotiation.
+Verifiers **must** pin `alg` to `ES256` and `typ` to `act+jwt`, and reject any
+other value — a token declaring `none` or an HMAC algorithm is a forgery
+attempt, not a negotiation.
 
 ## 4. Source trust levels
 
@@ -384,7 +387,7 @@ explicit compatibility option `allow_legacy_without_mode=True` in Python or
 
 ```json
 {
-  "status": "valid",              // valid | expired | revoked | unknown
+  "status": "valid",              // valid | expired | revoked | unknown (held | blocked for an evt_… number)
   "mode": "live",                 // test | live | null (minted before the claim existed)
   "issued_at": "2026-07-14T18:26:59Z",
   "expires_at": "2026-07-14T19:26:59Z",
