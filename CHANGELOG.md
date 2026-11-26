@@ -14,6 +14,15 @@ version number promises — and what it deliberately does not — is
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.1.0.dev4] — 2026-11-26
+
+**Upgrade to have prompts cleaned**; nothing else requires it. An earlier
+release keeps working when its organization cleans prompts: its calls are
+authorized as before, sent as written, and counted on the dashboard as not
+cleaned.
+
 **Prompt cleaning.** An organization can now decide, on the ID Side dashboard,
 what must not leave its applications in a prompt, and both SDKs apply it inside
 your process before a call is hashed and sent. An application that has enabled
@@ -993,6 +1002,8 @@ to discover them:
 
 ## Release history
 
+- `0.1.0.dev4` / `0.1.0-dev.4` — 2026-11-26, prompt cleaning on every enforced
+  call, under the organization's signed policy.
 - `0.1.0.dev3` / `0.1.0-dev.3` — 2026-11-14, naming the end user is optional:
   the API key is the subject of a call that names nobody.
 - `0.1.0.dev2` / `0.1.0-dev.2` — 2026-11-11, the option lists of the current
@@ -1001,7 +1012,8 @@ to discover them:
   `request_hash()`.
 - `0.1.0.dev0` / `0.1.0-dev.0` — 2026-11-11, the first pre-release.
 
-[Unreleased]: https://github.com/idside-eu/idside-sdk/compare/v0.1.0.dev3...HEAD
+[Unreleased]: https://github.com/idside-eu/idside-sdk/compare/v0.1.0.dev4...HEAD
+[0.1.0.dev4]: https://github.com/idside-eu/idside-sdk/compare/v0.1.0.dev3...v0.1.0.dev4
 [0.1.0.dev3]: https://github.com/idside-eu/idside-sdk/compare/v0.1.0.dev2...v0.1.0.dev3
 [0.1.0.dev2]: https://github.com/idside-eu/idside-sdk/compare/v0.1.0.dev1...v0.1.0.dev2
 [0.1.0.dev1]: https://github.com/idside-eu/idside-sdk/compare/v0.1.0.dev0...v0.1.0.dev1

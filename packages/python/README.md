@@ -3,7 +3,7 @@
 A signed certificate of the AI policy each call was authorized against — for every AI
 call your backend makes.
 
-> ⚠️ **Pre-release (`0.1.0.dev3`).** Install with `pip install idside`. The SDK
+> ⚠️ **Pre-release (`0.1.0.dev4`).** Install with `pip install idside`. The SDK
 > wraps the provider client library you already use and does not replace it;
 > starting from nothing, an extra installs one in the same command —
 > `idside[openai]`, `[anthropic]`, `[gemini]`, `[mistral]` or `[all]`.

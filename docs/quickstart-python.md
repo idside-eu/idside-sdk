@@ -3,7 +3,7 @@
 From nothing to a consent-enforced AI call. Five minutes, three steps: install,
 wrap, call.
 
-> **Status.** Pre-release: `idside` is published on PyPI as `0.1.0.dev3`. A real
+> **Status.** Pre-release: `idside` is published on PyPI as `0.1.0.dev4`. A real
 > call needs an ID Side API key — sign up at
 > <https://sdk.idside.eu/signup> (a free plan exists, see
 > <https://sdk.idside.eu/pricing>), or take a 24-hour test key from the no-account sandbox

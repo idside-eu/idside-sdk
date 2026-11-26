@@ -1,6 +1,6 @@
 {
   "name": "@idside/sdk",
-  "version": "0.1.0-dev.3",
+  "version": "0.1.0-dev.4",
   "description": "AI consent enforcement for provider SDKs (OpenAI, Anthropic, Gemini, Mistral, DeepSeek). Every AI call carries a signed proof of the policy that applied. Patents: sdk.idside.eu/patents",
   "license": "SEE LICENSE IN LICENSE",
   "author": "ID Side <dev@idside.eu>",
