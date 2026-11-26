@@ -218,11 +218,12 @@ certificate still says what they answered — or that they never did.
 <a id="enforce-and-observe--when-the-policy-cannot-apply"></a>
 
 A policy is not always something a call can carry out: a provider may have no
-setting for an option the organization refuses, and while the organization has
-declared no basis there is none to sign. **When your policy cannot apply to a
-call (a provider without that setting, no basis declared): if the strainer
-blocks that provider, the call is held; otherwise it goes through, with the
-deviation signed in its certificate.** Each strainer has one switch per
+setting for an option the organization refuses. **When your policy cannot
+apply to a call (a provider without that setting): if the strainer blocks that
+provider, the call is held; otherwise it goes through, with the deviation
+signed in its certificate.** A basis nobody declared never holds a call on its
+own: the call goes out signed `legal_basis: "not_established"`, with the
+`basis_not_established` deviation in its certificate. Each strainer has one switch per
 provider, "Block the provider when it is not compliant":
 
 - **Block**: `/v1/authorize` answers 403 and the SDK raises
@@ -235,18 +236,19 @@ provider, "Block the provider when it is not compliant":
   claim naming what did not apply; the organization sees the call in
   Monitoring.
 
-The switch of the call's provider decides for every deviation of that call —
-the ones that come from the provider and the ones that do not, such as a basis
-nobody declared. The organization sets the switches, strainer by strainer, on
+The switch of the call's provider decides for every deviation of that call
+but one: a basis nobody declared is recorded and never holds the call by
+itself; held with another deviation, the call's certificate of refusal lists
+both. The organization sets the switches, strainer by strainer, on
 the ID Side dashboard — nothing in your code sets one, and your code is the
 same either way. A developer can never bypass a wrapped client: a deviation
 never comes from a setting your code turned off. It comes from what the call
 names — the provider, the endpoint, the model — set against what the
 organization has set up. What the call names is your code's choice: a provider
 that applies what the policy refuses, and an endpoint and a model its
-descriptor covers. The rest is the organization's: the same call is still held
-or signed with its deviation while it has declared no basis, while a refusal
-rests on an account setting that no current declaration covers, or while its
+descriptor covers. The rest is the organization's: the same call is still
+signed with its deviation while it has declared no basis, and still held or
+signed with its deviation while a refusal rests on an account setting that no current declaration covers, or while its
 policy refuses an option nothing at that provider can apply. A refusal the
 provider answers only in its own terms is applied when those terms rule the
 processing out, and is a deviation when they leave it possible. A refusal that
@@ -363,6 +365,20 @@ anyone with database access could have written yesterday.
 The ledger is cloud-side and proprietary. The SDK never writes to it; it is a
 consequence of authorization, not a separate call — which also means there is no
 way to make an AI call through the SDK and *not* leave a trace.
+
+Two kinds of entry record a call that did not go out. A call the policy
+[held](./errors.md#policy_hold--a-call-the-policy-held) leaves its certificate of
+refusal — an entry, never a token — whose number the 403 gives. A call the SDK
+blocked under the [prompt-cleaning policy](./prompt-cleaning.md#what-the-cloud-is-told)
+is entered from the SDK's report, as the SDK's declaration: the cloud never sees
+the prompt, and a report lost on the way leaves no entry.
+
+An export of the ledger is sealed: ID Side signs the file it delivers, under a
+key of its own published with the others (`ledger-…`), so anyone holding the
+file can check, on the public page `https://sdk.idside.eu/verify` and without
+the file leaving their browser, that it is what ID Side delivered and that its
+chain is intact. The seal dates the file, not each entry, and no single entry
+is signed on its own.
 
 ## 8. Naming the end user: `user_id` vs UBT
 

@@ -197,6 +197,11 @@ and what was forced on it* — verifiable.
 
 `QuotaExceededError` (HTTP 402), and the AI call does not happen.
 
+The quota counts the live certificates the organization's API keys obtain in a
+month. A call made with a test key, a call the policy holds and a call the SDK
+blocks count for nothing. A plan with no overage stops at its quota; a plan
+with overage bills the calls past its included volume instead of refusing them.
+
 There is no silent degradation, and that is intentional: letting calls through
 unproven because a billing counter rolled over would produce exactly the
 untraceable gap the system exists to prevent. Practically:

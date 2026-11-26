@@ -292,8 +292,8 @@ different identity is exactly the pattern fraud detection is watching for.
 
 Only on a strainer, under an organization's policy
 ([Concepts §4](./concepts.md#blocking-a-provider--when-the-policy-cannot-apply)).
-When your policy cannot apply to a call (a provider without that setting, no
-basis declared): if the strainer blocks that provider, the call is held;
+When your policy cannot apply to a call (a provider without that setting): if
+the strainer blocks that provider, the call is held;
 otherwise it goes through, with the deviation signed in its certificate. This is
 the held call: `/v1/authorize` answers 403, no token is signed, and the provider
 is never called.
@@ -304,7 +304,8 @@ is never called.
   "title": "Policy hold",
   "status": 403,
   "detail": "…",
-  "deviations": [{ "kind": "option_not_enforced", "option": "training.foundation" }]
+  "deviations": [{ "kind": "option_not_enforced", "option": "training.foundation" }],
+  "certificate_id": "evt_…"
 }
 ```
 
@@ -313,6 +314,14 @@ carries ([spec](./spec/act-token.md#deviations--what-the-policy-could-not-apply)
 kinds and option names, never a person. The SDK surfaces `reason` and, in the
 message, the cloud's `title` and `detail`; every held call is also listed on the
 organization's ID Side dashboard.
+
+`certificate_id` is the number of the held call's certificate of refusal: the
+entry the hold leaves in the organization's ledger, never a token, nothing a
+call could carry. Neither SDK reads the field; the cloud ends `detail` with the
+same number, so the message carries it, and `GET /v1/verify/{certificate_id}`
+answers `status: "held"` ([spec §5](./spec/act-token.md#5-verification)). It is
+absent when the entry could not be written — the call is held all the same, and
+`detail` says that no number is available.
 
 A developer can never bypass a wrapped client: a deviation never comes from a
 setting your code turned off, it comes from what the call names — the provider,
@@ -324,7 +333,7 @@ call out, but what the call names is your code's, and the policy is its owner's:
 | --- | --- | --- | --- |
 | `provider_not_allowed` | no longer produced since the list of allowed providers was removed; a call is now held only for the other kinds | — | — |
 | `option_not_enforced` | the policy refuses `option`, and nothing applies that refusal to this provider, endpoint or model — or only a credential you have not labelled could | the provider, endpoint and model it calls: one that applies the refusal, such as a model the provider's descriptor covers; and, where the refusal needs a dedicated credential, labelling one that carries it in `credentials` ([credential routing](./providers.md#6-credential-routing)) | the policy, and the provider account setting declared to ID Side that applies it, where one exists |
-| `basis_not_established` | the call would be signed `legal_basis: "not_established"` — the organization has declared no basis | nothing: naming the person or not changes nothing here | the basis, declared on the dashboard |
+| `basis_not_established` | the call would be signed `legal_basis: "not_established"` — the organization has declared no basis. Listed with what held the call; never the cause of a hold on its own | nothing: naming the person or not changes nothing here | the basis, declared on the dashboard |
 | `content_engine_unverified` | the call declared a [prompt cleaning](./prompt-cleaning.md#what-the-cloud-is-told) that could not be verified: the challenge is missing, was not issued for this application, or was answered wrongly or more than an hour after it expired; or the policy digest is none of this application's | the SDK it runs: a released version, unmodified, on a machine whose clock is set (NTP) — a rebuilt or patched engine answers the challenge wrongly | nothing to set: the call is listed with its deviation on the organization's dashboard |
 
 What your code controls is a change to your integration, not a fallback in an
@@ -528,8 +537,9 @@ the problem `type` against a closed list, as for the
 
 ## `QuotaExceededError`
 
-**The app's plan quota is exhausted** (HTTP 402). AI calls through the SDK stop
-until quota is available again.
+**The organization's monthly quota of live certificates is exhausted**, on a
+plan with no overage (HTTP 402). AI calls through the SDK stop until quota is
+available again.
 
 There is deliberately **no silent degradation**: the SDK will not let calls
 through unproven because you ran out of quota. See the
@@ -894,7 +904,9 @@ attachment, a term the organization listed. **Nothing was sent** — not to the
 AI provider, and not to ID Side, which receives only the rule ids and counts,
 with the provider and model the call asked for (best effort, on
 `POST /v1/content-events`; see [what the report carries](./prompt-cleaning.md#what-the-cloud-is-told)),
-and never asks `/v1/authorize`.
+and never asks `/v1/authorize`. A report the cloud keeps is recorded in the
+organization's ledger as a blocked call, declared by the SDK; a report lost on
+the way leaves no entry, and the call is blocked all the same.
 
 `blocked` maps each rule to how many times it matched — a catalogue rule id
 (`credit_card`), `custom:<LABEL>` for an entry the organization added,

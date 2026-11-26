@@ -353,6 +353,14 @@ could not read would make it refuse the whole report; left out, the blocked
 call is still counted, under no model. The report holds no identity and no
 part of the prompt.
 
+A report the cloud keeps — one under a revision of the application's policy,
+for rules that revision sets to *block* — is recorded in the organization's
+ledger as a blocked call, with its own certificate number (`evt_…`, which
+`GET /v1/verify/{number}` answers with `status: "blocked"`). That entry is the
+SDK's declaration and says so: the cloud never sees the prompt, so it records
+what the report carries and nothing more. The report is sent best effort; one
+lost on the way leaves no entry, and the call is blocked all the same.
+
 The answer may carry `content_policy: {"status", "digest"}`. `applied` means
 the declaration checked out; `outdated` means a newer policy exists, or that
 the challenge was answered right more than a minute after the policy expired,

@@ -195,6 +195,27 @@ never reaches ID Side; only digests and counts do.
   declared a prompt cleaning the cloud could not verify — a challenge missing,
   not issued for the application or answered wrongly, or a policy digest none
   of its revisions — let through with it signed, or held under `policy_hold`.
+- **What the ledger records for a call that did not go out.** A held call
+  leaves a certificate of refusal — a ledger entry, never a token — whose
+  number the 403 `policy_hold` now carries as `certificate_id` and ends its
+  `detail` with ([errors](./docs/errors.md#policy_hold--a-call-the-policy-held));
+  a call the SDK blocked is entered from its report, as the SDK's declaration,
+  and a lost report leaves no entry ([prompt cleaning](./docs/prompt-cleaning.md#what-the-cloud-is-told)).
+  `GET /v1/verify/{number}` answers `held` or `blocked` for them
+  ([spec §5](./docs/spec/act-token.md#5-verification)). Neither SDK changes:
+  neither reads `certificate_id`, and the message already carries `detail`.
+- **A ledger export is sealed** under a key of its own (`ledger-…`), published
+  with the others, and checked on a public page
+  ([Concepts §7](./docs/concepts.md#7-the-ledger)); the key set's other keys and
+  their `typ` are listed in [spec §3.2](./docs/spec/act-token.md#32-keys-and-rotation).
+- **A basis nobody declared no longer holds a call.** A call whose only
+  deviation is `basis_not_established` goes out, signed
+  `legal_basis: "not_established"` with the deviation in its certificate,
+  whatever the strainer's switch for its provider; held for another deviation,
+  its certificate of refusal lists both. Neither SDK changes.
+- **The quota counts live certificates**: test-key, held and blocked calls count
+  for nothing, and only a plan with no overage stops at it
+  ([FAQ](./docs/faq.md#what-happens-when-my-quota-runs-out)).
 
 ## [0.1.0.dev3] — 2026-11-14
 

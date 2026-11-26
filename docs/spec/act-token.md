@@ -162,10 +162,11 @@ it, like any claim they do not name.
 
 Added 2026-10-11, and only ever on a token issued under an organization's
 policy. When your policy cannot apply to a call (a provider without that
-setting, no basis declared): if the strainer blocks that provider, the call is
-held; otherwise it goes through, with the deviation signed in its certificate.
-This claim is that signature: an array with one entry per deviation, on the
-token of a call the strainer let through.
+setting): if the strainer blocks that provider, the call is held; otherwise it
+goes through, with the deviation signed in its certificate. A basis nobody
+declared never holds a call on its own: it is a deviation of the call that goes
+out. This claim is that signature: an array with one entry per deviation, on
+the token of a call that went out.
 
 ```json
 "deviations": [
@@ -178,7 +179,7 @@ token of a call the strainer let through.
 | --- | --- |
 | `provider_not_allowed` | the organization allowed a list of providers, and this call's provider was not on it. No longer produced since the list was removed; a certificate issued before may carry it |
 | `option_not_enforced` | the policy refuses `option`, and nothing applies that refusal to this call: the provider has no parameter for it, only its terms answer it and they leave the processing possible, it rests on an account setting no current declaration covers, only a credential the application has not labelled could carry it, or the endpoint or model is one the provider's descriptor does not cover |
-| `basis_not_established` | the call is signed `legal_basis: "not_established"`: the organization has declared no basis |
+| `basis_not_established` | the call is signed `legal_basis: "not_established"`: the organization has declared no basis. It never holds a call on its own |
 | `content_engine_unverified` | the call declared a prompt cleaning that could not be verified ([prompt cleaning](../prompt-cleaning.md#what-the-cloud-is-told)): the challenge is missing, was not issued for this application, or was answered wrongly; it was answered rightly more than an hour after it expired; or the policy digest is none of this application's. Never a challenge answered rightly within the hour after it expired: that call is `outdated`, with no deviation |
 
 `option` names an option of the catalogue and appears only on
@@ -319,6 +320,13 @@ production). Public keys are published at
 token header. Keys are rotated periodically; a retired public key stays in the
 JWKS until the last token signed with it has expired.
 
+The same key set carries the keys of the cloud's other signatures — the UBT, the
+[prompt-cleaning policy](../prompt-cleaning.md) (`content-policy-…`) and the seal
+of a ledger export (`ledger-…`). Each `kid` starts with its key's purpose, and
+each of those signatures carries a `typ` of its own: pinning `typ` to `act+jwt`,
+as `verify_act()` / `verifyAct()` do, is what keeps any of them from passing
+for an ACT token.
+
 Verifiers **must** pin `alg` to `ES256` and reject any other value — a token
 declaring `none` or an HMAC algorithm is a forgery attempt, not a negotiation.
 
@@ -395,6 +403,17 @@ The response deliberately omits `sub` and `consent_state`. It answers *"is this
 token genuine?"*, not *"what did this person consent to?"* — an endpoint that
 disclosed a user's choices to anyone holding a token id would be a privacy hole
 wearing the costume of transparency.
+
+The same endpoint answers for a ledger entry number (`evt_…`) that no token
+carries. The certificate of refusal of a call the policy held (the
+`certificate_id` of a [`policy_hold`](../errors.md#policy_hold--a-call-the-policy-held))
+answers `status: "held"` with `occurred_at`, `app_id`, `provider`, `model`,
+`source`, `legal_basis`, `binding` and `mode`; the entry of a call the SDK
+reported it [blocked](../prompt-cleaning.md#what-the-cloud-is-told) answers
+`status: "blocked"` with `occurred_at`, `app_id`, `provider` and `model`
+(`null` when the report named none), `declared_by: "sdk"` and `mode`. Any other
+`evt_…` is `unknown`. Neither is a token: there is nothing to verify locally,
+and nothing a call could carry.
 
 ### `status: "revoked"` — and why you must read the reason
 
