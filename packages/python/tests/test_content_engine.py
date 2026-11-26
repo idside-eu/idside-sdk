@@ -643,6 +643,11 @@ def test_one_megabyte_of_each_adversarial_input_per_rule(rule: str) -> None:
     A rule whose pattern backtracks would show here even if the full policy
     hid it behind another; a quadratic one would take hours on a megabyte, so
     a bound of seconds per run leaves a slow machine room and still fails it.
+
+    Twenty seconds, as for the full policy above: the suite runs under line
+    tracing for coverage, and on Python 3.11 tracing alone triples the time a
+    validator spends on a megabyte of digit groups (5.4 s on a CI runner
+    against 1.8 s untraced). The bound measures the engine, not the tracer.
     """
     cleaner = ContentCleaner(_ONE_RULE[rule])
     for name in sorted(_ADVERSARIAL):
@@ -651,7 +656,7 @@ def test_one_megabyte_of_each_adversarial_input_per_rule(rule: str) -> None:
         began = time.perf_counter()
         cleaner.clean(text)
         elapsed = time.perf_counter() - began
-        assert elapsed < 5, f"{rule} on {name}: {elapsed:.2f} s"
+        assert elapsed < 20, f"{rule} on {name}: {elapsed:.2f} s"
 
 
 def test_vectors_and_rules_agree_on_engine() -> None:
